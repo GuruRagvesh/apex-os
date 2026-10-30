@@ -9,6 +9,13 @@
  * service or the database.
  */
 
+/**
+ * Prefix for the policy-context blockers carried on a POLICY_SETUP_PENDING
+ * review row (for example `POLICY_BLOCKER:MISSING_SHIFT_ASSIGNMENT`). Review
+ * wording only; nothing reads them to decide attendance.
+ */
+export const POLICY_BLOCKER_PREFIX = 'POLICY_BLOCKER:';
+
 /** AppSetting key holding the PE feature flags. */
 export const ATTENDANCE_V2_SETTING_KEY = 'attendance_v2';
 

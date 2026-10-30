@@ -1,6 +1,10 @@
 {
   "compilerOptions": {
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": false,
@@ -10,74 +14,207 @@
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "jsx": "preserve",
+    "jsx": "react-jsx",
     "incremental": true,
-    "plugins": [{ "name": "next" }],
+    "plugins": [
+      {
+        "name": "next"
+      }
+    ],
+    "target": "ES2017",
     "paths": {
-      "@/*": ["./*"],
-      "@apex/sales-crm-leads": ["../platforms/business/sales-crm/leads/index.ts"],
-      "@apex/sales-crm-shared": ["../platforms/business/sales-crm/shared/index.ts"],
-      "@apex/sales-crm-shared/api": ["../platforms/business/sales-crm/shared/frontend/api/index.ts"],
-      "@apex/sales-crm-shared/styles/*": ["../platforms/business/sales-crm/shared/frontend/styles/*"],
-      "@apex/sales-crm-shared/components/*": ["../platforms/business/sales-crm/shared/frontend/components/*"],
-      "@apex/sales-crm-shared/lib/*": ["../platforms/business/sales-crm/shared/frontend/lib/*"],
-      "@apex/sales-crm-dashboard": ["../platforms/business/sales-crm/dashboard/index.ts"],
-      "@apex/sales-crm-analytics": ["../platforms/business/sales-crm/analytics/index.ts"],
-      "@apex/sales-crm-database": ["../platforms/business/sales-crm/database/index.ts"],
-      "@apex/sales-crm-settings": ["../platforms/business/sales-crm/settings/index.ts"],
-      "@apex/sales-crm-shell": ["../platforms/business/sales-crm/shell/index.ts"],
-      "@apex/sales-crm-shell/components/*": ["../platforms/business/sales-crm/shell/frontend/components/*"],
-      "@apex/operations-projects": ["../platforms/operations/projects/project-management/index.ts"],
-      "@apex/operations-projects/api": ["../platforms/operations/projects/project-management/frontend/api/index.ts"],
-      "@apex/operations-projects/screens/*": ["../platforms/operations/projects/project-management/frontend/screens/*"],
-      "@apex/operations-tickets-sla": ["../platforms/operations/tickets/sla/index.ts"],
-      "@apex/operations-tickets-sla/components/*": ["../platforms/operations/tickets/sla/frontend/components/*"],
-      "@apex/operations-tickets-lifecycle": ["../platforms/operations/tickets/lifecycle/index.ts"],
-      "@apex/operations-tickets-lifecycle/api": ["../platforms/operations/tickets/lifecycle/frontend/api/index.ts"],
-      "@apex/operations-tickets-lifecycle/components/*": ["../platforms/operations/tickets/lifecycle/frontend/components/*"],
-      "@apex/operations-tickets-lifecycle/screens/*": ["../platforms/operations/tickets/lifecycle/frontend/screens/*"],
-      "@apex/operations-tickets-lifecycle/shared/*": ["../platforms/operations/tickets/lifecycle/shared/*"],
-      "@apex/intelligence-dashboard": ["../platforms/intelligence/dashboard/overview/index.ts"],
-      "@apex/intelligence-dashboard/api": ["../platforms/intelligence/dashboard/overview/frontend/api/index.ts"],
-      "@apex/intelligence-analytics": ["../platforms/intelligence/analytics/overview/index.ts"],
-      "@apex/intelligence-analytics/api": ["../platforms/intelligence/analytics/overview/frontend/api/index.ts"],
-      "@apex/shared-auth": ["../shared/auth/index.ts"],
-      "@apex/shared-remediation": ["../shared/remediation/index.ts"],
-      "@apex/shared-remediation/api": ["../shared/remediation/frontend/remediation-api.ts"],
-      "@apex/apps-web/components/*": ["../apps/web/components/*"],
-      "@apex/shared-ui": ["../shared/ui/index.ts"],
-      "@apex/shared-ui/components/*": ["../shared/ui/frontend/components/*"],
-      "@apex/shared-utilities": ["../shared/utilities/index.ts"],
-      "@apex/shared-utilities/use-debounce": ["../shared/utilities/use-debounce.ts"],
-      "@apex/shared-utilities/use-theme": ["../shared/utilities/use-theme.ts"],
-      "@apex/shared-utilities/appearance-preferences": ["../shared/utilities/appearance-preferences.ts"],
-      "@apex/shared-utilities/download-screenshot": ["../shared/utilities/download-screenshot.ts"],
-      "@apex/shared-configuration": ["../shared/configuration/index.ts"],
-      "@apex/core-users": ["../platforms/core/users/administration/index.ts"],
-      "@apex/core-users/api": ["../platforms/core/users/administration/frontend/api/index.ts"],
-      "@apex/core-users/screens/*": ["../platforms/core/users/administration/frontend/screens/*"],
-      "@apex/core-users-profiles": ["../platforms/core/users/profiles/index.ts"],
-      "@apex/core-users-profiles/screens/*": ["../platforms/core/users/profiles/frontend/screens/*"],
-      "@apex/core-users-change-requests": ["../platforms/core/users/change-requests/index.ts"],
-      "@apex/core-users-change-requests/api": ["../platforms/core/users/change-requests/frontend/api/index.ts"],
-      "@apex/core-organization-departments": ["../platforms/core/organization/departments/index.ts"],
-      "@apex/core-organization-roles": ["../platforms/core/organization/roles/index.ts"],
-      "@apex/core-organization-roles/api": ["../platforms/core/organization/roles/frontend/api/index.ts"],
-      "@apex/core-organization-departments/api": ["../platforms/core/organization/departments/frontend/api/index.ts"],
-      "@apex/core-organization-departments/screens/*": ["../platforms/core/organization/departments/frontend/screens/*"],
-      "@apex/core-identity": ["../platforms/core/identity/authentication/index.ts"],
-      "@apex/core-identity/api": ["../platforms/core/identity/authentication/frontend/api/index.ts"],
-      "@apex/system-public-site": ["../platforms/system/public-site/index.ts"],
-      "@apex/system-public-site/screens/*": ["../platforms/system/public-site/frontend/screens/*"],
-      "@apex/system-audit": ["../platforms/system/audit/index.ts"],
-      "@apex/system-audit/api": ["../platforms/system/audit/frontend/api/index.ts"],
-      "@apex/workforce-leave": ["../platforms/workforce/leave/applications/index.ts"],
-      "@apex/workforce-leave/api": ["../platforms/workforce/leave/applications/frontend/api/index.ts"],
-      "@apex/workforce-calendar": ["../platforms/workforce/calendar/overview/index.ts"],
-      "@apex/workforce-teams": ["../platforms/workforce/teams/team-management/index.ts"],
-      "@apex/workforce-teams/api": ["../platforms/workforce/teams/team-management/frontend/api/index.ts"],
-      "@apex/workforce-teams/screens/*": ["../platforms/workforce/teams/team-management/frontend/screens/*"],
-      "@apex/workforce-teams/components/*": ["../platforms/workforce/teams/team-management/frontend/components/*"]
+      "@/*": [
+        "./*"
+      ],
+      "@apex/sales-crm-leads": [
+        "../platforms/business/sales-crm/leads/index.ts"
+      ],
+      "@apex/sales-crm-shared": [
+        "../platforms/business/sales-crm/shared/index.ts"
+      ],
+      "@apex/sales-crm-shared/api": [
+        "../platforms/business/sales-crm/shared/frontend/api/index.ts"
+      ],
+      "@apex/sales-crm-shared/styles/*": [
+        "../platforms/business/sales-crm/shared/frontend/styles/*"
+      ],
+      "@apex/sales-crm-shared/components/*": [
+        "../platforms/business/sales-crm/shared/frontend/components/*"
+      ],
+      "@apex/sales-crm-shared/lib/*": [
+        "../platforms/business/sales-crm/shared/frontend/lib/*"
+      ],
+      "@apex/sales-crm-dashboard": [
+        "../platforms/business/sales-crm/dashboard/index.ts"
+      ],
+      "@apex/sales-crm-analytics": [
+        "../platforms/business/sales-crm/analytics/index.ts"
+      ],
+      "@apex/sales-crm-database": [
+        "../platforms/business/sales-crm/database/index.ts"
+      ],
+      "@apex/sales-crm-settings": [
+        "../platforms/business/sales-crm/settings/index.ts"
+      ],
+      "@apex/sales-crm-shell": [
+        "../platforms/business/sales-crm/shell/index.ts"
+      ],
+      "@apex/sales-crm-shell/components/*": [
+        "../platforms/business/sales-crm/shell/frontend/components/*"
+      ],
+      "@apex/operations-projects": [
+        "../platforms/operations/projects/project-management/index.ts"
+      ],
+      "@apex/operations-projects/api": [
+        "../platforms/operations/projects/project-management/frontend/api/index.ts"
+      ],
+      "@apex/operations-projects/screens/*": [
+        "../platforms/operations/projects/project-management/frontend/screens/*"
+      ],
+      "@apex/operations-tickets-sla": [
+        "../platforms/operations/tickets/sla/index.ts"
+      ],
+      "@apex/operations-tickets-sla/components/*": [
+        "../platforms/operations/tickets/sla/frontend/components/*"
+      ],
+      "@apex/operations-tickets-lifecycle": [
+        "../platforms/operations/tickets/lifecycle/index.ts"
+      ],
+      "@apex/operations-tickets-lifecycle/api": [
+        "../platforms/operations/tickets/lifecycle/frontend/api/index.ts"
+      ],
+      "@apex/operations-tickets-lifecycle/components/*": [
+        "../platforms/operations/tickets/lifecycle/frontend/components/*"
+      ],
+      "@apex/operations-tickets-lifecycle/screens/*": [
+        "../platforms/operations/tickets/lifecycle/frontend/screens/*"
+      ],
+      "@apex/operations-tickets-lifecycle/shared/*": [
+        "../platforms/operations/tickets/lifecycle/shared/*"
+      ],
+      "@apex/intelligence-dashboard": [
+        "../platforms/intelligence/dashboard/overview/index.ts"
+      ],
+      "@apex/intelligence-dashboard/api": [
+        "../platforms/intelligence/dashboard/overview/frontend/api/index.ts"
+      ],
+      "@apex/intelligence-analytics": [
+        "../platforms/intelligence/analytics/overview/index.ts"
+      ],
+      "@apex/intelligence-analytics/api": [
+        "../platforms/intelligence/analytics/overview/frontend/api/index.ts"
+      ],
+      "@apex/shared-auth": [
+        "../shared/auth/index.ts"
+      ],
+      "@apex/shared-remediation": [
+        "../shared/remediation/index.ts"
+      ],
+      "@apex/shared-remediation/api": [
+        "../shared/remediation/frontend/remediation-api.ts"
+      ],
+      "@apex/apps-web/components/*": [
+        "../apps/web/components/*"
+      ],
+      "@apex/shared-ui": [
+        "../shared/ui/index.ts"
+      ],
+      "@apex/shared-ui/components/*": [
+        "../shared/ui/frontend/components/*"
+      ],
+      "@apex/shared-utilities": [
+        "../shared/utilities/index.ts"
+      ],
+      "@apex/shared-utilities/use-debounce": [
+        "../shared/utilities/use-debounce.ts"
+      ],
+      "@apex/shared-utilities/use-theme": [
+        "../shared/utilities/use-theme.ts"
+      ],
+      "@apex/shared-utilities/appearance-preferences": [
+        "../shared/utilities/appearance-preferences.ts"
+      ],
+      "@apex/shared-utilities/download-screenshot": [
+        "../shared/utilities/download-screenshot.ts"
+      ],
+      "@apex/shared-configuration": [
+        "../shared/configuration/index.ts"
+      ],
+      "@apex/core-users": [
+        "../platforms/core/users/administration/index.ts"
+      ],
+      "@apex/core-users/api": [
+        "../platforms/core/users/administration/frontend/api/index.ts"
+      ],
+      "@apex/core-users/screens/*": [
+        "../platforms/core/users/administration/frontend/screens/*"
+      ],
+      "@apex/core-users-profiles": [
+        "../platforms/core/users/profiles/index.ts"
+      ],
+      "@apex/core-users-profiles/screens/*": [
+        "../platforms/core/users/profiles/frontend/screens/*"
+      ],
+      "@apex/core-users-change-requests": [
+        "../platforms/core/users/change-requests/index.ts"
+      ],
+      "@apex/core-users-change-requests/api": [
+        "../platforms/core/users/change-requests/frontend/api/index.ts"
+      ],
+      "@apex/core-organization-departments": [
+        "../platforms/core/organization/departments/index.ts"
+      ],
+      "@apex/core-organization-roles": [
+        "../platforms/core/organization/roles/index.ts"
+      ],
+      "@apex/core-organization-roles/api": [
+        "../platforms/core/organization/roles/frontend/api/index.ts"
+      ],
+      "@apex/core-organization-departments/api": [
+        "../platforms/core/organization/departments/frontend/api/index.ts"
+      ],
+      "@apex/core-organization-departments/screens/*": [
+        "../platforms/core/organization/departments/frontend/screens/*"
+      ],
+      "@apex/core-identity": [
+        "../platforms/core/identity/authentication/index.ts"
+      ],
+      "@apex/core-identity/api": [
+        "../platforms/core/identity/authentication/frontend/api/index.ts"
+      ],
+      "@apex/system-public-site": [
+        "../platforms/system/public-site/index.ts"
+      ],
+      "@apex/system-public-site/screens/*": [
+        "../platforms/system/public-site/frontend/screens/*"
+      ],
+      "@apex/system-audit": [
+        "../platforms/system/audit/index.ts"
+      ],
+      "@apex/system-audit/api": [
+        "../platforms/system/audit/frontend/api/index.ts"
+      ],
+      "@apex/workforce-leave": [
+        "../platforms/workforce/leave/applications/index.ts"
+      ],
+      "@apex/workforce-leave/api": [
+        "../platforms/workforce/leave/applications/frontend/api/index.ts"
+      ],
+      "@apex/workforce-calendar": [
+        "../platforms/workforce/calendar/overview/index.ts"
+      ],
+      "@apex/workforce-teams": [
+        "../platforms/workforce/teams/team-management/index.ts"
+      ],
+      "@apex/workforce-teams/api": [
+        "../platforms/workforce/teams/team-management/frontend/api/index.ts"
+      ],
+      "@apex/workforce-teams/screens/*": [
+        "../platforms/workforce/teams/team-management/frontend/screens/*"
+      ],
+      "@apex/workforce-teams/components/*": [
+        "../platforms/workforce/teams/team-management/frontend/components/*"
+      ]
     }
   },
   "include": [
@@ -126,7 +263,10 @@
     "../platforms/workforce/calendar/**/*.ts",
     "../platforms/workforce/calendar/**/*.tsx",
     "../platforms/workforce/leave/**/*.ts",
-    "../platforms/workforce/leave/**/*.tsx"
+    "../platforms/workforce/leave/**/*.tsx",
+    ".next/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": [
+    "node_modules"
+  ]
 }

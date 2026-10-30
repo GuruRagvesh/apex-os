@@ -238,31 +238,15 @@ export default function ProjectsPage() {
   });
 
   const projectList: any[] = Array.isArray(data) ? data : (data?.projects || []);
-  const total: number = Array.isArray(data) ? data.length : (data?.total ?? projectList.length);
   const totalPages: number = Array.isArray(data) ? 1 : Math.max(1, data?.totalPages ?? 1);
   const hasFilters = Boolean(urlSearch || statusFilter || deptFilter);
   const deptOptions: any[] = Array.isArray(departments) ? departments : [];
-
-  const scopeText =
-    roleName === 'SUPER_ADMIN' ? 'Showing company-wide projects' :
-    roleName === 'ADMIN' ? 'Showing company-wide projects' :
-    roleName === 'MANAGER' ? 'Showing managed department projects' :
-    roleName === 'TEAM_LEAD' ? 'Showing your team projects' :
-    'Showing your assigned projects';
 
   return (
     <div className="space-y-5 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Projects</h2>
-            <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-650 px-2 py-0.5 rounded-full dark:bg-slate-800 dark:text-slate-400">
-              {scopeText}
-            </span>
-          </div>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
-            {isLoading ? 'Loading projects…' : `${total} project${total === 1 ? '' : 's'}${hasFilters ? (total === 1 ? ' matches your filters' : ' match your filters') : ' total'}`}
-          </p>
+          <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Projects</h2>
         </div>
         {canCreate && (
           <button onClick={() => setShowNew(true)} className="apex-btn-new-ticket">

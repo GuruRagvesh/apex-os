@@ -1,5 +1,5 @@
 import { api, unwrap as r } from '@apex/shared-auth';
-import { monthRange, registerFileName } from './register-month';
+import { reportFileName } from './register-month';
 
 /**
  * HR / manager attendance console transport (HC-1).
@@ -98,9 +98,18 @@ export interface RegisterEmployee {
   daysPresent: number;
   daysAbsent: number;
   halfDays: number;
+  leaveDays: number;
   leaveBalance: number | null;
+  /** Late days: arrivals after the assigned shift start plus grace. */
   latePunchIns: number;
+  daysBelowNineHours: number;
+  /** Approved comp-off earned in the month, in hours. */
+  approvedCompOff: number;
+  /** Eligible days not yet settled; never counted as present or absent. */
+  unresolvedDays: number;
+  /** Blank (null) while any eligible day is unresolved. */
   attendanceCompletionPercentage: number | null;
+  provisional: boolean;
 }
 
 export interface RegisterResult {
@@ -116,15 +125,23 @@ export interface RegisterResult {
   calendarResolved: boolean;
   /** Which financial year (April-March) the Leave Balance column answers for. */
   leaveBalanceFinancialYear: string;
+  /** False while the month is still running. */
+  monthComplete: boolean;
+  /** True when any figure can still change. */
+  provisional: boolean;
   employees: RegisterEmployee[];
 }
 
+/**
+ * The on-screen Monthly Register. The server builds it from the same report
+ * assembler and snapshot as the Excel and CSV downloads, so the three agree.
+ */
 export async function getRegister(from?: string, to?: string): Promise<RegisterResult> {
   return r(api.get('/attendance/console/register', { params: { from, to } }));
 }
 
 /**
- * Downloads the register through the AUTHENTICATED client.
+ * Downloads the monthly attendance report through the AUTHENTICATED client.
  *
  * Not a plain <a href>: auth is a Bearer token injected by a request
  * interceptor, and a browser-initiated navigation carries no such header, so
@@ -132,17 +149,14 @@ export async function getRegister(from?: string, to?: string): Promise<RegisterR
  * handed to the browser as an object URL, which is revoked immediately -- it
  * holds the whole file in memory until it is, and this page stays open all day.
  *
- * The server names the file, and the same server call produces the numbers on
- * screen, so a download can never contain a different answer from the table.
+ * Every figure in the file is computed by the server from one snapshot; the
+ * browser only names and saves the bytes. `xlsx` is the two-sheet workbook,
+ * `zip` the CSV package holding the same two tables.
  */
-export async function downloadRegister(
-  month: string,
-  format: 'xlsx' | 'csv',
-): Promise<void> {
-  const { from, to } = monthRange(month);
+export async function downloadRegister(month: string, format: 'xlsx' | 'zip'): Promise<void> {
   const blob = await r<Blob>(
     api.get(`/attendance/console/register/export.${format}`, {
-      params: { from, to },
+      params: { month },
       responseType: 'blob',
     }),
   );
@@ -153,8 +167,8 @@ export async function downloadRegister(
     link.href = url;
     // Named here rather than read from Content-Disposition: the response
     // interceptor returns response.data, so the headers never reach this code.
-    // registerFileName() is pinned to the server's own naming by test.
-    link.download = registerFileName(month, format);
+    // reportFileName() is pinned to the server's own naming by test.
+    link.download = reportFileName(month, format);
     document.body.appendChild(link);
     link.click();
     link.remove();

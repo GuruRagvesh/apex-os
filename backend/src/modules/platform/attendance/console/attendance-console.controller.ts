@@ -15,6 +15,23 @@ import { CurrentUser } from '../../../../shared/decorators/current-user.decorato
 import { AttendanceConsoleService } from './attendance-console.service';
 import { PunchReviewService } from './punch-review.service';
 import { UnreportedAbsenceService } from '../absence/unreported-absence.service';
+import { MonthlyAttendanceReportService, type ExportFile } from './export/monthly-attendance-report.service';
+
+/**
+ * A filename safe to put inside a Content-Disposition header: the server builds
+ * it from the month label, and anything outside this set is dropped rather than
+ * trusted, so no header can be split or spoofed through it.
+ */
+function sendFile(res: Response, file: ExportFile) {
+  const filename = file.filename.replace(/[^A-Za-z0-9._-]/g, '_');
+  res.setHeader('Content-Type', file.contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Content-Length', String(file.buffer.length));
+  // Attendance data: never cached by a proxy or the browser.
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.send(file.buffer);
+}
 
 /**
  * HR / manager attendance console API (HC-1).
@@ -37,6 +54,7 @@ export class AttendanceConsoleController {
     private readonly console: AttendanceConsoleService,
     private readonly punchReviews_: PunchReviewService,
     private readonly unreported: UnreportedAbsenceService,
+    private readonly monthlyReport: MonthlyAttendanceReportService,
   ) {}
 
   /** Whether this user sees a team view, a company view, or nothing. */
@@ -84,40 +102,62 @@ export class AttendanceConsoleController {
     return this.console.reviewQueue(user, { from, to, limit: limit ? Number(limit) : undefined });
   }
 
+  /**
+   * The on-screen Monthly Register. Built by the same report service, from the
+   * same snapshot and assembler, as export.xlsx and export.zip.
+   */
   @Get('register')
   register(
     @CurrentUser() user: any,
+    @Query('month') month?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('departmentId') departmentId?: string,
   ) {
-    return this.console.monthlyRegister(user, { from, to, departmentId });
+    return this.monthlyReport.register(user, { month, from, to, departmentId });
   }
 
   /**
-   * The register as a file.
+   * The monthly attendance report as a file.
    *
-   * Two routes, one report: both hand the same computed result to a different
-   * encoder. Nothing here decides what a number is.
+   * Two routes, one report: the workbook (Daily Attendance + Monthly Summary)
+   * and the CSV package (the same two tables as two CSV files in one ZIP) are
+   * encodings of ONE canonical report built from one database snapshot.
+   * Nothing here decides what a number is.
    *
    * Fetched with the Bearer token attached rather than opened as a link, so the
    * bytes are returned to the caller instead of being served to an anonymous
-   * browser navigation.
+   * browser navigation. Scope is resolved server-side: a department filter can
+   * only narrow it, and an ineligible caller gets a 403.
    */
   @Get('register/export.xlsx')
   async exportRegisterXlsx(
     @CurrentUser() user: any,
     @Res() res: Response,
+    @Query('month') month?: string,
     @Query('from') from?: string,
     @Query('to') to?: string,
     @Query('departmentId') departmentId?: string,
   ) {
-    const file = await this.console.exportRegister(user, { from, to, departmentId }, 'xlsx');
-    res.setHeader('Content-Type', file.contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
-    res.send(file.buffer);
+    sendFile(res, await this.monthlyReport.export(user, { month, from, to, departmentId }, 'xlsx'));
   }
 
+  @Get('register/export.zip')
+  async exportRegisterZip(
+    @CurrentUser() user: any,
+    @Res() res: Response,
+    @Query('month') month?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('departmentId') departmentId?: string,
+  ) {
+    sendFile(res, await this.monthlyReport.export(user, { month, from, to, departmentId }, 'zip'));
+  }
+
+  /**
+   * The seven-column register as one CSV. Legacy: the console now downloads
+   * the CSV package above; kept so an existing integration does not break.
+   */
   @Get('register/export.csv')
   async exportRegisterCsv(
     @CurrentUser() user: any,
@@ -126,10 +166,7 @@ export class AttendanceConsoleController {
     @Query('to') to?: string,
     @Query('departmentId') departmentId?: string,
   ) {
-    const file = await this.console.exportRegister(user, { from, to, departmentId }, 'csv');
-    res.setHeader('Content-Type', file.contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
-    res.send(file.buffer);
+    sendFile(res, await this.monthlyReport.exportLegacyRegisterCsv(user, { from, to, departmentId }));
   }
 
   /** Device evidence for the period, HR/Admin only (Phase 3). */
@@ -141,10 +178,7 @@ export class AttendanceConsoleController {
     @Query('to') to?: string,
     @Query('departmentId') departmentId?: string,
   ) {
-    const file = await this.console.exportDevices(user, { from, to, departmentId });
-    res.setHeader('Content-Type', file.contentType);
-    res.setHeader('Content-Disposition', `attachment; filename="${file.filename}"`);
-    res.send(file.buffer);
+    sendFile(res, await this.monthlyReport.exportDevices(user, { from, to, departmentId }));
   }
 
   @Get('detail/:userId/:businessDate')

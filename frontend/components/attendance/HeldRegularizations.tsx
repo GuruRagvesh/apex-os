@@ -1,13 +1,14 @@
 'use client';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { applyHeldRegularization, getHeldRegularizations } from './regularization-api';
+import { refreshAttendanceViews } from './attendance-refresh';
 import { formatTime } from './attendance-status';
 
 const reasonText: Record<string, string> = { DAY_LOCKED: 'Day locked', DAY_FINALIZED: 'Day finalized', DAY_MANUALLY_CORRECTED: 'Day changed by another correction', HISTORICAL_RECOVERY_DAY: 'Historical recovery day', MONTH_FINALIZED: 'Payroll month finalized', MONTH_SENT: 'Payroll month sent' };
 export function HeldRegularizations() {
   const qc = useQueryClient();
   const query = useQuery({ queryKey: ['regularization-held'], queryFn: getHeldRegularizations, retry: false });
-  const apply = useMutation({ mutationFn: (row: any) => applyHeldRegularization(row.id, row.current?.fingerprint ?? null), onSuccess: () => { qc.invalidateQueries({ queryKey: ['regularization-held'] }); qc.invalidateQueries({ queryKey: ['regularization-queue'] }); }, onError: () => query.refetch() });
+  const apply = useMutation({ mutationFn: (row: any) => applyHeldRegularization(row.id, row.current?.fingerprint ?? null), onSuccess: () => { void refreshAttendanceViews(qc); }, onError: () => query.refetch() });
   if (query.isLoading) return <p className="apex-text-muted text-sm">Loading approved corrections awaiting application…</p>;
   const rows = query.data?.items ?? [];
   if (!rows.length) return null;

@@ -143,15 +143,17 @@ export class PunchReviewService {
     });
     if (updated.count !== 1) throw new BadRequestException('This review item has already been resolved');
 
-    this.eventLogger.log({
+    // Awaited so the audit entry exists when the caller hears "done". The
+    // logger never throws; it reports its own failures.
+    await this.eventLogger.log({
       actorId: actor.id,
       entityType: 'PunchEvidenceReview',
       entityId: reviewId,
       action: OperationalAction.ATTENDANCE_PUNCH_REVIEWED,
       fromState: 'PENDING',
       toState: status,
-      metadata: { reasonCodes: existing.reasonCodes },
-    }).catch(() => {});
+      metadata: { reasonCodes: existing.reasonCodes, evidenceId: existing.evidenceId, note: note || null },
+    });
 
     return this.prisma.punchEvidenceReview.findUnique({ where: { id: reviewId } });
   }

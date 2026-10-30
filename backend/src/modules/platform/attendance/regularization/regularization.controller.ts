@@ -110,7 +110,7 @@ export class RegularizationController {
   async decide(
     @CurrentUser() user: any,
     @Param('id') id: string,
-    @Body() body: { decision?: string; reason?: string; reviewedFingerprint?: string | null; confirmCreatorDecision?: boolean },
+    @Body() body: { decision?: string; reason?: string; reviewedFingerprint?: string | null; confirmCreatorDecision?: boolean; grantedStatus?: string | null },
   ) {
     try {
       return await this.decisions.decide(user?.id ?? user?.sub, id, body ?? {});

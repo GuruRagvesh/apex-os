@@ -9,8 +9,6 @@ import { AttendanceProcessingService } from '../processing/attendance-processing
 import { BusinessCalendarService } from '../calendar/business-calendar.service';
 import { LeaveBalanceService } from '../../../operations/leave/leave-balance.service';
 import { ROLES } from '../../../../shared/constants/roles';
-import { deviceFileName, devicesCsv, registerCsv, registerFileName, type RegisterResult } from './register-report';
-import { buildRegisterWorkbook } from './register-workbook';
 import { deviceLabel, deviceView } from '../punch/device-evidence';
 
 /**
@@ -173,6 +171,11 @@ export class AttendanceConsoleService {
    * employee would look to them like a working feature with no data.
    */
   private assertEligible(scope: ConsoleScope): ConsoleScope {
+    return this.assertEligibleScope(scope);
+  }
+
+  /** The same refusal, for the monthly report export that resolves scope itself. */
+  assertEligibleScope(scope: ConsoleScope): ConsoleScope {
     if (!scope.eligible) {
       throw new ForbiddenException(
         'The attendance console is available to HR, administrators, and managers or team leads with reporting employees.',
@@ -626,254 +629,47 @@ export class AttendanceConsoleService {
   // ───────────────────────────────────────────────────────────────────────
 
   /**
-   * Per-employee monthly totals, counted from stored classifications.
-   *
-   * The evaluator is not run here. Days with no stored result are reported as
-   * notEvaluated and are excluded from the attendance percentage's denominator,
-   * which is stated explicitly rather than left to be inferred.
+   * The on-screen Monthly Register, the workbook and the CSV package are all
+   * built by MonthlyAttendanceReportService from the canonical report
+   * assembler. Nothing in this service counts a register figure any more: one
+   * calculation, three encodings, so the page and the downloads cannot
+   * disagree. What remains here are the two lookups that are not attendance
+   * calculations -- the leave balance and the device sheet.
    */
-  async monthlyRegister(
-    actor: any,
-    filters: { from?: string; to?: string; departmentId?: string } = {},
-  ) {
-    const today = this.tva.companyToday();
-    const from = filters.from ?? `${today.slice(0, 7)}-01`;
-    const to = filters.to ?? today;
-    this.assertDate(from, 'from');
-    this.assertDate(to, 'to');
-    if (from > to) throw new BadRequestException('from must not be after to');
 
-    const dates = this.enumerate(from, to);
-    if (dates.length > MAX_RANGE_DAYS) {
-      throw new BadRequestException(`Range is limited to ${MAX_RANGE_DAYS} days`);
-    }
-
-    const scope = this.assertEligible(await this.resolveScope(actor));
-    const userWhere: any = this.peopleFilter(from, to, today);
-    if (scope.userIds !== null) userWhere.id = { in: scope.userIds };
-    if (filters.departmentId) userWhere.departmentId = filters.departmentId;
-
-    const employees = await this.prisma.user.findMany({
-      where: userWhere,
-      select: {
-        id: true,
-        name: true,
-        employeeId: true,
-        isActive: true,
-        avatar: true,
-        photoUrl: true,
-        department: { select: { id: true, name: true } },
-      },
-      orderBy: { name: 'asc' },
-    });
-
-    const records = await this.prisma.dailyAttendance.findMany({
-      where: {
-        userId: { in: employees.map((e) => e.id) },
-        date: {
-          gte: this.tva.companyDateOnly(new Date(`${from}T00:00:00.000Z`)),
-          lte: this.tva.companyDateOnly(new Date(`${to}T00:00:00.000Z`)),
-        },
-      },
-    });
-
-    const byUser = new Map<string, any[]>();
-    for (const r of records) {
-      const list = byUser.get(r.userId) ?? [];
-      list.push(r);
-      byUser.set(r.userId, list);
-    }
-
-    // ── Working days, from the business calendar rather than counted rows ──
-    //
-    // Two different numbers, and conflating them is the bug this guards
-    // against:
-    //
-    //   workingDays  every scheduled working day in the MONTH. What HR sees
-    //                top-right. On the 1st of the month it is still 22.
-    //   eligible     working days that have actually ELAPSED. What the
-    //                percentage is measured against.
-    //
-    // Using the month total as a denominator on the 1st would report everybody
-    // at 4% and read as a system-wide failure.
-    // A range normally sits inside one month, but nothing forces that, so
-    // every month it touches is classified rather than silently assuming the
-    // first one covers the rest.
-    const months = Array.from(new Set(dates.map((d) => d.slice(0, 7))));
-    const classified = await Promise.all(
-      months.map((m) => {
-        const [y, mo] = m.split('-');
-        return this.businessCalendar.classifyMonth(Number(y), Number(mo));
-      }),
-    );
-    const calendarDays = classified.flatMap((c) => c.days);
-    const workingDays = classified.reduce((n, c) => n + c.workingDays, 0);
-
-    // ELAPSED STOPS AT TODAY, whatever the caller asked for.
-    //
-    // The console requests a whole month, so on the 1st the range still runs to
-    // the 30th. Measuring against that would charge every employee with 21
-    // absences they have not had the chance to avoid, and the register would
-    // read as a company-wide collapse on the morning it is first opened.
-    const elapsedThrough = to < today ? to : today;
-    const elapsedWorkingDates = new Set(
-      calendarDays
-        .filter(
-          (d) => d.isWorkingDay && d.businessDate >= from && d.businessDate <= elapsedThrough,
-        )
-        .map((d) => d.businessDate),
-    );
-
-    // ── Leave balance, from the one service that already defines it ────────
-    //
-    // Reused rather than recomputed: adding leave types together here would
-    // create a second, quietly different answer to "how much leave is left".
-    //
-    // THE ARGUMENT IS A FINANCIAL YEAR, NOT A CALENDAR YEAR. Leave runs April
-    // to March, so a March 2027 register belongs to FY 2026-27 and a calendar
-    // year read from the date string would ask for FY 2027-28 -- an entitlement
-    // that has not started. Nine months of the year the two agree, which is
-    // exactly why the wrong one survives testing.
-    //
-    // financialYear().startYear is also what LeaveService.getUserBalance()
-    // passes for the employee's own leave page, so HR and the employee are
-    // never shown different balances for the same person.
-    const balanceYear = this.tva.financialYear(new Date(`${from}T00:00:00.000Z`)).startYear;
-
-    // Per-employee and several queries each, so it runs in bounded batches --
-    // 34 sequential round trips is the pattern that makes a monthly page feel
-    // broken.
-    const balanceByUser = new Map<string, number | null>();
+  /**
+   * Leave balance per employee, from the one service that already defines it.
+   *
+   * Reused rather than recomputed: adding leave types together here would
+   * create a second, quietly different answer to "how much leave is left".
+   *
+   * THE ARGUMENT IS A FINANCIAL YEAR, NOT A CALENDAR YEAR. Leave runs April
+   * to March, so a March 2027 register belongs to FY 2026-27. financialYear()
+   * .startYear is also what the employee's own leave page passes, so HR and
+   * the employee are never shown different balances for the same person.
+   */
+  async leaveBalances(
+    userIds: string[],
+    monthStart: string,
+  ): Promise<{ financialYear: string; byUser: Map<string, number | null> }> {
+    const balanceYear = this.tva.financialYear(new Date(`${monthStart}T00:00:00.000Z`)).startYear;
+    const byUser = new Map<string, number | null>();
+    // Per-employee and several queries each, so it runs in bounded batches.
     const BATCH = 8;
-    for (let i = 0; i < employees.length; i += BATCH) {
-      const slice = employees.slice(i, i + BATCH);
+    for (let i = 0; i < userIds.length; i += BATCH) {
+      const slice = userIds.slice(i, i + BATCH);
       const settled = await Promise.all(
-        slice.map((e) =>
+        slice.map((id) =>
           this.leaveBalance
-            .getLeaveBalance(e.id, balanceYear)
+            .getLeaveBalance(id, balanceYear)
             .then((b: any) => b?.balance ?? null)
             // One employee's leave data must not blank the whole register.
             .catch(() => null),
         ),
       );
-      slice.forEach((e, n) => balanceByUser.set(e.id, settled[n]));
+      slice.forEach((id, n) => byUser.set(id, settled[n]));
     }
-
-    const rows = employees.map((e) => {
-      const mine = byUser.get(e.id) ?? [];
-
-      // THE REGISTER COUNTS ELAPSED WORKING DAYS, NOTHING ELSE.
-      //
-      // Stored rows only exist for evaluated days, so future dates would
-      // usually fall out anyway -- but "usually" is not a guarantee, and a
-      // single stray future ABSENT row would put a fabricated absence against
-      // a real employee's name in a file HR sends on. The filter states the
-      // rule instead of inheriting it.
-      const applicable = mine.filter((r) =>
-        elapsedWorkingDates.has(this.tva.companyBusinessDate(r.date)),
-      );
-      // A review-pending row is visible in the review count, but it is not yet
-      // an official attendance outcome. The employee calendar follows the same
-      // rule: only resolved stored facts feed its summary figures.
-      const resolved = applicable.filter((r) => r.evaluationState !== 'NEEDS_REVIEW');
-      const count = (status: string) => resolved.filter((r) => r.status === status).length;
-
-      // A late arrival is still an attended day. Lateness is reported in its
-      // own column rather than deducted twice.
-      const present = count('PRESENT') + count('LATE') + count('LATE_EXEMPTED');
-      const leave = count('LEAVE');
-      const lwp = count('LWP');
-      const halfDay = count('HALF_DAY');
-      const absent = count('ABSENT');
-      const weeklyOff = mine.filter((r) => r.status === 'WEEKLY_OFF').length;
-      const holiday = mine.filter((r) => r.status === 'HOLIDAY').length;
-      const needsReview = applicable.length - resolved.length;
-      const notEvaluated = Math.max(0, elapsedWorkingDates.size - applicable.length);
-
-      // lateMinutes is the evaluator's policy-aware answer for the employee's
-      // assigned shift. Recomputing against one hard-coded wall-clock time here
-      // would disagree with employees on different shifts and with corrected
-      // days. Count each resolved late day once, including an exempted late
-      // arrival: the exemption changes the outcome, not the historical punch.
-      const latePunchIns = resolved.filter((r) => (r.lateMinutes ?? 0) > 0).length;
-
-      // Match the employee calendar's attendance matrix exactly. Only official
-      // attendance outcomes are assessed: present, absent and half day. Leave,
-      // LWP, holidays, weekly offs, missing evaluations and review-pending rows
-      // are reported separately and never fabricated into a failed day.
-      const eligibleWorkingDays = present + absent + halfDay;
-      const credit = present + halfDay * 0.5;
-
-      return {
-        userId: e.id,
-        name: e.name,
-        employeeId: e.employeeId,
-        avatar: e.avatar,
-        photoUrl: e.photoUrl,
-        // A former employee shown for the days they worked. Reports mark them; they are not reactivated.
-        isActive: e.isActive,
-        department: e.department?.name ?? null,
-
-        // ── The seven register figures ──
-        daysPresent: present,
-        daysAbsent: absent,
-        halfDays: halfDay,
-        leaveBalance: balanceByUser.get(e.id) ?? null,
-        latePunchIns,
-        // Null, never 0 or NaN: with nothing to measure, a percentage is not a
-        // low score, it is an absent one.
-        attendanceCompletionPercentage:
-          notEvaluated === 0 && needsReview === 0 && eligibleWorkingDays > 0
-            ? Number(((credit / eligibleWorkingDays) * 100).toFixed(2))
-            : null,
-
-        // ── Working figures, not shown in the register ──
-        eligibleWorkingDays,
-        leaveDays: leave,
-        lwp,
-        weeklyOff,
-        holiday,
-        needsReview,
-        notEvaluated,
-      };
-    });
-
-    return {
-      from,
-      to,
-      days: dates.length,
-      month: months[0],
-      // The full month, deliberately -- see the note above.
-      workingDays,
-      elapsedWorkingDays: elapsedWorkingDates.size,
-      /**
-       * Which financial year the Leave Balance column is answering for.
-       *
-       * Stated rather than assumed. Leave runs April to March while the
-       * register is named after a calendar month, so for January, February and
-       * March the two disagree -- and a balance is not a number anyone can
-       * check without knowing the period it covers.
-       */
-      leaveBalanceFinancialYear: `${balanceYear}-${balanceYear + 1}`,
-      /**
-       * Whether the working-day total can be trusted.
-       *
-       * A month whose weekly-off policy could not be resolved counts Sundays
-       * as working days. The register still renders -- refusing to show
-       * anything helps nobody -- but it says so instead of presenting a wrong
-       * total as a fact.
-       */
-      calendarResolved:
-        classified.every(
-          (c) => c.sources.weeklyOffPolicy !== 'NONE' && c.sources.weeklyOffPolicy !== 'AMBIGUOUS',
-        ),
-      // ONE result. The table, the workbook and the CSV all read this array;
-      // none of them recomputes a figure. Three implementations of the same
-      // formula is three chances for HR to be handed three different answers.
-      employees: rows,
-      // Phase 3: HR/Admin only. Managers never receive device evidence.
-      ...(scope.isHr ? { devices: await this.registerDevices(employees, from, to) } : {}),
-    };
+    return { financialYear: `${balanceYear}-${balanceYear + 1}`, byUser };
   }
 
   /**
@@ -882,7 +678,7 @@ export class AttendanceConsoleService {
    * Grouped from the evidence rows themselves; one line per employee, device
    * and capture channel. Labels only -- the stored id never leaves the server.
    */
-  private async registerDevices(
+  async registerDevices(
     employees: Array<{ id: string; name: string; employeeId: string | null }>,
     from: string,
     to: string,
@@ -933,53 +729,6 @@ export class AttendanceConsoleService {
     return [...groups.values()].sort((a, b) =>
       a.name.localeCompare(b.name) || a.deviceLabel.localeCompare(b.deviceLabel),
     );
-  }
-
-  /** The device sheet as its own CSV. HR/Admin only. */
-  async exportDevices(actor: any, filters: { from?: string; to?: string; departmentId?: string }) {
-    if (!this.accessPolicy.isHrOrAdmin(actor)) {
-      throw new ForbiddenException('Only HR and administrators can export device evidence');
-    }
-    const result = (await this.monthlyRegister(actor, filters)) as unknown as RegisterResult;
-    return {
-      buffer: Buffer.from(devicesCsv(result.devices ?? []), 'utf8'),
-      filename: deviceFileName(result.month),
-      contentType: 'text/csv; charset=utf-8',
-    };
-  }
-
-  /**
-   * The register as a downloadable file.
-   *
-   * Calls monthlyRegister() and renders what it returns. The workbook and the
-   * CSV are two encodings of ONE result, not two reports -- neither exporter
-   * queries anything or recomputes a figure, so a number in the spreadsheet
-   * cannot disagree with the number HR was looking at when they pressed the
-   * button. Scope and authorization come from the same call, so an export can
-   * never reach further than the screen.
-   */
-  async exportRegister(
-    actor: any,
-    filters: { from?: string; to?: string; departmentId?: string },
-    format: 'xlsx' | 'csv',
-  ): Promise<{ buffer: Buffer; filename: string; contentType: string }> {
-    const result = (await this.monthlyRegister(actor, filters)) as unknown as RegisterResult;
-
-    if (format === 'csv') {
-      return {
-        buffer: Buffer.from(registerCsv(result), 'utf8'),
-        filename: registerFileName(result.month, 'csv'),
-        contentType: 'text/csv; charset=utf-8',
-      };
-    }
-
-    const wb = buildRegisterWorkbook(result, this.tva.now());
-    const buffer = Buffer.from(await wb.xlsx.writeBuffer());
-    return {
-      buffer,
-      filename: registerFileName(result.month, 'xlsx'),
-      contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    };
   }
 
   // ───────────────────────────────────────────────────────────────────────
