@@ -1074,9 +1074,10 @@ describe('E. evidence on an unresolved working day', () => {
     });
   });
 
-  it('E9. holiday and weekly-off evidence behaves exactly as before', () => {
+  it('E9. holiday evidence with only a punch-in shows the punch-in and a missing punch-out', () => {
     const r = assembleMonthlyAttendanceReport(facts({ punches: [punch('PUNCH_IN', HOLIDAY, '10:00')] }));
-    expect(day(r, 'u1', HOLIDAY)).toMatchObject({ attendanceStatus: DAY_STATES.HOLIDAY_WORKED, punchIn: '10:00', punchOut: null, workHours: 0, breakHours: 0, missingPunch: 'Punch-out missing' });
+    // No completed session: work time is unknown, so blank rather than 0 (group F).
+    expect(day(r, 'u1', HOLIDAY)).toMatchObject({ attendanceStatus: DAY_STATES.HOLIDAY_WORKED, punchIn: '10:00', punchOut: null, workHours: null, breakHours: null, missingPunch: 'Punch-out missing' });
     const off = assembleMonthlyAttendanceReport(facts());
     expect(day(off, 'u1', SUNDAYS[0])).toMatchObject({ attendanceStatus: DAY_STATES.WEEKLY_OFF, punchIn: null, missingPunch: '' });
     expect(summary(off).missingPunch).toBe('0');
@@ -1216,5 +1217,70 @@ describe('E. evidence on an unresolved working day', () => {
     expect(api).not.toMatch(/export\.csv/);
     expect(ui).not.toMatch(/export\.csv/);
     expect(ui).toMatch(/download\('zip'\)/);
+  });
+});
+
+// ── F: work on holidays and weekly offs ──────────────────────────────────────
+
+describe('F. work on a holiday or weekly off', () => {
+  const punch = (type: string, date: string, hhmm: string, userId = 'u1') => ({ userId, businessDate: date, type, at: ist(date, hhmm) });
+  const session = (date: string, from: string, to: string | null, work: number, brk = 0, autoClosed = false) => ({
+    userId: 'u1',
+    businessDate: date,
+    startWorkAt: ist(date, from),
+    logoutAt: to ? ist(date, to) : null,
+    totalWorkMinutes: work,
+    totalBreakMinutes: brk,
+    autoClosed,
+  });
+  const SUNDAY = SUNDAYS[1];
+
+  it('F1. on a holiday, the 21:00 auto-close is never shown as a punch-out', () => {
+    const r = assembleMonthlyAttendanceReport(facts({
+      punches: [punch('PUNCH_IN', HOLIDAY, '11:37')],
+      sessions: [session(HOLIDAY, '11:37', '21:00', 562, 0, true)] as any,
+    }));
+    expect(day(r, 'u1', HOLIDAY)).toMatchObject({
+      attendanceStatus: DAY_STATES.HOLIDAY_WORKED, punchIn: '11:37', punchOut: null, presenceHours: null, workHours: 9.37, missingPunch: 'Punch-out missing',
+    });
+  });
+
+  it('F2. on a weekly off, the same rule applies, sessions only', () => {
+    const r = assembleMonthlyAttendanceReport(facts({ sessions: [session(SUNDAY, '10:00', '21:00', 600, 0, true)] as any }));
+    expect(day(r, 'u1', SUNDAY)).toMatchObject({
+      attendanceStatus: DAY_STATES.HOLIDAY_WORKED, punchIn: '10:00', punchOut: null, presenceHours: null, missingPunch: 'Punch-out missing',
+    });
+  });
+
+  it('F3. a real punch-out on a holiday is kept; a punch-in after it makes the departure unknown', () => {
+    const real = assembleMonthlyAttendanceReport(facts({
+      punches: [punch('PUNCH_IN', HOLIDAY, '10:00'), punch('PUNCH_OUT', HOLIDAY, '14:00')],
+      sessions: [session(HOLIDAY, '10:00', '14:00', 240)] as any,
+    }));
+    expect(day(real, 'u1', HOLIDAY)).toMatchObject({ punchIn: '10:00', punchOut: '14:00', presenceHours: 4, workHours: 4, missingPunch: '' });
+    const again = assembleMonthlyAttendanceReport(facts({
+      punches: [punch('PUNCH_IN', HOLIDAY, '10:00'), punch('PUNCH_OUT', HOLIDAY, '14:00'), punch('PUNCH_IN', HOLIDAY, '15:00')],
+    }));
+    expect(day(again, 'u1', HOLIDAY)).toMatchObject({ punchIn: '10:00', punchOut: null, presenceHours: null, missingPunch: 'Punch-out missing' });
+  });
+
+  it('F4. days worked on holidays and weekly offs are added to Present Days, which may exceed Working Days', () => {
+    const r = assembleMonthlyAttendanceReport(facts({
+      punches: [punch('PUNCH_IN', HOLIDAY, '10:00'), punch('PUNCH_OUT', HOLIDAY, '14:00'), punch('PUNCH_IN', SUNDAY, '10:00')],
+    }));
+    const s = summary(r);
+    expect(s.workingDays).toBe(25);
+    expect(s.presentDays).toBe(27);
+    // Measured against scheduled days only: never above 100%.
+    expect(s.eligibleWorkingDays).toBe(25);
+    expect(s.attendancePercent).toBe(1);
+    // Still counted in their own columns, as before.
+    expect(s.holidayDays).toBe(1);
+    expect(s.weeklyOffDays).toBe(4);
+  });
+
+  it('F5. an untouched holiday or weekly off adds nothing', () => {
+    const s = summary(assembleMonthlyAttendanceReport(facts()));
+    expect(s.presentDays).toBe(25);
   });
 });
