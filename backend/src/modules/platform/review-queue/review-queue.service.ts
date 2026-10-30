@@ -11,7 +11,15 @@ import { actorFrom, type TransitionActor } from '../../core/users/transitions/tr
 import { PunchReviewService } from '../attendance/console/punch-review.service';
 import { CorrectionAuthorityService } from '../attendance/regularization/correction-authority.service';
 import { CorrectionDecisionService } from '../attendance/regularization/correction-decision.service';
-import { REVIEW_TYPE_LABEL, type ReviewQueueEmployee, type ReviewQueueItem, type ReviewRequestType } from './review-queue.types';
+import {
+  REVIEW_TYPE_LABEL,
+  type ReviewOriginFilter,
+  type ReviewQueueEmployee,
+  type ReviewQueueItem,
+  type ReviewQueuePerson,
+  type ReviewRequestType,
+} from './review-queue.types';
+import { alertReasons, alertTitle, groupSystemAlerts, isSystemRequestType } from './system-alerts';
 
 type Reviewer = {
   id: string;
@@ -70,10 +78,27 @@ export class ReviewQueueService {
     return !!actor && (actor.isHR || this.isAdmin(actor));
   }
 
-  async list(user: any, scope: 'team' | 'company') {
+  /**
+   * The queue for one scope. The default view is employee and business
+   * requests only; system alerts are a separate list that only HR, Admin and
+   * Super Admin may open. Filtering happens here, so totals and every client
+   * count follow the same rule.
+   */
+  async list(user: any, scope: 'team' | 'company', origin: ReviewOriginFilter = 'default') {
     const actorId = this.actorId(user);
     const actor = await this.reviewer(actorId);
     if (!actor) throw new ForbiddenException('Reviewer account not found');
+    if (origin === 'system' && !this.isHrOrAdmin(actor)) {
+      throw new ForbiddenException('Only HR and administrators can view system alerts');
+    }
+    const visible = await this.visibleItems(actor, scope);
+    const wanted = visible.filter((item) => (item.origin === 'SYSTEM') === (origin === 'system'));
+    const items = origin === 'system' ? groupSystemAlerts(wanted) : wanted;
+    return { scope, origin, total: items.length, items };
+  }
+
+  private async visibleItems(actor: Reviewer, scope: 'team' | 'company'): Promise<ReviewQueueItem[]> {
+    const actorId = actor.id;
     const items = await this.pendingItems();
     const assignments = await (this.prisma as any).reviewQueueAssignment.findMany({ where: { endedAt: null } });
     const assignmentByKey = new Map<string, any>(assignments.map((a: any) => [`${a.requestType}:${a.requestId}`, a]));
@@ -94,14 +119,19 @@ export class ReviewQueueService {
       });
     }
     visible.sort((a, b) => b.requestDate.localeCompare(a.requestDate) || b.applicationId.localeCompare(a.applicationId));
-    return { scope, total: visible.length, items: visible };
+    return visible;
   }
 
+  /** Pending counts. team and company never include system alerts; system is its own count. */
   async counts(user: any) {
     const [team, company] = await Promise.all([this.list(user, 'team'), this.list(user, 'company')]);
     const teamPending = team.items.filter((item) => item.status === 'PENDING').length;
     const companyPending = company.items.filter((item) => item.status === 'PENDING').length;
-    return { team: teamPending, company: companyPending, canViewCompany: companyPending > 0 || (await this.isCompanyReviewer(this.actorId(user))) };
+    const companyReviewer = await this.isCompanyReviewer(this.actorId(user));
+    const system = companyReviewer
+      ? (await this.list(user, 'company', 'system')).items.filter((item) => item.status === 'PENDING').length
+      : 0;
+    return { team: teamPending, company: companyPending, system, canViewCompany: companyPending > 0 || companyReviewer };
   }
 
   async detail(user: any, type: ReviewRequestType, id: string) {
@@ -109,6 +139,7 @@ export class ReviewQueueService {
   }
 
   async forwardCandidates(user: any, type: ReviewRequestType, id: string) {
+    if (isSystemRequestType(type)) throw new BadRequestException('System alerts are marked reviewed or dismissed, not transferred');
     const item = await this.authorizedItem(user, type, id);
     const actorId = this.actorId(user);
     let ids: string[] = [];
@@ -137,6 +168,7 @@ export class ReviewQueueService {
   }
 
   async forward(user: any, type: ReviewRequestType, id: string, body: any) {
+    if (isSystemRequestType(type)) throw new BadRequestException('System alerts are marked reviewed or dismissed, not transferred');
     const actorId = this.actorId(user);
     const item = await this.authorizedItem(user, type, id);
     const targetId = typeof body?.reviewerId === 'string' ? body.reviewerId : '';
@@ -168,6 +200,7 @@ export class ReviewQueueService {
   async decide(user: any, type: ReviewRequestType, id: string, body: any) {
     const actorId = this.actorId(user);
     const item = await this.authorizedItem(user, type, id);
+    if (isSystemRequestType(type)) return this.reviewSystemAlert(user, item, body);
     const decision = String(body?.decision ?? '').toUpperCase();
     if (decision !== 'APPROVE' && decision !== 'REJECT') throw new BadRequestException('Choose approve or reject');
     const reason = typeof body?.reason === 'string' ? body.reason.trim() : '';
@@ -212,11 +245,8 @@ export class ReviewQueueService {
         break;
       }
       case 'PUNCH_EVIDENCE_REVIEW':
-        result = await this.punchReviews.resolve(user, id, {
-          status: decision === 'APPROVE' ? 'REVIEWED' : 'DISMISSED',
-          note: reason || (decision === 'APPROVE' ? 'Reviewed.' : 'Rejected from the unified review queue.'),
-        });
-        break;
+        // Handled by reviewSystemAlert above: a system alert is never approved.
+        throw new BadRequestException('A system alert is marked reviewed or dismissed, not approved or rejected');
       case 'RETENTION_RULE_PROPOSAL':
         result = await this.retention.decide(actor, id, { decision, reason });
         break;
@@ -231,6 +261,47 @@ export class ReviewQueueService {
       where: { requestType: type, requestId: id, endedAt: null }, data: { endedAt: new Date() },
     });
     return result;
+  }
+
+  /**
+   * Mark Reviewed or Dismiss a system alert. Only the review rows change: the
+   * punch evidence is append-only, and no attendance, regularization, payroll
+   * or leave record is touched. An alert shown grouped (same employee and
+   * business date) resolves every still-pending member, each with its own
+   * audit entry.
+   */
+  private async reviewSystemAlert(user: any, item: ReviewQueueItem, body: any) {
+    const action = String(body?.action ?? body?.decision ?? '').toUpperCase();
+    if (action !== 'MARK_REVIEWED' && action !== 'DISMISS') {
+      throw new BadRequestException('A system alert is marked reviewed or dismissed, not approved or rejected');
+    }
+    const reason = typeof body?.reason === 'string' ? body.reason.trim() : '';
+    if (action === 'DISMISS' && !reason) throw new BadRequestException('A reason is required to dismiss a system alert');
+    const status = action === 'MARK_REVIEWED' ? 'REVIEWED' : 'DISMISSED';
+    const businessDate = String(item.details.businessDate ?? '');
+    const siblings = item.subjectUserId && businessDate
+      ? await this.prisma.punchEvidenceReview.findMany({
+        where: { status: 'PENDING', id: { not: item.id }, evidence: { userId: item.subjectUserId, businessDate: new Date(`${businessDate}T00:00:00.000Z`) } },
+        select: { id: true },
+        orderBy: { createdAt: 'asc' },
+      })
+      : [];
+    const resolved: string[] = [];
+    await this.punchReviews.resolve(user, item.id, { status, note: reason });
+    resolved.push(item.id);
+    for (const sibling of siblings) {
+      try {
+        await this.punchReviews.resolve(user, sibling.id, { status, note: reason });
+        resolved.push(sibling.id);
+      } catch (error) {
+        // Resolved by someone else in the meantime: theirs stands.
+        if (!(error instanceof BadRequestException)) throw error;
+      }
+    }
+    await (this.prisma as any).reviewQueueAssignment.updateMany({
+      where: { requestType: item.requestType, requestId: { in: resolved }, endedAt: null }, data: { endedAt: new Date() },
+    });
+    return { action, status, reviewIds: resolved };
   }
 
   private async authorizedItem(user: any, type: ReviewRequestType, id: string): Promise<ReviewQueueItem> {
@@ -383,8 +454,9 @@ export class ReviewQueueService {
       toRole: role.get(row.toRoleId) ?? row.toRoleId,
       effectiveOn: dateOnly(row.effectiveOn ?? row.effectiveAt), requestedById: row.actorId,
     }));
-    for (const row of punches) items.push(this.item('PUNCH_EVIDENCE_REVIEW', row.id, row.evidence.userId, row.evidence.user, row.reasonCodes.join(', ') || 'Punch evidence requires review.', row.createdAt, row.status, {
-      reasonCodes: row.reasonCodes, punchType: row.evidence.type, businessDate: dateOnly(row.evidence.businessDate),
+    // System alerts: the employee is who the alert is about, never who raised it.
+    for (const row of punches) items.push(this.item('PUNCH_EVIDENCE_REVIEW', row.id, row.evidence.userId, row.evidence.user, alertTitle(row.reasonCodes), row.createdAt, row.status, {
+      reasonCodes: row.reasonCodes, alertReasons: alertReasons(row.reasonCodes), punchType: row.evidence.type, businessDate: dateOnly(row.evidence.businessDate),
       occurredAt: row.evidence.serverOccurredAt, deviceType: row.evidence.deviceType, captureChannel: row.evidence.captureChannel,
     }));
     for (const row of proposals) items.push(this.item('RETENTION_RULE_PROPOSAL', row.id, row.proposedById, identity.get(row.proposedById) ?? null, row.reason, row.proposedAt, row.status, {
@@ -409,8 +481,19 @@ export class ReviewQueueService {
     sourceStatus: string,
     details: Record<string, unknown>,
   ): ReviewQueueItem {
+    const system = isSystemRequestType(requestType);
+    const person: ReviewQueuePerson | null = employee
+      ? { id: employee.id, employeeId: employee.employeeId, name: employee.name, department: employee.department?.name ?? null }
+      : null;
     return {
-      id, applicationId: id, requestType, requestTypeLabel: REVIEW_TYPE_LABEL[requestType], subjectUserId, employee,
+      id, applicationId: id, requestType, requestTypeLabel: REVIEW_TYPE_LABEL[requestType], subjectUserId,
+      employee: system ? null : employee,
+      origin: system ? 'SYSTEM' : 'USER',
+      generatedBy: system ? 'ATTENDANCE_VALIDATION_ENGINE' : null,
+      requester: system ? null : person,
+      affectedEmployee: system ? person : null,
+      requiresApproval: !system,
+      reviewActions: system ? ['MARK_REVIEWED', 'DISMISS'] : ['APPROVE', 'REJECT'],
       reason, requestDate: date.toISOString(),
       status: ['REJECTED', 'DISMISSED', 'CANCELLED'].includes(sourceStatus)
         ? 'REJECTED'

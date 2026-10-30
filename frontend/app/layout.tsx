@@ -34,7 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
       </head>
-      <body>
+      <body suppressHydrationWarning>
         {/* Visible staging indicator — renders only when NEXT_PUBLIC_APP_ENV=staging */}
         <StagingBanner />
         <Providers>{children}</Providers>

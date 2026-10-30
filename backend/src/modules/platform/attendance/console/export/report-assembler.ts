@@ -586,7 +586,10 @@ function summarise(
       rows,
       (r) => r.schedule === SCHEDULE.WORKDAY && r.attendanceStatus !== DAY_STATES.NOT_YET_JOINED && r.attendanceStatus !== DAY_STATES.POST_EMPLOYMENT,
     ),
-    presentDays: present,
+    // Work on a holiday or weekly off is a day worked too, so Present Days can
+    // exceed Working Days (24 of 23). Attendance % stays measured against the
+    // scheduled days only.
+    presentDays: round(present + count(rows, state(DAY_STATES.HOLIDAY_WORKED)), 2),
     absentDays: absent,
     halfDays: half,
     leaveDays: sum(rows, 'leave'),
@@ -683,21 +686,23 @@ function blank(state: DayState, schedule: string, coverage: string, extra: Parti
 const span = (a: Date | null, b: Date | null) =>
   a && b ? Math.max(0, Math.floor((b.getTime() - a.getTime()) / 60_000)) : null;
 
-/** Worked on a non-working day: punch evidence first, sessions second. */
+/**
+ * Worked on a non-working day (holiday or weekly off). The times follow the
+ * same rule as an unevaluated working day: a departure counts only when it is
+ * the day's last real event, so the system's own end-of-day close is never
+ * shown as a punch-out.
+ */
 function workedOff(input: DayInput) {
-  const ins = input.punches.filter((p) => p.type === 'PUNCH_IN').sort((a, b) => a.at.getTime() - b.at.getTime());
-  const outs = input.punches.filter((p) => p.type === 'PUNCH_OUT').sort((a, b) => a.at.getTime() - b.at.getTime());
-  const started = input.sessions.filter((s) => s.startWorkAt).sort((a, b) => a.startWorkAt!.getTime() - b.startWorkAt!.getTime());
+  const hasPunchIn = input.punches.some((p) => p.type === 'PUNCH_IN');
+  const started = input.sessions.some((s) => s.startWorkAt);
+  if (!hasPunchIn && !started) return null;
+  const { punchInAt, punchOutAt } = recordedEndpoints(input);
   const closed = input.sessions.filter((s) => s.logoutAt);
-  if (ins.length === 0 && started.length === 0) return null;
-  const punchInAt = ins[0]?.at ?? started[0]?.startWorkAt ?? null;
-  const lastLogout = closed.map((s) => s.logoutAt!).sort((a, b) => a.getTime() - b.getTime()).pop() ?? null;
-  const punchOutAt = outs[outs.length - 1]?.at ?? lastLogout;
   return {
     punchInAt,
     punchOutAt,
-    workMinutes: closed.reduce((n, s) => n + (s.totalWorkMinutes ?? 0), 0),
-    breakMinutes: closed.reduce((n, s) => n + (s.totalBreakMinutes ?? 0), 0),
+    workMinutes: closed.length ? closed.reduce((n, s) => n + (s.totalWorkMinutes ?? 0), 0) : null,
+    breakMinutes: closed.length ? closed.reduce((n, s) => n + (s.totalBreakMinutes ?? 0), 0) : null,
   };
 }
 
@@ -759,10 +764,10 @@ function nonWorking(input: DayInput, state: DayState, schedule: string, coverage
     remarks,
     punchInAt: worked.punchInAt,
     punchOutAt: worked.punchOutAt,
-    presenceMinutes: span(worked.punchInAt, worked.punchOutAt),
+    presenceMinutes: worked.punchInAt && worked.punchOutAt && worked.punchOutAt > worked.punchInAt ? span(worked.punchInAt, worked.punchOutAt) : null,
     workMinutes: worked.workMinutes,
     breakMinutes: worked.breakMinutes,
-    missingPunch: worked.punchOutAt ? '' : 'Punch-out missing',
+    missingPunch: worked.punchInAt && worked.punchOutAt ? '' : worked.punchInAt ? 'Punch-out missing' : 'Punch-in missing',
   });
 }
 
