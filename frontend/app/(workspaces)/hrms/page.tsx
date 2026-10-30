@@ -8,6 +8,7 @@ import { useAuthStore } from '@apex/core-identity';
 import { changeRequestsApi } from '@apex/core-users-change-requests/api';
 import { leaveApi } from '@apex/workforce-leave/api';
 import { usersApi } from '@apex/core-users/api';
+import { transitionsApi } from '@/components/transitions/transitions-api';
 
 import { cn, formatRelativeTime } from '@apex/shared-utilities';
 import { motion } from 'motion/react';
@@ -73,7 +74,13 @@ interface OverviewCard {
 //   • GET /events (activity/workday) — role-name only, NO isHR bypass. An HR-flagged
 //     Employee/Intern would only see their own personal activity here, which would
 //     misrepresent "Attendance Management" as company-wide when it isn't. Planned.
-//   • Documents/Onboarding/Offboarding/Performance/HR Reports — no backend exists. Planned.
+//   • Onboarding — account creation, scheduled activation, attendance setup and
+//     setup-health records already exist. HRMS surfaces that live lifecycle; it
+//     deliberately does not create checklist tickets while task types are being
+//     redesigned.
+//   • Offboarding — resignation, notice, clearance, separation and F&F are live
+//     through the employee-transition APIs. HRMS surfaces the open queue.
+//   • Documents/Performance/HR Reports — no complete backend exists. Planned.
 const OVERVIEW_CARDS: OverviewCard[] = [
   {
     title: 'Employees', icon: Users, badge: 'Live', sectionKey: 'employees',
@@ -101,14 +108,14 @@ const OVERVIEW_CARDS: OverviewCard[] = [
     note: 'Live — shows requests currently awaiting your approval.',
   },
   {
-    title: 'Onboarding', icon: UserPlus, badge: 'Planned', sectionKey: 'onboarding',
-    desc: 'Structured checklist for bringing a new employee up to speed.',
-    note: 'Will auto-generate Apex OS tickets for each step.',
+    title: 'Onboarding', icon: UserPlus, badge: 'Live', sectionKey: 'onboarding',
+    desc: 'New-account setup and scheduled employee activation.',
+    note: 'Live account lifecycle. Checklist tickets remain paused until task types are final.',
   },
   {
-    title: 'Offboarding', icon: UserMinus, badge: 'Planned', sectionKey: 'offboarding',
-    desc: 'Structured checklist for a clean employee exit.',
-    note: 'Will auto-generate Apex OS tickets for each step.',
+    title: 'Offboarding', icon: UserMinus, badge: 'Live', sectionKey: 'offboarding',
+    desc: 'Resignation, notice, clearance, separation, and F&F tracking.',
+    note: 'Live employee-transition records. No task-type dependency.',
   },
   {
     title: 'Performance', icon: Target, badge: 'Planned', sectionKey: 'performance',
@@ -294,20 +301,10 @@ function HRMSPageInner() {
               />
             )}
             {section === 'onboarding' && (
-              <PlannedPanel
-                title="Onboarding" icon={UserPlus}
-                desc="A structured checklist for bringing a new employee up to speed."
-                note="Will auto-generate Apex OS tickets for each onboarding step. Not built yet."
-                onBack={() => router.push('/hrms')}
-              />
+              <OnboardingPanel isAdmin={isAdmin} onBack={() => router.push('/hrms')} />
             )}
             {section === 'offboarding' && (
-              <PlannedPanel
-                title="Offboarding" icon={UserMinus}
-                desc="A structured checklist for a clean employee exit."
-                note="Will auto-generate Apex OS tickets for each offboarding step. Not built yet."
-                onBack={() => router.push('/hrms')}
-              />
+              <OffboardingPanel isAdmin={isAdmin} onBack={() => router.push('/hrms')} />
             )}
             {section === 'performance' && (
               <PlannedPanel
@@ -565,6 +562,141 @@ function EmployeesPanel({ isAdmin, onBack }: { isAdmin: boolean; onBack: () => v
       </div>
       <p className="text-[10px] font-mono mt-3" style={{ color: '#475569' }}>
         Showing {employees.length} of {total} employees. Editing, deactivation, and account creation remain in Admin User Management.
+      </p>
+    </PanelShell>
+  );
+}
+
+// ── Onboarding (Live account lifecycle) ─────────────────────────────────────
+
+function OnboardingPanel({ isAdmin, onBack }: { isAdmin: boolean; onBack: () => void }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['hrms-onboarding-users'],
+    queryFn: () => usersApi.getAll({ limit: 100 }) as Promise<any>,
+  });
+  const users: any[] = (data as any)?.users ?? [];
+  const scheduled = users
+    .filter((u: any) => u.employmentState === 'SCHEDULED_TO_JOIN')
+    .sort((a: any, b: any) => String(a.scheduledActivationOn ?? a.joiningDate ?? '').localeCompare(String(b.scheduledActivationOn ?? b.joiningDate ?? '')));
+
+  return (
+    <PanelShell
+      title="Onboarding" icon={UserPlus} badge="Live"
+      desc="Account creation, joining-date validation, scheduled activation, employee ID assignment, and attendance setup use the live Apex OS user lifecycle."
+      onBack={onBack}
+      secondaryLink={isAdmin ? { href: '/users', label: 'Add or manage employee' } : undefined}
+    >
+      <div className="mb-4 rounded-xl border px-4 py-3" style={{ borderColor: '#1E293B', backgroundColor: 'rgba(37,99,235,0.06)' }}>
+        <p className="text-xs" style={{ color: '#94a3b8' }}>
+          Checklist-ticket generation is intentionally paused while department task types are being finalised. Account and attendance onboarding continue independently.
+        </p>
+      </div>
+
+      <div className="rounded-xl overflow-hidden border" style={{ borderColor: '#1E293B' }}>
+        {isLoading ? (
+          <LoadingRow />
+        ) : isError ? (
+          <EmptyRow label="Onboarding records are not available right now." />
+        ) : scheduled.length === 0 ? (
+          <EmptyRow label="No employees are currently scheduled to join." />
+        ) : (
+          <div className="divide-y" style={{ borderColor: '#1E293B' }}>
+            {scheduled.map((u: any) => {
+              const joinsOn = String(u.scheduledActivationOn ?? u.joiningDate ?? '').slice(0, 10);
+              return (
+                <div key={u.id} className="flex items-center justify-between gap-4 px-4 py-3" style={{ borderColor: '#1E293B' }}>
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium" style={{ color: '#e2e8f0' }}>{u.name}</p>
+                    <p className="truncate text-xs" style={{ color: '#64748b' }}>
+                      {u.employeeId || 'Employee ID pending'} · {u.department?.name ?? 'Department pending'}
+                    </p>
+                  </div>
+                  <div className="flex flex-shrink-0 items-center gap-3">
+                    <span className="rounded-full px-2 py-1 text-[10px] font-mono uppercase" style={{ backgroundColor: 'rgba(37,99,235,0.12)', color: '#60a5fa' }}>
+                      Joins {joinsOn || 'date pending'}
+                    </span>
+                    <Link href={`/users/${u.id}`} className="text-xs font-medium" style={{ color: '#60a5fa' }}>
+                      Review
+                    </Link>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+      <p className="mt-3 text-[10px] font-mono" style={{ color: '#475569' }}>
+        HR can monitor onboarding. Creating accounts and assigning initial credentials remains Admin-controlled by the existing RBAC policy.
+      </p>
+    </PanelShell>
+  );
+}
+
+// ── Offboarding (Live employee-transition lifecycle) ────────────────────────
+
+const OFFBOARDING_STATE_LABEL: Record<string, string> = {
+  NOTICE_RUNNING: 'Serving notice',
+  CLEARANCE_IN_PROGRESS: 'Clearance in progress',
+  CLEARED: 'Ready for settlement',
+};
+
+function OffboardingPanel({ isAdmin, onBack }: { isAdmin: boolean; onBack: () => void }) {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['hrms-offboarding-open'],
+    queryFn: () => transitionsApi.exitList({ page: 1, state: 'NOTICE_RUNNING,CLEARANCE_IN_PROGRESS,CLEARED' }),
+    retry: false,
+  });
+  const items: any[] = (data as any)?.items ?? [];
+  const total = Number((data as any)?.total ?? items.length);
+
+  return (
+    <PanelShell
+      title="Offboarding" icon={UserMinus} badge="Live"
+      desc="Open resignations, notice periods, clearance, access separation, and full-and-final settlement from the live employee-transition lifecycle."
+      onBack={onBack}
+      secondaryLink={isAdmin ? { href: '/users', label: 'Open employee management' } : undefined}
+    >
+      <div className="mb-4 rounded-xl border px-4 py-3" style={{ borderColor: '#1E293B', backgroundColor: 'rgba(16,185,129,0.06)' }}>
+        <p className="text-xs" style={{ color: '#94a3b8' }}>
+          Offboarding does not depend on task types. The server continues to enforce notice, clearance ownership, separation, settlement, audit history, and access revocation.
+        </p>
+      </div>
+
+      <div className="rounded-xl overflow-hidden border" style={{ borderColor: '#1E293B' }}>
+        {isLoading ? (
+          <LoadingRow />
+        ) : isError ? (
+          <EmptyRow label="Offboarding records are not available right now." />
+        ) : items.length === 0 ? (
+          <EmptyRow label="No open offboarding cases." />
+        ) : (
+          <div className="divide-y" style={{ borderColor: '#1E293B' }}>
+            {items.map((item: any) => (
+              <div key={item.id} className="flex items-center justify-between gap-4 px-4 py-3" style={{ borderColor: '#1E293B' }}>
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium" style={{ color: '#e2e8f0' }}>{item.employee?.name ?? 'Unknown employee'}</p>
+                  <p className="truncate text-xs" style={{ color: '#64748b' }}>
+                    {item.employee?.employeeId ?? 'Employee ID pending'} · Last working day {item.lastWorkingDay || 'pending'}
+                  </p>
+                </div>
+                <div className="flex flex-shrink-0 items-center gap-3">
+                  <span className="rounded-full px-2 py-1 text-[10px] font-mono uppercase" style={{ backgroundColor: 'rgba(245,158,11,0.12)', color: '#fbbf24' }}>
+                    {OFFBOARDING_STATE_LABEL[item.state] ?? String(item.state).replace(/_/g, ' ')}
+                  </span>
+                  {item.clearanceOpen > 0 && (
+                    <span className="text-[10px] font-mono" style={{ color: '#94a3b8' }}>{item.clearanceOpen} clearance open</span>
+                  )}
+                  <Link href={`/users/${item.employee?.id}?tab=exit`} className="text-xs font-medium" style={{ color: '#60a5fa' }}>
+                    Open
+                  </Link>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <p className="mt-3 text-[10px] font-mono" style={{ color: '#475569' }}>
+        Showing {items.length} of {total} open cases. Start or update an exit from the employee's Exit tab.
       </p>
     </PanelShell>
   );
