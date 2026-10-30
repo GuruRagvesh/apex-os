@@ -115,6 +115,8 @@ export interface ReportSessionFacts {
   logoutAt: Date | null;
   totalWorkMinutes: number;
   totalBreakMinutes: number;
+  /** Closed by the system (end-of-day or policy stop), not by the employee. */
+  autoClosed?: boolean;
 }
 
 /** A recorded meeting interval (a MEETING break inside a work session). */

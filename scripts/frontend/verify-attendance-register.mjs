@@ -153,6 +153,17 @@ if (!registerBlock) {
   if (!/download\('xlsx'\)/.test(body) || !/download\('zip'\)/.test(body)) {
     failures.push('A download button is not wired to the register download.');
   }
+  // The visible downloads are the report package (export.xlsx / export.zip).
+  // The legacy seven-column export.csv stays on the server for API callers
+  // only; routing the UI through it would hand HR a different document.
+  if (!/register\/export\.\$\{format\}/.test(api) || !/format: 'xlsx' \| 'zip'/.test(api)) {
+    failures.push('downloadRegister does not request export.xlsx / export.zip.');
+  }
+  for (const [name, text] of [['AttendanceConsole.tsx', consoleTsx], ['console-api.ts', api]]) {
+    if (/export\.csv/.test(text)) {
+      failures.push(`${name} references the legacy export.csv; the visible download must use export.zip.`);
+    }
+  }
   if (/<a[^>]+href=[^>]*register\/export/.test(consoleTsx)) {
     failures.push(
       'The register is downloaded through a plain link. Auth is a Bearer token added by a ' +

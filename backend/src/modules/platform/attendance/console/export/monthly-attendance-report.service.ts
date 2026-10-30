@@ -235,6 +235,7 @@ export class MonthlyAttendanceReportService {
                 date: true,
                 startWorkAt: true,
                 logoutAt: true,
+                autoClosed: true,
                 totalWorkMinutes: true,
                 totalBreakMinutes: true,
                 breakLogs: {
@@ -378,6 +379,7 @@ export class MonthlyAttendanceReportService {
         logoutAt: s.logoutAt ?? null,
         totalWorkMinutes: s.totalWorkMinutes ?? 0,
         totalBreakMinutes: s.totalBreakMinutes ?? 0,
+        autoClosed: !!s.autoClosed,
       })),
       meetings: facts.sessions.flatMap((s: any) =>
         (s.breakLogs ?? []).map((b: any) => ({

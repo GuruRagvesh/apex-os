@@ -742,7 +742,7 @@ describe('Z. the CSV package', () => {
 
 const tva = () => new TVAService({ get: () => undefined } as unknown as ConfigService);
 
-function serviceRig(opts: { users?: any[]; official?: any[]; scope?: { isHr: boolean; userIds: string[] | null }; eligible?: boolean; department?: any } = {}) {
+function serviceRig(opts: { users?: any[]; official?: any[]; sessions?: any[]; punches?: any[]; scope?: { isHr: boolean; userIds: string[] | null }; eligible?: boolean; department?: any } = {}) {
   const users = opts.users ?? [
     { id: 'u1', name: 'Ajay Singh', employeeId: 'TE-1', designation: 'Associate', employmentType: 'FULL_TIME', joiningDate: new Date('2025-01-01T00:00:00Z'), lastWorkingDate: null, isActive: true, avatar: null, photoUrl: null, department: { name: 'Operations' } },
   ];
@@ -755,8 +755,8 @@ function serviceRig(opts: { users?: any[]; official?: any[]; scope?: { isHr: boo
     dailyAttendance: { findMany: track('official', opts.official ?? []) },
     attendanceRegularization: { findMany: track('corrections', []) },
     compOffCredit: { findMany: track('compOff', []) },
-    workSession: { findMany: track('sessions', []) },
-    attendancePunchEvidence: { findMany: track('punches', []) },
+    workSession: { findMany: track('sessions', opts.sessions ?? []) },
+    attendancePunchEvidence: { findMany: track('punches', opts.punches ?? []) },
     leaveRequest: { findMany: track('leaves', []) },
   };
   prisma.$transaction = jest.fn((fn: any, options: any) => { calls.push(`tx:${options?.isolationLevel}`); return fn(prisma); });
@@ -980,4 +980,241 @@ describe('Q. query shape and performance', () => {
     expect(t2 - t1).toBeLessThan(30000);
     expect(t3 - t2).toBeLessThan(5000);
   }, 60000);
+});
+
+// ── E: recorded punches on a working day with no official result ────────────
+
+describe('E. evidence on an unresolved working day', () => {
+  const D = '2026-09-03';
+  const D2 = '2026-09-04';
+  const punch = (type: string, date: string, hhmm: string, userId = 'u1') => ({ userId, businessDate: date, type, at: ist(date, hhmm) });
+  const session = (date: string, from: string, to: string | null, work: number, brk = 0, userId = 'u1') => ({
+    userId,
+    businessDate: date,
+    startWorkAt: ist(date, from),
+    logoutAt: to ? ist(date, to) : null,
+    totalWorkMinutes: work,
+    totalBreakMinutes: brk,
+  });
+  const unresolved = (over: Partial<ReportSourceFacts> = {}) =>
+    assembleMonthlyAttendanceReport({ ...withDay(facts(), 'u1', D, null), ...over } as ReportSourceFacts);
+
+  const expectUnresolved = (d: Record<string, unknown>) => {
+    expect(d).toMatchObject({ attendanceStatus: DAY_STATES.NEEDS_REVIEW, present: 0, absent: 0, halfDay: 0, leave: 0, hrReview: 'Not Evaluated - Review Required' });
+    expect(d.lateArrival).toBeNull();
+    expect(d.nineHourCompletion).toBeNull();
+  };
+
+  it('E1. punch-in and punch-out are shown, presence is their span, and the day stays unresolved', () => {
+    const r = unresolved({
+      punches: [punch('PUNCH_IN', D, '09:40'), punch('PUNCH_OUT', D, '18:10')],
+      sessions: [session(D, '09:40', '18:10', 480, 30)],
+    });
+    const d = day(r, 'u1', D);
+    expectUnresolved(d);
+    expect(d).toMatchObject({ punchIn: '09:40', punchOut: '18:10', presenceHours: 8.5, workHours: 8, breakHours: 0.5, missingPunch: '' });
+    expect(String(d.remarks)).toContain('not an official result');
+    expect(r.dailyRows.find((x) => x.businessDate === D)!.unresolved).toBe(true);
+  });
+
+  it('E2. punch-in only: shown, no presence, Punch-out missing', () => {
+    const d = day(unresolved({ punches: [punch('PUNCH_IN', D, '09:15')] }), 'u1', D);
+    expectUnresolved(d);
+    expect(d).toMatchObject({ punchIn: '09:15', punchOut: null, presenceHours: null, missingPunch: 'Punch-out missing' });
+  });
+
+  it('E3. punch-out only: shown, no presence, Punch-in missing', () => {
+    const d = day(unresolved({ punches: [punch('PUNCH_OUT', D, '19:05')] }), 'u1', D);
+    expectUnresolved(d);
+    expect(d).toMatchObject({ punchIn: null, punchOut: '19:05', presenceHours: null, missingPunch: 'Punch-in missing' });
+  });
+
+  it('E4. no evidence at all: blank times, No punch recorded', () => {
+    const d = day(unresolved(), 'u1', D);
+    expectUnresolved(d);
+    expect(d).toMatchObject({ punchIn: null, punchOut: null, presenceHours: null, workHours: null, breakHours: null, missingPunch: 'No punch recorded' });
+    expect(String(d.remarks)).not.toContain('recorded punches');
+  });
+
+  it('E5. several punches and sessions: the earliest punch-in and the final punch-out', () => {
+    const r = unresolved({
+      punches: [punch('PUNCH_IN', D, '13:30'), punch('PUNCH_OUT', D, '12:30'), punch('PUNCH_IN', D, '09:05'), punch('PUNCH_OUT', D, '18:50')],
+      sessions: [session(D, '09:05', '12:30', 205, 10), session(D, '13:30', '18:50', 300, 20)],
+    });
+    expect(day(r, 'u1', D)).toMatchObject({ punchIn: '09:05', punchOut: '18:50', presenceHours: 9.75, workHours: 8.42, breakHours: 0.5 });
+  });
+
+  it('E6. with no raw punches the work sessions supply the times', () => {
+    const r = unresolved({ sessions: [session(D, '10:00', '14:00', 230, 10), session(D, '15:00', '19:00', 240, 0)] });
+    expect(day(r, 'u1', D)).toMatchObject({ punchIn: '10:00', punchOut: '19:00', presenceHours: 9, workHours: 7.83, missingPunch: '' });
+    // An open session has started but not ended: its start is shown, its end is not invented.
+    const open = day(unresolved({ sessions: [session(D, '09:30', null, 0)] }), 'u1', D);
+    expect(open).toMatchObject({ punchIn: '09:30', punchOut: null, workHours: null, missingPunch: 'Punch-out missing' });
+  });
+
+  it('E7. an official row is authoritative: raw evidence never overrides it', () => {
+    const f = withDay(facts(), 'u1', D, { status: 'ABSENT', punchInAt: null, punchOutAt: null, workedMinutes: 0, breakMinutes: 0 });
+    const r = assembleMonthlyAttendanceReport({ ...f, punches: [punch('PUNCH_IN', D, '09:00'), punch('PUNCH_OUT', D, '18:00')] });
+    expect(day(r, 'u1', D)).toMatchObject({ attendanceStatus: DAY_STATES.ABSENT, absent: 1, punchIn: null, punchOut: null });
+    const present = assembleMonthlyAttendanceReport({ ...facts(), punches: [punch('PUNCH_IN', D, '07:00')] });
+    expect(day(present, 'u1', D)).toMatchObject({ attendanceStatus: DAY_STATES.PRESENT, punchIn: '09:30', punchOut: '18:45' });
+  });
+
+  it('E8. an applied regularization is authoritative over the original evidence', () => {
+    const f = {
+      ...withDay(facts(), 'u1', '2026-09-09', { revision: 2, lastRegularizationId: 'reg-1', punchInAt: ist('2026-09-09', '09:30'), punchOutAt: ist('2026-09-09', '18:45') }),
+      corrections: [correction('APPROVED', { applicationStatus: 'APPLIED' })],
+      punches: [punch('PUNCH_IN', '2026-09-09', '09:30')],
+    };
+    expect(day(assembleMonthlyAttendanceReport(f), 'u1', '2026-09-09')).toMatchObject({
+      attendanceStatus: DAY_STATES.PRESENT,
+      punchOut: '18:45',
+      regularized: 'Yes',
+      missingPunch: '',
+    });
+  });
+
+  it('E9. holiday and weekly-off evidence behaves exactly as before', () => {
+    const r = assembleMonthlyAttendanceReport(facts({ punches: [punch('PUNCH_IN', HOLIDAY, '10:00')] }));
+    expect(day(r, 'u1', HOLIDAY)).toMatchObject({ attendanceStatus: DAY_STATES.HOLIDAY_WORKED, punchIn: '10:00', punchOut: null, workHours: 0, breakHours: 0, missingPunch: 'Punch-out missing' });
+    const off = assembleMonthlyAttendanceReport(facts());
+    expect(day(off, 'u1', SUNDAYS[0])).toMatchObject({ attendanceStatus: DAY_STATES.WEEKLY_OFF, punchIn: null, missingPunch: '' });
+    expect(summary(off).missingPunch).toBe('0');
+  });
+
+  it('E10. evidence is grouped by company business date and shown in company time', async () => {
+    // 00:20 IST on the 3rd is 18:50 UTC on the 2nd: it belongs to the 3rd.
+    const at = ist(D, '00:20');
+    expect(at.toISOString().slice(0, 10)).toBe('2026-09-02');
+    const official = workingDates().filter((d) => d !== D).map((d) => storedDay('u1', d));
+    const { service } = serviceRig({
+      official,
+      punches: [{ userId: 'u1', businessDate: new Date(`${D}T00:00:00.000Z`), type: 'PUNCH_IN', serverOccurredAt: at }],
+    });
+    const { report } = await (service as any).snapshot({ id: 'hr' }, { month: MONTH });
+    expect(day(report, 'u1', D)).toMatchObject({ punchIn: '00:20', attendanceStatus: DAY_STATES.NEEDS_REVIEW });
+    expect(day(report, 'u1', '2026-09-02').punchIn).toBe('09:30');
+  });
+
+  it('E11. work time that was never recorded is blank, never 0.00', async () => {
+    const r = unresolved({ punches: [punch('PUNCH_IN', D, '09:00'), punch('PUNCH_OUT', D, '18:00')] });
+    const d = day(r, 'u1', D);
+    expect(d.presenceHours).toBe(9);
+    expect(d.workHours).toBeNull();
+    expect(d.breakHours).toBeNull();
+    const files = await readZip(csvPackage(r));
+    const rows = parseCsv(files[dailyCsvName('September 2026')].slice(1));
+    const header = rows[0];
+    const row = rows.find((x) => x[header.indexOf('Date')] === D)!;
+    expect(row[header.indexOf(DAILY_COLUMNS.find((c) => c.key === 'workHours')!.header)]).toBe('');
+  });
+
+  it('E12. the Monthly Summary still counts every unresolved day, with or without evidence', () => {
+    let f: ReportSourceFacts = withDay(withDay(facts(), 'u1', D, null), 'u1', D2, null);
+    f = { ...f, punches: [punch('PUNCH_IN', D, '09:00'), punch('PUNCH_OUT', D, '18:00')] };
+    const s = summary(assembleMonthlyAttendanceReport(f));
+    expect(s).toMatchObject({ unresolvedDays: 2, presentDays: 23, absentDays: 0, provisional: 'Yes' });
+    expect(s.missingPunch).toBe('1: 04 Sep (No punch recorded)');
+  });
+
+  it('E13. Attendance % stays unavailable while an eligible day is unresolved, evidence or not', () => {
+    const s = summary(unresolved({ punches: [punch('PUNCH_IN', D, '09:00'), punch('PUNCH_OUT', D, '18:30')] }));
+    expect(s.attendancePercent).toBeNull();
+    // The unresolved day is not in the denominator; it is not scored either way.
+    expect(s.eligibleWorkingDays).toBe(24);
+    expect(s.unresolvedDays).toBe(1);
+  });
+
+  it('E14. the screen, the Excel Daily and Monthly sheets and both CSVs carry the same evidence values', async () => {
+    const official = workingDates().filter((d) => d !== D && d !== D2).map((d) => storedDay('u1', d));
+    const { service } = serviceRig({
+      official,
+      punches: [
+        { userId: 'u1', businessDate: new Date(`${D}T00:00:00.000Z`), type: 'PUNCH_IN', serverOccurredAt: ist(D, '09:10') },
+        { userId: 'u1', businessDate: new Date(`${D}T00:00:00.000Z`), type: 'PUNCH_OUT', serverOccurredAt: ist(D, '18:40') },
+        { userId: 'u1', businessDate: new Date(`${D2}T00:00:00.000Z`), type: 'PUNCH_IN', serverOccurredAt: ist(D2, '09:55') },
+      ],
+      sessions: [{ userId: 'u1', date: new Date(`${D}T00:00:00.000Z`), startWorkAt: ist(D, '09:10'), logoutAt: ist(D, '18:40'), totalWorkMinutes: 510, totalBreakMinutes: 20, breakLogs: [] }],
+    });
+    const screen = await service.register({ id: 'hr' }, { month: MONTH });
+    const xlsx = await service.export({ id: 'hr' }, { month: MONTH }, 'xlsx');
+    const zip = await service.export({ id: 'hr' }, { month: MONTH }, 'zip');
+    const wb = await loadWorkbook(xlsx.buffer);
+    const daily = sheetRows(wb.getWorksheet(DAILY_SHEET_NAME)!, DAILY_COLUMNS);
+    const monthly = sheetRows(wb.getWorksheet(MONTHLY_SHEET_NAME)!, MONTHLY_COLUMNS);
+    const files = await readZip(zip.buffer);
+    const dailyCsv = parseCsv(files[dailyCsvName('September 2026')].slice(1)).slice(1);
+    const monthlyCsv = parseCsv(files[monthlyCsvName('September 2026')].slice(1)).slice(1);
+
+    const dc = (key: string) => DAILY_COLUMNS.findIndex((c) => c.key === key);
+    const mc = (key: string) => MONTHLY_COLUMNS.findIndex((c) => c.key === key);
+    const typeOf = (key: string) => DAILY_COLUMNS[dc(key)].type;
+    const asText = (key: string, v: unknown) => asCsvText(typeOf(key), v);
+    for (const [date, expected] of [
+      [D, { punchIn: '09:10', punchOut: '18:40', presenceHours: '9.50', workHours: '8.50', missingPunch: '' }],
+      [D2, { punchIn: '09:55', punchOut: '', presenceHours: '', workHours: '', missingPunch: 'Punch-out missing' }],
+    ] as const) {
+      const x = daily.find((r) => asText('date', r[dc('date')]) === date)!;
+      const c = dailyCsv.find((r) => r[dc('date')] === date)!;
+      expect(x[dc('attendanceStatus')]).toBe(DAY_STATES.NEEDS_REVIEW);
+      expect(c[dc('attendanceStatus')]).toBe(DAY_STATES.NEEDS_REVIEW);
+      for (const [key, value] of Object.entries(expected)) {
+        expect([date, key, 'xlsx', asText(key, x[dc(key)])]).toEqual([date, key, 'xlsx', value]);
+        expect([date, key, 'csv', c[dc(key)]]).toEqual([date, key, 'csv', value]);
+      }
+    }
+    expect(screen.employees[0]).toMatchObject({ unresolvedDays: 2, daysPresent: 23, daysAbsent: 0, attendanceCompletionPercentage: null, provisional: true });
+    expect(monthly[0][mc('unresolvedDays')]).toBe(2);
+    expect(monthlyCsv[0][mc('unresolvedDays')]).toBe('2');
+    expect(monthly[0][mc('missingPunch')]).toBe('1: 04 Sep (Punch-out missing)');
+    expect(monthlyCsv[0][mc('missingPunch')]).toBe('1: 04 Sep (Punch-out missing)');
+  });
+
+  it('E15. the CSV download is a ZIP with the agreed name, type and two entries', async () => {
+    const { service } = serviceRig({ official: workingDates().map((d) => storedDay('u1', d)) });
+    const zip = await service.export({ id: 'hr' }, { month: '2026-09' }, 'zip');
+    expect(zip.contentType).toBe('application/zip');
+    expect(zip.filename).toBe('Attendance_Report_September_2026_CSV.zip');
+    expect(zip.buffer.subarray(0, 2).toString('latin1')).toBe('PK');
+    const files = await readZip(zip.buffer);
+    expect(Object.keys(files).sort()).toEqual(['Daily_Attendance_September_2026.csv', 'Monthly_Summary_September_2026.csv']);
+    const xlsx = await service.export({ id: 'hr' }, { month: '2026-09' }, 'xlsx');
+    expect(xlsx.filename).toBe('Attendance_Report_September_2026.xlsx');
+  });
+
+  it('E17. a session the system closed itself is not a punch-out; its recorded work still counts', () => {
+    const auto = { ...session(D, '14:49', '21:00', 371), autoClosed: true };
+    const fromSessions = day(unresolved({ sessions: [auto] }), 'u1', D);
+    expectUnresolved(fromSessions);
+    expect(fromSessions).toMatchObject({ punchIn: '14:49', punchOut: null, presenceHours: null, workHours: 6.18, missingPunch: 'Punch-out missing' });
+    // With a raw punch-in on record, the auto-close does not stand in for the missing punch-out either.
+    const withPunch = day(unresolved({ punches: [punch('PUNCH_IN', D, '14:49')], sessions: [auto] }), 'u1', D);
+    expect(withPunch).toMatchObject({ punchIn: '14:49', punchOut: null, presenceHours: null, workHours: 6.18, missingPunch: 'Punch-out missing' });
+  });
+
+  it('E18. a punch-in after the last punch-out means the departure is unknown', () => {
+    const r = unresolved({
+      punches: [punch('PUNCH_IN', D, '16:30'), punch('PUNCH_OUT', D, '16:31'), punch('PUNCH_IN', D, '16:32')],
+      sessions: [session(D, '16:30', '16:31', 1), { ...session(D, '16:32', '21:00', 261, 5), autoClosed: true }],
+    });
+    expect(day(r, 'u1', D)).toMatchObject({ punchIn: '16:30', punchOut: null, presenceHours: null, missingPunch: 'Punch-out missing' });
+  });
+
+  it('E19. raw punches are the evidence when present; sessions are used only when there are none', () => {
+    const r = unresolved({ punches: [punch('PUNCH_IN', D, '09:00')], sessions: [session(D, '09:00', '18:00', 510, 30)] });
+    expect(day(r, 'u1', D)).toMatchObject({ punchIn: '09:00', punchOut: null, presenceHours: null, workHours: 8.5, breakHours: 0.5, missingPunch: 'Punch-out missing' });
+  });
+
+  it('E16. the visible download requests export.xlsx / export.zip, never the legacy export.csv', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const root = path.resolve(__dirname, '../../../frontend/components/attendance');
+    const api = fs.readFileSync(path.join(root, 'console-api.ts'), 'utf8');
+    const ui = fs.readFileSync(path.join(root, 'AttendanceConsole.tsx'), 'utf8');
+    expect(api).toMatch(/register\/export\.\$\{format\}/);
+    expect(api).toMatch(/format: 'xlsx' \| 'zip'/);
+    expect(api).not.toMatch(/export\.csv/);
+    expect(ui).not.toMatch(/export\.csv/);
+    expect(ui).toMatch(/download\('zip'\)/);
+  });
 });

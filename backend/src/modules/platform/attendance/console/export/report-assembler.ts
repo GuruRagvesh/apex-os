@@ -640,7 +640,7 @@ interface DayInput {
   official: ReportOfficialDay | null;
   calendarDay: { isWorkingDay: boolean; reason: string; holidayName: string | null } | null;
   profile: ReportProfileFacts | null;
-  sessions: { startWorkAt: Date | null; logoutAt: Date | null; totalWorkMinutes: number; totalBreakMinutes: number }[];
+  sessions: { startWorkAt: Date | null; logoutAt: Date | null; totalWorkMinutes: number; totalBreakMinutes: number; autoClosed?: boolean }[];
   punches: { type: string; at: Date }[];
   approvedLeaves: ReportLeaveFacts[];
   leaveById: Map<string, ReportLeaveFacts>;
@@ -698,6 +698,56 @@ function workedOff(input: DayInput) {
     punchOutAt,
     workMinutes: closed.reduce((n, s) => n + (s.totalWorkMinutes ?? 0), 0),
     breakMinutes: closed.reduce((n, s) => n + (s.totalBreakMinutes ?? 0), 0),
+  };
+}
+
+/**
+ * A past working day with no official result. It stays UNKNOWN: never present,
+ * absent or on leave on raw evidence alone. Whatever was recorded is shown so a
+ * reviewer can see it, and work and break come only from completed sessions;
+ * with none, work time is unknown and left blank rather than shown as zero.
+ */
+function unevaluatedWorkday(input: DayInput, schedule: string): DayResolution {
+  const { punchInAt, punchOutAt } = recordedEndpoints(input);
+  const closed = input.sessions.filter((s) => s.logoutAt);
+  const presence = punchInAt && punchOutAt && punchOutAt > punchInAt ? span(punchInAt, punchOutAt) : null;
+  const missingPunch =
+    punchInAt && punchOutAt ? '' : punchInAt ? 'Punch-out missing' : punchOutAt ? 'Punch-in missing' : 'No punch recorded';
+  const remarks = ['No official attendance result for this day'];
+  if (punchInAt || punchOutAt) remarks.push('Times shown from recorded punches; not an official result');
+  return blank(DAY_STATES.NEEDS_REVIEW, schedule, 'Not Evaluated', {
+    unresolved: true,
+    coverageEligible: true,
+    punchInAt,
+    punchOutAt,
+    presenceMinutes: presence,
+    workMinutes: closed.length ? closed.reduce((n, s) => n + (s.totalWorkMinutes ?? 0), 0) : null,
+    breakMinutes: closed.length ? closed.reduce((n, s) => n + (s.totalBreakMinutes ?? 0), 0) : null,
+    remarks,
+    missingPunch,
+  });
+}
+
+/**
+ * What the employee actually recorded, for a day nobody has evaluated. Raw
+ * punches are the evidence when there are any; sessions stand in only when
+ * there are none. A departure counts only if it is the day's last event: a
+ * punch-in after the last punch-out, an open session, or a session the system
+ * closed itself means the real departure is unknown, so it is left blank.
+ */
+function recordedEndpoints(input: DayInput): { punchInAt: Date | null; punchOutAt: Date | null } {
+  if (input.punches.length) {
+    const ins = input.punches.filter((p) => p.type === 'PUNCH_IN').sort((a, b) => a.at.getTime() - b.at.getTime());
+    const outs = input.punches.filter((p) => p.type === 'PUNCH_OUT').sort((a, b) => a.at.getTime() - b.at.getTime());
+    const lastIn = ins[ins.length - 1]?.at ?? null;
+    const lastOut = outs[outs.length - 1]?.at ?? null;
+    return { punchInAt: ins[0]?.at ?? null, punchOutAt: lastOut && (!lastIn || lastOut > lastIn) ? lastOut : null };
+  }
+  const started = input.sessions.filter((s) => s.startWorkAt).sort((a, b) => a.startWorkAt!.getTime() - b.startWorkAt!.getTime());
+  const last = started[started.length - 1];
+  return {
+    punchInAt: started[0]?.startWorkAt ?? null,
+    punchOutAt: last && last.logoutAt && !last.autoClosed ? last.logoutAt : null,
   };
 }
 
@@ -776,11 +826,7 @@ function resolveDay(input: DayInput): DayResolution {
       });
     }
     // A past working day with no official result is UNKNOWN, never absent.
-    return blank(DAY_STATES.NEEDS_REVIEW, schedule, 'Not Evaluated', {
-      unresolved: true,
-      coverageEligible: true,
-      remarks: ['No official attendance result for this day'],
-    });
+    return unevaluatedWorkday(input, schedule);
   }
 
   const flags = official.exceptionFlags ?? [];
