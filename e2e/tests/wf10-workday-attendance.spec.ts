@@ -58,6 +58,8 @@ test('WF5a: Employee Workday Cycle', async ({ page }) => {
   const resumeBtn = page.locator('button:has-text("Resume Work")').first();
   if (await resumeBtn.isVisible({ timeout: 3000 })) {
     await resumeBtn.click();
+    const confirmResumeBtn = page.getByRole('button', { name: 'Confirm resume work and end break' });
+    if (await confirmResumeBtn.isVisible({ timeout: 3000 })) await confirmResumeBtn.click();
     // Back to WORKING
     await page.locator('text=Working').first().waitFor({ state: 'visible', timeout: 15000 });
   }

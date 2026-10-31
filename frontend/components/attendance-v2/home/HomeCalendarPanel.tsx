@@ -8,6 +8,7 @@ import { useQueries, useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
 import { dashboardApi } from '@apex/intelligence-dashboard/api';
 import { workdayApi } from '@/lib/api';
+import { formatCompanyDate } from '@/lib/company-date';
 import { shouldRetryTransientQuery, transientQueryRetryDelay, pollWhileHealthy } from '@apex/shared-auth';
 import {
   ArrowRight, CalendarCheck, CalendarDays, Check, ChevronDown,
@@ -22,8 +23,7 @@ import { CorrectionDialog } from '../CorrectionDialog';
 import { TinyPunchPhoto } from './TinyPunchPhoto';
 import {
   addDays, attendanceWeek, clockLabel, datesBetween, hoursLabel, monthOf,
-  pickWeek, shiftMonth,
-  type WeekWindow,
+  shiftMonth,
 } from './home-week';
 import s from './home-calendar.module.css';
 import { ProductivityTimelinePanel } from './ProductivityTimelinePanel';
@@ -52,6 +52,7 @@ type PersonAttendanceDay = {
   isWorkingDay: boolean;
   punchInAt: string | null;
   punchOutAt: string | null;
+  presenceMinutes: number | null;
   workingMinutes: number | null;
   productiveMinutes: number;
   meetingMinutes: number;
@@ -74,8 +75,7 @@ type PersonAttendanceInsight = {
 };
 
 function localToday(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return formatCompanyDate(new Date(), 'yyyy-MM-dd');
 }
 
 function monthBounds(month: string): { start: string; end: string } {
@@ -132,7 +132,7 @@ function personDayToCalendarDay(day: PersonAttendanceDay): MyAttendanceDayV2 {
     isToday: day.date === localToday(),
     isFuture,
     isInProgress: day.date === localToday() && !!day.punchInAt && !day.punchOutAt,
-    presenceMinutes: day.workingMinutes,
+    presenceMinutes: day.presenceMinutes ?? day.workingMinutes,
     requiredMinutes: null,
     workedMinutes: day.workingMinutes,
     breakMinutes: day.breakMinutes,
@@ -227,14 +227,14 @@ export function HomeCalendarPanel() {
   const activeMonthDays = viewingAnotherPerson ? selectedPersonDays : monthQuery?.data?.month.days ?? [];
   const activeMonthLoading = viewingAnotherPerson ? selectedPersonQuery.isLoading : !!monthQuery?.isLoading;
   const activeMonthError = viewingAnotherPerson ? selectedPersonQuery.isError : !!monthQuery?.isError;
-  const selectedWorkedDays = selectedPersonDays.filter((day) => day.punchInAt && day.workedMinutes != null);
+  const selectedWorkedDays = selectedPersonDays.filter((day) => day.punchInAt && !day.isInProgress && day.presenceMinutes != null);
   const selectedAverageWorkingMinutes = selectedWorkedDays.length
-    ? selectedWorkedDays.reduce((sum, day) => sum + (day.workedMinutes ?? 0), 0) / selectedWorkedDays.length
+    ? selectedWorkedDays.reduce((sum, day) => sum + (day.presenceMinutes ?? 0), 0) / selectedWorkedDays.length
     : null;
   const selectedAverageBreakMinutes = selectedWorkedDays.length
     ? selectedWorkedDays.reduce((sum, day) => sum + (day.breakMinutes ?? 0), 0) / selectedWorkedDays.length
     : null;
-  const ownWorkedDaysForBreak = (monthQuery?.data?.month.days ?? []).filter((day) => !!day.punchInAt && !day.isFuture);
+  const ownWorkedDaysForBreak = (monthQuery?.data?.month.days ?? []).filter((day) => !!day.punchInAt && !day.isFuture && !day.isInProgress);
   const ownAverageBreakMinutes = ownWorkedDaysForBreak.length
     ? ownWorkedDaysForBreak.reduce((sum, day) => sum + (day.breakMinutes ?? 0), 0) / ownWorkedDaysForBreak.length
     : null;
@@ -247,8 +247,6 @@ export function HomeCalendarPanel() {
     retryDelay: transientQueryRetryDelay,
   });
   const punches = useMemo(() => evidenceByDate(evidence.data), [evidence.data]);
-
-  const week: WeekWindow = useMemo(() => pickWeek(today, attendanceByDate), [today, attendanceByDate]);
 
   const latestCalendarMonth = shiftMonth(monthOf(today), 12);
   const canGoNext = month < latestCalendarMonth;
@@ -340,19 +338,18 @@ export function HomeCalendarPanel() {
       </div>
 
       <AttendanceSide
-        week={week}
         monthLabel={monthLabel(y, m)}
         monthDays={activeMonthDays}
         monthLoading={activeMonthLoading}
         monthFailed={activeMonthError}
         byDate={activeAttendanceByDate}
         metricsOverride={viewingAnotherPerson && selectedPersonQuery.data ? {
-          daysWorked: selectedPersonDays.filter((day) => !!day.punchInAt).length,
+          daysWorked: selectedWorkedDays.length,
           avgWorkMinutes: selectedAverageWorkingMinutes,
-          totalWorkMinutes: selectedPersonDays.reduce((sum, day) => sum + (day.workedMinutes ?? 0), 0),
+          totalWorkMinutes: selectedWorkedDays.reduce((sum, day) => sum + (day.presenceMinutes ?? 0), 0),
           avgPunchInMinutes: selectedPersonQuery.data.workday.punchInMinute,
           avgPunchOutMinutes: selectedPersonQuery.data.workday.punchOutMinute,
-          totalBreakMinutes: selectedPersonDays.reduce((sum, day) => sum + (day.breakMinutes ?? 0), 0),
+          totalBreakMinutes: selectedWorkedDays.reduce((sum, day) => sum + (day.breakMinutes ?? 0), 0),
           onTimeFullDays: 0,
         } : undefined}
         averageBreakMinutes={viewingAnotherPerson ? selectedAverageBreakMinutes : ownAverageBreakMinutes}
@@ -877,10 +874,6 @@ function PersonalLeaveUsageModal({ userId, personName, today, isIntern, isOwn, o
 
 // ── Side KPIs ────────────────────────────────────────────────────────────────
 
-function weekName(week: WeekWindow) {
-  return week.kind === 'this' ? 'This week' : 'Last week';
-}
-
 function KpiScoreMetric({ label, value, icon, detail, full = false, onClick, selected = false }: {
   label: string;
   value: string;
@@ -950,8 +943,7 @@ function AttendanceKpiScore({ current, averageBreakMinutes, monthLabel: selected
   );
 }
 
-function AttendanceSide({ week, monthLabel: selectedMonthLabel, monthDays, monthLoading, monthFailed, byDate, metricsOverride, averageBreakMinutes, selectedMetric, onSelectMetric }: {
-  week: WeekWindow;
+function AttendanceSide({ monthLabel: selectedMonthLabel, monthDays, monthLoading, monthFailed, byDate, metricsOverride, averageBreakMinutes, selectedMetric, onSelectMetric }: {
   monthLabel: string;
   monthDays: MyAttendanceDayV2[];
   monthLoading: boolean;
@@ -962,10 +954,15 @@ function AttendanceSide({ week, monthLabel: selectedMonthLabel, monthDays, month
   selectedMetric: AttendanceFilter | null;
   onSelectMetric: (filter: AttendanceKpiFilter) => void;
 }) {
-  const current = metricsOverride ?? attendanceWeek(week.start, week.end, byDate);
+  // Self and hierarchy views use the same selected-month window. Previously
+  // self used a week while another employee used a month, so identical records
+  // produced different figures depending on who viewed them.
+  const current = metricsOverride ?? (monthDays.length
+    ? attendanceWeek(monthDays[0].date, monthDays[monthDays.length - 1].date, byDate)
+    : attendanceWeek('9999-12-31', '0000-01-01', byDate));
 
   return (
-    <aside className={s.side} aria-label={`${weekName(week)} attendance`}>
+    <aside className={s.side} aria-label={`${selectedMonthLabel} attendance`}>
       <AttendanceKpiScore
         current={current}
         averageBreakMinutes={averageBreakMinutes}

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { animate, splitText, stagger } from 'animejs';
 import { ArrowLeft, Coffee, Play, UsersRound } from 'lucide-react';
 import { ModalPortal } from '@/components/ui/ModalPortal';
@@ -31,6 +31,11 @@ export function WorkPauseOverlay({ kind, elapsedMinutes, plannedMinutes, resumin
   const layerRef = useRef<HTMLElement | null>(null);
   const wordRef = useRef<HTMLHeadingElement | null>(null);
   const isMeeting = kind === 'meeting';
+  const [resumeConfirmationPending, setResumeConfirmationPending] = useState(false);
+
+  useEffect(() => {
+    setResumeConfirmationPending(false);
+  }, [kind]);
 
   useEffect(() => {
     const target = wordRef.current;
@@ -117,7 +122,7 @@ export function WorkPauseOverlay({ kind, elapsedMinutes, plannedMinutes, resumin
                   Back to Apex
                 </button>
               )}
-              <button type="button" className={styles.meetingResume} onClick={onResume} disabled={resuming} autoFocus>
+              <button type="button" className={styles.meetingResume} onClick={onResume} disabled={resuming}>
                 <Play size={17} fill="currentColor" aria-hidden="true" />
                 {resuming ? 'Resuming…' : 'Resume Work'}
               </button>
@@ -131,9 +136,18 @@ export function WorkPauseOverlay({ kind, elapsedMinutes, plannedMinutes, resumin
         </div>
 
         {!isMeeting && (
-          <button type="button" className={styles.resume} onClick={onResume} disabled={resuming} autoFocus>
+          <button
+            type="button"
+            className={styles.resume}
+            onClick={() => {
+              if (resumeConfirmationPending) onResume();
+              else setResumeConfirmationPending(true);
+            }}
+            disabled={resuming}
+            aria-label={resumeConfirmationPending ? 'Confirm resume work and end break' : 'Resume work'}
+          >
             <Play size={17} fill="currentColor" aria-hidden="true" />
-            {resuming ? 'Resuming…' : 'Resume Work'}
+            {resuming ? 'Resuming…' : resumeConfirmationPending ? 'Click again to resume' : 'Resume Work'}
           </button>
         )}
       </section>

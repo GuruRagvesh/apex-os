@@ -1,5 +1,6 @@
 import type { MyAttendanceDayV2 } from '../my-attendance-v2-api';
 import type { HomeProductivityDay } from './home-insights-api';
+import { formatCompanyDate } from '../../../lib/company-date';
 
 /**
  * Pure date and scoring rules for the Home calendar panel.
@@ -106,7 +107,7 @@ export interface AttendanceWeek {
 
 function minutesOfDay(iso: string): number {
   const d = new Date(iso);
-  return d.getHours() * 60 + d.getMinutes();
+  return Number(formatCompanyDate(d, 'H')) * 60 + Number(formatCompanyDate(d, 'm'));
 }
 
 export function attendanceWeek(from: string, to: string, byDate: Map<string, MyAttendanceDayV2>): AttendanceWeek {
@@ -121,12 +122,16 @@ export function attendanceWeek(from: string, to: string, byDate: Map<string, MyA
   for (const date of datesBetween(from, to)) {
     const day = byDate.get(date);
     if (!day || day.isFuture || !day.punchInAt) continue;
+    // A running day is only a partial observation. Including it in a daily
+    // average makes the figure collapse after punch-in and then climb minute by
+    // minute for the rest of the day. Punch-in averages may use it immediately,
+    // but duration averages only use completed days.
     const presence = day.presenceMinutes ?? day.workedMinutes;
-    if (presence != null) {
+    if (!day.isInProgress && presence != null) {
       daysWorked += 1;
       totalWorkMinutes += presence;
+      totalBreakMinutes += day.breakMinutes ?? 0;
     }
-    totalBreakMinutes += day.breakMinutes ?? 0;
     punchSum += minutesOfDay(day.punchInAt);
     punchCount += 1;
     if (day.punchOutAt) {
