@@ -144,6 +144,8 @@ interface RigOptions {
   correction?: any;
   /** Several, when the test is about WHICH one governs. */
   corrections?: any[];
+  /** attendance_v2.punchEvidenceRequiredFrom, when the test is about the cut-over. */
+  punchEvidenceRequiredFrom?: string;
 }
 
 function rig(opts: RigOptions = {}) {
@@ -183,6 +185,11 @@ function rig(opts: RigOptions = {}) {
       ),
     },
     user: { update: jest.fn() },
+    appSetting: {
+      findUnique: jest.fn().mockResolvedValue(
+        opts.punchEvidenceRequiredFrom ? { key: 'attendance_v2', value: { punchEvidenceRequiredFrom: opts.punchEvidenceRequiredFrom } } : null,
+      ),
+    },
   };
 
   const tva = new TVAService({ get: () => undefined } as unknown as ConfigService);
@@ -467,14 +474,17 @@ describe('AE-1 leave integration', () => {
     expect(r.evaluationState).toBe('NEEDS_REVIEW');
   });
 
-  it('10e. classifies four hours as short hours unless half-day leave was approved', async () => {
+  it('10e. four hours without approved leave is an unplanned half day, half unpaid', async () => {
     const { service } = rig({
       evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('14:00'))],
     });
     const r = await service.evaluate('emp-1', DATE);
-    expect(r.status).toBe('PRESENT');
+    expect(r.status).toBe('HALF_DAY');
     expect(r.exceptionFlags).toEqual([]);
-    expect(r.calculationReason).toBe('REFINED_SHORT_DAY');
+    expect(r.evaluationState).toBe('CALCULATED');
+    expect(r.calculationReason).toBe('REFINED_HALF_DAY');
+    expect(r.lwpDeducted).toBe(0.5);
+    expect(r.leaveDeducted).toBe(0);
   });
 
   it('10f. an approved half day without a validated session cannot bypass punch review', async () => {
@@ -525,18 +535,17 @@ describe('AE-1 leave integration', () => {
 });
 
 describe('AE-1 missing evidence', () => {
-  it('13. a working day with no punch and no leave needs review, not ABSENT', async () => {
+  it('13. a working day with no punch and no leave is ABSENT, one day unpaid', async () => {
     const { service } = rig({ evidence: [], sessions: [] });
 
     const r = await service.evaluate('emp-1', DATE);
 
-    expect(r.status).toBe('MISSING_PUNCH');
-    expect(r.status).not.toBe('ABSENT');
-    expect(r.evaluationState).toBe('NEEDS_REVIEW');
+    expect(r.status).toBe('ABSENT');
+    expect(r.evaluationState).toBe('CALCULATED');
     expect(r.calculationReason).toBe('NO_EVIDENCE_ON_WORKING_DAY');
     expect(r.exceptionFlags).toContain('NO_ATTENDANCE_EVIDENCE');
     expect(r.leaveDeducted).toBe(0);
-    expect(r.lwpDeducted).toBe(0);
+    expect(r.lwpDeducted).toBe(1);
   });
 
   it('14. a punch in with no punch out needs review and fabricates no end time', async () => {
@@ -579,22 +588,22 @@ describe('AE-1 location and photo exceptions', () => {
       sessions: [COMPLETE_SESSION],
     });
 
-  it('16. OUTSIDE_GEOFENCE is an exception, never automatic absence', async () => {
+  it('16. OUTSIDE_GEOFENCE is recorded and the day counts normally', async () => {
     const r = await withVerification('OUTSIDE_GEOFENCE').service.evaluate('emp-1', DATE);
 
     expect(r.exceptionFlags).toContain('LOCATION_OUTSIDE_GEOFENCE');
-    expect(r.evaluationState).toBe('NEEDS_REVIEW');
+    expect(r.evaluationState).toBe('CALCULATED');
     expect(r.status).toBe('PRESENT');
     expect(r.status).not.toBe('ABSENT');
     expect(r.lwpDeducted).toBe(0);
     expect(r.leaveDeducted).toBe(0);
   });
 
-  it('17. LOW_ACCURACY is an exception', async () => {
+  it('17. LOW_ACCURACY is recorded and the day counts normally', async () => {
     const r = await withVerification('LOW_ACCURACY').service.evaluate('emp-1', DATE);
 
     expect(r.exceptionFlags).toContain('LOCATION_LOW_ACCURACY');
-    expect(r.evaluationState).toBe('NEEDS_REVIEW');
+    expect(r.evaluationState).toBe('CALCULATED');
     expect(r.status).toBe('PRESENT');
   });
 
@@ -657,10 +666,10 @@ describe('AE-1 undecided policy rules', () => {
     expect(r.status).toBe('PRESENT');
   });
 
-  it('23. a five-hour span is short hours, not an automatic half day', async () => {
+  it('23. a seven-hour span is short hours, not a half day', async () => {
     const { service } = rig({
-      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('15:00'))],
-      sessions: [{ ...COMPLETE_SESSION, logoutAt: ist('15:00'), totalWorkMinutes: 270 }],
+      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('17:00'))],
+      sessions: [{ ...COMPLETE_SESSION, logoutAt: ist('17:00'), totalWorkMinutes: 390 }],
     });
 
     const r = await service.evaluate('emp-1', DATE);
@@ -678,8 +687,8 @@ describe('AE-1 undecided policy rules', () => {
       ctx: context({
         attendancePolicy: { insufficientHoursAction: 'MARK_HALF_DAY', automaticHalfDayEnabled: false },
       }),
-      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('15:00'))],
-      sessions: [{ ...COMPLETE_SESSION, logoutAt: ist('15:00'), totalWorkMinutes: 270 }],
+      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('17:00'))],
+      sessions: [{ ...COMPLETE_SESSION, logoutAt: ist('17:00'), totalWorkMinutes: 390 }],
     });
 
     const r = await service.evaluate('emp-1', DATE);
@@ -694,8 +703,8 @@ describe('AE-1 undecided policy rules', () => {
       ctx: context({
         attendancePolicy: { insufficientHoursAction: 'MARK_HALF_DAY', automaticHalfDayEnabled: true },
       }),
-      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('15:00'))],
-      sessions: [{ ...COMPLETE_SESSION, logoutAt: ist('15:00'), totalWorkMinutes: 270 }],
+      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('17:00'))],
+      sessions: [{ ...COMPLETE_SESSION, logoutAt: ist('17:00'), totalWorkMinutes: 390 }],
     });
 
     const r = await service.evaluate('emp-1', DATE);
@@ -708,8 +717,8 @@ describe('AE-1 undecided policy rules', () => {
       ctx: context({
         attendancePolicy: { insufficientHoursAction: 'DEDUCT_FULL_PAID_LEAVE' },
       }),
-      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('15:00'))],
-      sessions: [{ ...COMPLETE_SESSION, logoutAt: ist('15:00'), totalWorkMinutes: 270 }],
+      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('17:00'))],
+      sessions: [{ ...COMPLETE_SESSION, logoutAt: ist('17:00'), totalWorkMinutes: 390 }],
     });
 
     const r = await service.evaluate('emp-1', DATE);
@@ -806,7 +815,8 @@ describe('staging 09:30-10:30 punch-in window and employee-relative span', () =>
     expect(result.status).toBe('PRESENT');
     expect(result.calculationReason).toBe('REFINED_SHORT_DAY');
     expect(result.leaveDeducted).toBe(0);
-    expect(result.lwpDeducted).toBeCloseTo(1 / 3);
+    // Short hours are flagged, never deducted.
+    expect(result.lwpDeducted).toBe(0);
   });
 
   it('10:31 to 19:00 keeps late and short-hours facts independently', async () => {
@@ -1210,19 +1220,87 @@ describe('AE-1 canonical figures', () => {
 
   // -- The exposure must not have moved any judgment ---------------------
   it('F12. exposing the figures changed no shortfall judgment', async () => {
-    // 300 minutes of presence against a 540 requirement: short, and the policy
-    // defers, so the day must still arrive at review rather than a verdict.
+    // 420 minutes of presence against a 540 requirement: short hours, a
+    // calculated verdict with no deduction.
     const { service } = rig({
-      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('15:00'))],
-      sessions: [{ ...COMPLETE_SESSION, logoutAt: ist('15:00'), totalWorkMinutes: 270 }],
+      evidence: [punch('PUNCH_IN', ist('10:00')), punch('PUNCH_OUT', ist('17:00'))],
+      sessions: [{ ...COMPLETE_SESSION, logoutAt: ist('17:00'), totalWorkMinutes: 390 }],
     });
     const r = await service.evaluate('emp-1', DATE);
 
-    expect(r.presenceMinutes).toBe(300);
+    expect(r.presenceMinutes).toBe(420);
     expect(r.requiredMinutes).toBe(540);
     expect(r.exceptionFlags).toEqual([]);
     expect(r.status).toBe('PRESENT');
     expect(r.calculationReason).toBe('REFINED_SHORT_DAY');
     expect(r.evaluationState).toBe('CALCULATED');
+  });
+});
+
+describe('confirmed attendance rules (2026-10-31)', () => {
+  const span = async (from: string, to: string) =>
+    rig({ evidence: [punch('PUNCH_IN', ist(from)), punch('PUNCH_OUT', ist(to))] }).service.evaluate('emp-1', DATE);
+
+  it('nine hours first punch-in to last punch-out, breaks included, is Present', async () => {
+    const r = await span('09:30', '18:30');
+    expect(r).toMatchObject({ status: 'PRESENT', calculationReason: 'REFINED_FULL_DAY', evaluationState: 'CALCULATED', lwpDeducted: 0 });
+  });
+
+  it('five hours or less is a half day; just over five hours is short hours', async () => {
+    expect((await span('11:30', '16:30')).status).toBe('HALF_DAY');
+    const short = await span('11:29', '16:30');
+    expect(short).toMatchObject({ status: 'PRESENT', calculationReason: 'REFINED_SHORT_DAY', lwpDeducted: 0 });
+  });
+
+  it('arriving at or after 1:00 PM is a half day', async () => {
+    expect((await span('13:00', '20:00')).status).toBe('HALF_DAY');
+    expect((await span('12:59', '20:00')).calculationReason).toBe('REFINED_SHORT_DAY');
+  });
+
+  it('leaving at or before 4:00 PM without nine hours is a half day', async () => {
+    expect((await span('09:30', '16:00')).status).toBe('HALF_DAY');
+    expect((await span('09:30', '16:01')).calculationReason).toBe('REFINED_SHORT_DAY');
+  });
+
+  it('a punch-in after the last punch-out leaves the departure unknown: Needs Review', async () => {
+    const r = await rig({
+      evidence: [punch('PUNCH_IN', ist('09:30')), punch('PUNCH_OUT', ist('13:00')), punch('PUNCH_IN', ist('14:00'))],
+      sessions: [{ ...COMPLETE_SESSION, autoClosed: true, logoutAt: ist('21:00') }],
+    }).service.evaluate('emp-1', DATE);
+    expect(r).toMatchObject({ status: 'MISSING_PUNCH', evaluationState: 'NEEDS_REVIEW', punchOutAt: null });
+    expect(r.exceptionFlags).toContain('MISSING_PUNCH_OUT');
+  });
+
+  it('a punch-out with no punch-in is Needs Review', async () => {
+    const r = await rig({ evidence: [punch('PUNCH_OUT', ist('18:30'))], sessions: [COMPLETE_SESSION] }).service.evaluate('emp-1', DATE);
+    expect(r).toMatchObject({ status: 'MISSING_PUNCH', evaluationState: 'NEEDS_REVIEW', punchInAt: null });
+  });
+
+  describe('Start Work / End Work sessions with no punch', () => {
+    const sessionOnly = (punchEvidenceRequiredFrom?: string, session: any = COMPLETE_SESSION) =>
+      rig({ evidence: [], sessions: [session], punchEvidenceRequiredFrom }).service.evaluate('emp-1', DATE);
+
+    it('before photo punches went live, the session times decide the day', async () => {
+      const r = await sessionOnly('2026-09-01');
+      expect(r).toMatchObject({ status: 'PRESENT', calculationReason: 'REFINED_FULL_DAY', evaluationState: 'CALCULATED' });
+      expect(r.punchInAt).toEqual(ist('10:00'));
+      expect(r.punchOutAt).toEqual(ist('19:30'));
+    });
+
+    it('before go-live, a 21:00 auto-close is never a punch-out', async () => {
+      const r = await sessionOnly('2026-09-01', { ...COMPLETE_SESSION, autoClosed: true, logoutAt: ist('21:00') });
+      expect(r).toMatchObject({ status: 'MISSING_PUNCH', evaluationState: 'NEEDS_REVIEW', punchOutAt: null });
+    });
+
+    it('from go-live, a session is not attendance evidence: Absent', async () => {
+      const r = await sessionOnly(DATE);
+      expect(r).toMatchObject({ status: 'ABSENT', evaluationState: 'CALCULATED', lwpDeducted: 1 });
+    });
+
+    it('with no go-live date configured, the day waits for review', async () => {
+      const r = await sessionOnly(undefined);
+      expect(r.evaluationState).toBe('NEEDS_REVIEW');
+      expect(r.exceptionFlags).toContain('MISSING_PUNCH');
+    });
   });
 });

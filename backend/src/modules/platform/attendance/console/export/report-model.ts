@@ -138,6 +138,18 @@ export interface ReportPunchFacts {
   businessDate: BusinessDate;
   type: 'PUNCH_IN' | 'PUNCH_OUT' | string;
   at: Date;
+  /** Where the punch was captured, as stored on the evidence row. Null when none was stored. */
+  location?: ReportPunchLocation | null;
+}
+
+export interface ReportPunchLocation {
+  latitude: number;
+  longitude: number;
+  /** PunchLocationVerification: VERIFIED, NOT_ENFORCED, OUTSIDE_GEOFENCE, ... */
+  verification: string | null;
+  distanceMeters: number | null;
+  /** The approved attendance location the punch was checked against, if any. */
+  placeName: string | null;
 }
 
 /** Everything the assembler reads, gathered once from one snapshot. */
