@@ -483,7 +483,7 @@ export class MeetingV2Service {
       include: { breakLogs: { where: { endAt: null } } },
     });
     if (session?.breakLogs.some((b) => b.breakType === 'MEETING')) throw new ConflictException('You are already in a meeting.');
-    if (session?.status === 'ON_BREAK') await this.workday.endBreak(userId);
+    if (session?.status === 'ON_BREAK') await this.workday.endBreak(userId, 'MEETING_JOIN');
 
     if (!session) {
       await this.prisma.meetingParticipant.update({ where: { id: participant.id }, data: { status: 'ACCEPTED', respondedAt: now } });
@@ -501,7 +501,7 @@ export class MeetingV2Service {
   async leave(userId: string, meetingId: string) {
     const open = await this.prisma.breakLog.findFirst({ where: { userId, meetingId, breakType: 'MEETING', endAt: null } });
     if (!open) throw new ConflictException('You are not in this meeting.');
-    const result = await this.workday.endBreak(userId);
+    const result = await this.workday.endBreak(userId, 'MEETING_LEAVE');
     await this.prisma.meetingParticipant.updateMany({ where: { meetingId, userId }, data: { status: 'LEFT', leftAt: new Date() } });
     await this.completeIfEmpty(meetingId);
     return result;
@@ -537,7 +537,7 @@ export class MeetingV2Service {
     if (meeting.organizerId !== userId) throw new ForbiddenException('Only the person who started the meeting can cancel it.');
     if (meeting.status !== 'IN_PROGRESS') throw new ConflictException('This meeting has already ended.');
     const open = await this.prisma.breakLog.findMany({ where: { meetingId, breakType: 'MEETING', endAt: null }, select: { userId: true } });
-    for (const row of open) await this.workday.endBreak(row.userId);
+    for (const row of open) await this.workday.endBreak(row.userId, 'MEETING_CANCEL');
     const now = new Date();
     await this.prisma.$transaction([
       this.prisma.breakLog.updateMany({ where: { meetingId }, data: { source: MEETING_CANCELLED_SOURCE } }),
