@@ -738,7 +738,12 @@ const EXPLANATION: Record<string, string> = {
     'Your approved leave is partly paid and partly unpaid, so this day is being reviewed.',
   COMPLETE_WORKDAY: 'A complete workday was recorded.',
   WORKDAY_IN_PROGRESS: 'Your workday is still open.',
-  NO_EVIDENCE_ON_WORKING_DAY: 'No attendance evidence was recorded for this working day.',
+  NO_EVIDENCE_ON_WORKING_DAY:
+    'No punch was recorded for this working day, so it is marked absent. Raise a correction if you were at work.',
+  REFINED_FULL_DAY: 'You completed nine hours from first punch-in to last punch-out.',
+  REFINED_HALF_DAY:
+    'This is a half day: five hours or less, a punch-in at or after 1:00 PM, or a punch-out at or before 4:00 PM.',
+  REFINED_SHORT_DAY: 'You were present for less than nine hours.',
   INCOMPLETE_PUNCH_PAIR: 'Your punch record for this day is incomplete.',
   POLICY_DECISION_DEFERRED: 'This day needs a review before its final status is set.',
   CORRECTED_WORKDAY: 'This day was corrected by an approved request.',

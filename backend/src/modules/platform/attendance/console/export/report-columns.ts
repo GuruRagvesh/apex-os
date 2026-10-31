@@ -46,6 +46,8 @@ export const DAILY_COLUMNS: readonly ReportColumn[] = [
   { key: 'punchOut', header: 'Punch Out', type: 'time', width: 10 },
   { key: 'presenceHours', header: 'Total Presence Hours', type: 'hours', width: 12 },
   { key: 'workHours', header: 'Total Work Hours', type: 'hours', width: 12 },
+  { key: 'punchInLocation', header: 'Punch In Location', type: 'text', width: 36 },
+  { key: 'punchOutLocation', header: 'Punch Out Location', type: 'text', width: 36 },
   { key: 'breakHours', header: 'Total Break Hours', type: 'hours', width: 12 },
   { key: 'meetingHours', header: 'Meeting Hours', type: 'hours', width: 11 },
   { key: 'meetingVerification', header: 'Meeting Verification Status', type: 'text', width: 16 },

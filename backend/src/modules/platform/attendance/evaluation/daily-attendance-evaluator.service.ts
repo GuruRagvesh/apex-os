@@ -24,7 +24,8 @@ import {
   type EvaluationState,
   type LeaveDayFacts,
 } from './daily-attendance.types';
-import { classifyRefinedAttendance } from './refined-attendance-policy';
+import { classifyRefinedAttendance, DEFAULT_HALF_DAY_ARRIVAL_MINUTES } from './refined-attendance-policy';
+import { ATTENDANCE_V2_SETTING_KEY } from '../punch/punch-evidence.types';
 
 /**
  * The Daily Attendance Evaluator (AE-1).
@@ -502,8 +503,25 @@ export class DailyAttendanceEvaluatorService {
     }
 
     const punchIn = evidence.find((e) => e.type === 'PUNCH_IN') ?? null;
-    const punchOut = [...evidence].reverse().find((e) => e.type === 'PUNCH_OUT') ?? null;
+    // The day's departure is the final punch-out, and only when nothing was
+    // punched in after it: a later punch-in means the real departure is unknown.
+    const lastIn = [...evidence].reverse().find((e) => e.type === 'PUNCH_IN') ?? null;
+    const lastOut = [...evidence].reverse().find((e) => e.type === 'PUNCH_OUT') ?? null;
+    const punchOut =
+      lastOut && (!lastIn || lastOut.serverOccurredAt > lastIn.serverOccurredAt) ? lastOut : null;
     const workSessionIds = sessions.map((s) => s.id);
+
+    // Start Work / End Work sessions are attendance evidence only for days
+    // before photo + location punches became compulsory. On and after that
+    // date they are not; with no date configured a session-only day is left
+    // for review rather than guessed either way.
+    const sessionEvidence = evidence.length > 0 ? 'NOT_NEEDED' : await this.sessionEvidenceRule(businessDate, client);
+    const sessionsCount = sessionEvidence === 'COUNTS' || sessionEvidence === 'REVIEW';
+    const lastSession = sessions[sessions.length - 1];
+    const sessionIn = sessionsCount ? sessions.find((x) => !!x.startWorkAt)?.startWorkAt ?? null : null;
+    // The 21:00 auto-close is never a real departure.
+    const sessionOut =
+      sessionsCount && lastSession?.logoutAt && !lastSession.autoClosed ? lastSession.logoutAt : null;
 
     // An approved correction supplies the official punch times the raw evidence
     // could not. Applied HERE, before the branches, so a supplied punch-out
@@ -537,8 +555,8 @@ export class DailyAttendanceEvaluatorService {
         context,
         leave,
         flags,
-        punchInAt: correctedIn ?? punchIn?.serverOccurredAt ?? sessions[0]?.startWorkAt ?? null,
-        punchOutAt: correctedOut ?? punchOut?.serverOccurredAt ?? null,
+        punchInAt: correctedIn ?? punchIn?.serverOccurredAt ?? sessionIn,
+        punchOutAt: correctedOut ?? punchOut?.serverOccurredAt ?? sessionOut,
         punchInEvidenceId: punchIn?.id ?? null,
         punchOutEvidenceId: punchOut?.id ?? null,
         workSessionIds,
@@ -552,10 +570,12 @@ export class DailyAttendanceEvaluatorService {
     }
 
     // ── No evidence at all ───────────────────────────────────────────────
-    // No punch, no session, no approved leave, on a day the company expected
-    // work. That is a factual exception, and there is no policy field today
-    // that authorises turning it into an automatic ABSENT.
-    if (!punchIn && sessions.length === 0 && !isCorrected) {
+    // No punch, no approved leave and no correction on a day the company
+    // expected work is ABSENT, one full day unpaid. Start Work sessions do not
+    // count here once punches are compulsory. The employee can still raise a
+    // correction, which re-evaluates the day.
+    const hasSessionEvidence = sessionsCount && sessions.length > 0;
+    if (evidence.length === 0 && !hasSessionEvidence && !isCorrected) {
       flags.push('NO_ATTENDANCE_EVIDENCE');
       // Phase 3: the three-day unreported-absence rule already decided this
       // day (and HR has not corrected it). Re-evaluation keeps that decision
@@ -583,14 +603,15 @@ export class DailyAttendanceEvaluatorService {
         userId,
         businessDate,
         context,
-        status: 'MISSING_PUNCH',
+        status: 'ABSENT',
         reason: 'NO_EVIDENCE_ON_WORKING_DAY',
         flags,
-        forceReview: true,
         // No punch pair exists, so presence cannot be measured. The requirement
         // that would have governed the day is still reportable.
         presenceMinutes: null,
         requiredMinutes: requiredPresenceMinutes,
+        lwpDeducted: 1,
+        workSessionIds,
         leaveRequestId: leave.leaveRequestId,
       });
     }
@@ -602,8 +623,8 @@ export class DailyAttendanceEvaluatorService {
     let workedMinutes = closed.reduce((n, s) => n + (s.totalWorkMinutes ?? 0), 0);
     const breakMinutes = closed.reduce((n, s) => n + (s.totalBreakMinutes ?? 0), 0);
 
-    const punchInAt = correctedIn ?? punchIn?.serverOccurredAt ?? sessions[0]?.startWorkAt ?? null;
-    const punchOutAt = correctedOut ?? punchOut?.serverOccurredAt ?? null;
+    const punchInAt = correctedIn ?? punchIn?.serverOccurredAt ?? sessionIn;
+    const punchOutAt = correctedOut ?? punchOut?.serverOccurredAt ?? sessionOut;
     // The ONE place official worked time is derived rather than read. A
     // correction is a statement that the recorded session is wrong, so there is
     // no engine total to trust -- the corrected span minus the breaks the
@@ -645,10 +666,13 @@ export class DailyAttendanceEvaluatorService {
     }
 
     // ── Incomplete punch pair ────────────────────────────────────────────
-    // The session closed (possibly by the auto-close scheduler) but the
-    // employee never punched out. No end time is fabricated.
-    if (punchIn && !punchOut && !correctedOut) {
-      flags.push('MISSING_PUNCH_OUT');
+    // Only one side of the pair exists: the session closed (possibly by the
+    // auto-close scheduler) without a punch-out, or a punch-out has no
+    // punch-in. No missing time is fabricated, and a human decides the day --
+    // unless an approved correction already decided its status outright.
+    const incompletePair = !punchInAt || !punchOutAt;
+    if (incompletePair && !correction?.proposedStatus) {
+      flags.push(punchInAt ? 'MISSING_PUNCH_OUT' : 'MISSING_PUNCH');
       return this.build({
         userId,
         businessDate,
@@ -666,16 +690,16 @@ export class DailyAttendanceEvaluatorService {
         // right edge and cannot be measured.
         presenceMinutes: null,
         requiredMinutes: requiredPresenceMinutes,
-        punchInEvidenceId: punchIn.id,
+        punchInEvidenceId: punchIn?.id ?? null,
+        punchOutEvidenceId: punchOut?.id ?? null,
         workSessionIds,
         leaveRequestId: leave.leaveRequestId,
       });
     }
 
-    // A closed session with no punch evidence at all: the workday happened
-    // through the legacy controls, which is normal while the punch feature is
-    // off. Not an exception, but there is no punch pair to judge.
-    if (!punchIn) {
+    // A session-only day with no cut-over date configured: the times are
+    // shown, but whether they count is a question for a human.
+    if (sessionEvidence === 'REVIEW' && !isCorrected) {
       flags.push('MISSING_PUNCH');
     }
 
@@ -741,7 +765,8 @@ export class DailyAttendanceEvaluatorService {
         punchInMinutes: localTimeMinutes(punchInAt),
         punchOutMinutes: localTimeMinutes(punchOutAt),
         requiredMinutes: requiredSpan,
-        halfDayMaximumMinutes: policy?.halfDayMaximumMinutes ?? 270,
+        halfDayMaximumMinutes: policy?.halfDayMaximumMinutes ?? 300,
+        halfDayArrivalMinutes: (policy as any)?.halfDayArrivalMinutes ?? DEFAULT_HALF_DAY_ARRIVAL_MINUTES,
         lateArrivalBoundaryMinutes: policy?.lateArrivalBoundaryMinutes ?? 630,
         fullHalfDayCompletionMinutes: policy?.fullHalfDayCompletionMinutes ?? 1110,
         earlyCheckoutBoundaryMinutes: policy?.earlyCheckoutBoundaryMinutes ?? 960,
@@ -749,13 +774,19 @@ export class DailyAttendanceEvaluatorService {
       if (refined === 'FULL_DAY') {
         status = 'PRESENT';
         reason = 'REFINED_FULL_DAY';
+      } else if (refined === 'HALF_DAY') {
+        // An unplanned half day: the other half is unpaid. Leave balances are
+        // never touched without the employee asking for leave.
+        status = 'HALF_DAY';
+        reason = 'REFINED_HALF_DAY';
+        lwpDeducted = 0.5;
       } else {
         // Short presence and late arrival are independent facts. Keep the day
         // present and let the V2 contract expose the short-hours modifier;
         // lateMinutes independently adds LATE only after the 10:30 cutoff.
+        // Short hours are flagged, never deducted.
         status = 'PRESENT';
         reason = 'REFINED_SHORT_DAY';
-        lwpDeducted = policy?.shortDayPayDeduction ?? (1 / 3);
       }
     } else {
 
@@ -842,6 +873,22 @@ export class DailyAttendanceEvaluatorService {
   // ───────────────────────────────────────────────────────────────────────
   // Helpers
   // ───────────────────────────────────────────────────────────────────────
+
+  /**
+   * Whether Start Work / End Work sessions may stand in for punches on a date.
+   * `attendance_v2.punchEvidenceRequiredFrom` (yyyy-MM-dd) is the day photo +
+   * location punches became compulsory: before it sessions COUNT, from it they
+   * are NOT_EVIDENCE, and with no date set a session-only day goes to REVIEW.
+   */
+  private async sessionEvidenceRule(
+    businessDate: string,
+    client: any,
+  ): Promise<'COUNTS' | 'NOT_EVIDENCE' | 'REVIEW'> {
+    const row = await client.appSetting?.findUnique?.({ where: { key: ATTENDANCE_V2_SETTING_KEY } });
+    const from = (row?.value as any)?.punchEvidenceRequiredFrom;
+    if (typeof from !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(from)) return 'REVIEW';
+    return businessDate < from ? 'COUNTS' : 'NOT_EVIDENCE';
+  }
 
   /**
    * Translates a configured PolicyDecisionAction into an outcome.

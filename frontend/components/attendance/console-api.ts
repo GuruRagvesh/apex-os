@@ -140,6 +140,41 @@ export async function getRegister(from?: string, to?: string): Promise<RegisterR
   return r(api.get('/attendance/console/register', { params: { from, to } }));
 }
 
+export interface RegisterEmployeeDay {
+  date: string;
+  status: string | null;
+  punchIn: string | null;
+  punchOut: string | null;
+  presenceHours: number | null;
+  workHours: number | null;
+  breakHours: number | null;
+  punchInLocation: string | null;
+  punchOutLocation: string | null;
+  lateArrival: string | null;
+  missingPunch: string | null;
+  schedule: string | null;
+  hrReview: string | null;
+  remarks: string | null;
+}
+
+export interface RegisterEmployeeDays {
+  month: string;
+  from: string;
+  to: string;
+  provisional: boolean;
+  userId: string;
+  name: string;
+  days: RegisterEmployeeDay[];
+}
+
+/**
+ * One employee's days in the register month: the same rows as the Daily
+ * Attendance sheet in the downloads, including punch-in and punch-out location.
+ */
+export async function getRegisterEmployeeDays(userId: string, from: string, to: string): Promise<RegisterEmployeeDays> {
+  return r(api.get(`/attendance/console/register/employee/${encodeURIComponent(userId)}`, { params: { from, to } }));
+}
+
 /**
  * Downloads the monthly attendance report through the AUTHENTICATED client.
  *
