@@ -14,6 +14,7 @@ import {
   type ReportMeetingFacts,
   type ReportOfficialDay,
   type ReportProfileFacts,
+  type ReportPunchFacts,
   type ReportSourceFacts,
 } from './report-model';
 
@@ -481,6 +482,8 @@ export function assembleMonthlyAttendanceReport(facts: ReportSourceFacts): Month
         leave: resolution.leave,
         punchIn: wallClock(resolution.punchInAt, facts.timezone),
         punchOut: wallClock(resolution.punchOutAt, facts.timezone),
+        punchInLocation: punchLocation(punchesByKey.get(k) ?? [], 'PUNCH_IN', resolution.punchInAt),
+        punchOutLocation: punchLocation(punchesByKey.get(k) ?? [], 'PUNCH_OUT', resolution.punchOutAt),
         presenceHours: hours(resolution.presenceMinutes),
         workHours: hours(workMinutes),
         breakHours: hours(resolution.breakMinutes),
@@ -769,6 +772,35 @@ function nonWorking(input: DayInput, state: DayState, schedule: string, coverage
     breakMinutes: worked.breakMinutes,
     missingPunch: worked.punchInAt && worked.punchOutAt ? '' : worked.punchInAt ? 'Punch-out missing' : 'Punch-in missing',
   });
+}
+
+const LOCATION_VERDICT: Record<string, string> = {
+  VERIFIED: 'Inside geofence',
+  NOT_ENFORCED: 'Geofence not enforced',
+  OUTSIDE_GEOFENCE: 'Outside geofence',
+  LOW_ACCURACY: 'Low GPS accuracy',
+  UNAVAILABLE: 'Location unavailable',
+  PENDING: 'Not verified',
+  NEEDS_REVIEW: 'Location needs review',
+};
+
+/**
+ * Where the punch printed in the row was captured. Matched to that punch by its
+ * exact time, so a location is never shown beside a time it does not belong to:
+ * a corrected time or a session-only day has no punch evidence and stays blank.
+ */
+function punchLocation(punches: ReportPunchFacts[], type: 'PUNCH_IN' | 'PUNCH_OUT', at: Date | null): string | null {
+  if (!at) return null;
+  const location = punches.find((p) => p.type === type && p.at.getTime() === at.getTime())?.location;
+  if (!location) return null;
+  const parts = [`${location.latitude.toFixed(6)}, ${location.longitude.toFixed(6)}`];
+  const verdict = location.verification ? LOCATION_VERDICT[location.verification] ?? location.verification : null;
+  if (verdict) {
+    const distance = location.distanceMeters === null ? '' : ` (${Math.round(location.distanceMeters)} m)`;
+    parts.push(`${verdict}${distance}`);
+  }
+  if (location.placeName) parts.unshift(location.placeName);
+  return parts.join(' - ');
 }
 
 function missingPunchOf(o: ReportOfficialDay): string {

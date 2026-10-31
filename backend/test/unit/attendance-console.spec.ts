@@ -1142,6 +1142,9 @@ describe('HC-1 review queue links back to existing sources', () => {
       // ordinary evaluator.
       'correctUnreportedAbsence',
       'detail',
+      // A read: one employee's rows of the same monthly report, for the
+      // register's daily view.
+      'employeeDays',
       'evaluate',
       // Phase 3: device sheet as CSV, a read of the same register result.
       'exportDevicesCsv',

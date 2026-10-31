@@ -24,6 +24,7 @@ import {
   monthRange,
   shiftMonth,
 } from './register-month';
+import { RegisterEmployeeDaysDrawer } from './RegisterEmployeeDaysDrawer';
 
 /**
  * HR / manager attendance console (HC-1).
@@ -84,6 +85,7 @@ export function AttendanceConsole({ embedded = false }: { embedded?: boolean } =
   const [downloadMenuOpen, setDownloadMenuOpen] = useState(false);
   const [downloading, setDownloading] = useState<'xlsx' | 'zip' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [openEmployee, setOpenEmployee] = useState<{ userId: string; name: string } | null>(null);
 
   const { data: access, isLoading: accessLoading } = useQuery({
     queryKey: ['console-access'],
@@ -306,7 +308,16 @@ export function AttendanceConsole({ embedded = false }: { embedded?: boolean } =
                   {register.employees.map((e) => (
                     <tr
                       key={e.userId}
-                      className="align-middle odd:bg-white even:bg-slate-50 transition hover:bg-blue-50 dark:odd:bg-slate-900 dark:even:bg-slate-900/70 dark:hover:bg-blue-950/20"
+                      onClick={() => setOpenEmployee({ userId: e.userId, name: e.name })}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setOpenEmployee({ userId: e.userId, name: e.name });
+                        }
+                      }}
+                      tabIndex={0}
+                      aria-label={`Open daily attendance for ${e.name}`}
+                      className="cursor-pointer align-middle odd:bg-white even:bg-slate-50 transition hover:bg-blue-50 dark:odd:bg-slate-900 dark:even:bg-slate-900/70 dark:hover:bg-blue-950/20"
                     >
                       <td className="px-4 py-4">
                         <RegisterEmployeeIdentity employee={e} />
@@ -343,6 +354,12 @@ export function AttendanceConsole({ embedded = false }: { embedded?: boolean } =
             </div>
           )}
       </div>
+      <RegisterEmployeeDaysDrawer
+        employee={openEmployee}
+        from={range.from}
+        to={range.to}
+        onClose={() => setOpenEmployee(null)}
+      />
       {importOption && (
         <AttendanceImportModal
           option={importOption}

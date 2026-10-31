@@ -30,6 +30,8 @@ export interface ExportFilters {
   from?: string;
   to?: string;
   departmentId?: string;
+  /** One employee only: the register's per-employee daily view. */
+  userId?: string;
 }
 
 export interface ExportFile {
@@ -100,9 +102,16 @@ export class MonthlyAttendanceReportService {
       throw new BadRequestException('Invalid department');
     }
 
+    if (filters.userId !== undefined && (typeof filters.userId !== 'string' || !filters.userId || filters.userId.length > 64)) {
+      throw new BadRequestException('Invalid employee');
+    }
+
     // Authority first, before anything about attendance is read.
     const scope = await this.console.resolveScope(actor);
     this.console.assertEligibleScope(scope);
+    if (filters.userId && scope.userIds !== null && !scope.userIds.includes(filters.userId)) {
+      throw new ForbiddenException('This employee is outside your attendance scope');
+    }
 
     const dates = monthDates(month);
     const from = dates[0];
@@ -146,6 +155,7 @@ export class MonthlyAttendanceReportService {
       };
       if (scope.userIds !== null) where.id = { in: scope.userIds };
       if (filters.departmentId) where.departmentId = filters.departmentId;
+      if (filters.userId) where.id = filters.userId;
 
       const users = await tx.user.findMany({
         where,
@@ -255,7 +265,17 @@ export class MonthlyAttendanceReportService {
         ids.length
           ? tx.attendancePunchEvidence.findMany({
               where: { userId: inIds, businessDate: { gte: fromDate, lte: toDate } },
-              select: { userId: true, businessDate: true, type: true, serverOccurredAt: true },
+              select: {
+                userId: true,
+                businessDate: true,
+                type: true,
+                serverOccurredAt: true,
+                latitude: true,
+                longitude: true,
+                locationVerification: true,
+                distanceFromLocationMeters: true,
+                attendanceLocation: { select: { name: true } },
+              },
             })
           : none,
         ids.length
@@ -398,6 +418,16 @@ export class MonthlyAttendanceReportService {
         businessDate: dateOnlyKey(p.businessDate),
         type: p.type,
         at: p.serverOccurredAt,
+        location:
+          typeof p.latitude === 'number' && typeof p.longitude === 'number'
+            ? {
+                latitude: p.latitude,
+                longitude: p.longitude,
+                verification: p.locationVerification ?? null,
+                distanceMeters: p.distanceFromLocationMeters ?? null,
+                placeName: p.attendanceLocation?.name ?? null,
+              }
+            : null,
       })),
     };
 
@@ -533,6 +563,46 @@ export class MonthlyAttendanceReportService {
             ),
           }
         : {}),
+    };
+  }
+
+  /**
+   * One employee's days for the register's daily view: the same Daily
+   * Attendance rows the Excel and CSV carry, from the same snapshot and
+   * assembler, so the screen can never disagree with the download.
+   */
+  async employeeDays(actor: any, filters: ExportFilters & { userId: string }) {
+    const { report } = await this.snapshot(actor, filters);
+    const { metadata } = report;
+    const summary = report.monthlySummaryRows.find((r) => r.userId === filters.userId) ?? null;
+    if (!summary) throw new BadRequestException('Unknown employee for this month');
+    const pick = (v: Record<string, unknown>, k: string) => (v[k] === undefined ? null : v[k]);
+    const days = report.dailyRows
+      .filter((r) => r.userId === filters.userId)
+      .map((r) => ({
+        date: r.businessDate,
+        status: pick(r.values, 'attendanceStatus'),
+        punchIn: pick(r.values, 'punchIn'),
+        punchOut: pick(r.values, 'punchOut'),
+        presenceHours: pick(r.values, 'presenceHours'),
+        workHours: pick(r.values, 'workHours'),
+        breakHours: pick(r.values, 'breakHours'),
+        punchInLocation: pick(r.values, 'punchInLocation'),
+        punchOutLocation: pick(r.values, 'punchOutLocation'),
+        lateArrival: pick(r.values, 'lateArrival'),
+        missingPunch: pick(r.values, 'missingPunch'),
+        schedule: pick(r.values, 'schedule'),
+        hrReview: pick(r.values, 'hrReview'),
+        remarks: pick(r.values, 'remarks'),
+      }));
+    return {
+      month: metadata.month,
+      from: metadata.from,
+      to: metadata.to,
+      provisional: metadata.provisional,
+      userId: filters.userId,
+      name: String(summary.values.employeeName ?? ''),
+      days,
     };
   }
 

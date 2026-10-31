@@ -169,6 +169,21 @@ export class AttendanceConsoleController {
     sendFile(res, await this.monthlyReport.exportLegacyRegisterCsv(user, { from, to, departmentId }));
   }
 
+  /**
+   * One employee's days in the register month: status, punch times, hours and
+   * punch-in / punch-out locations, from the same report as the downloads.
+   */
+  @Get('register/employee/:userId')
+  employeeDays(
+    @CurrentUser() user: any,
+    @Param('userId') userId: string,
+    @Query('month') month?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.monthlyReport.employeeDays(user, { month, from, to, userId });
+  }
+
   /** Device evidence for the period, HR/Admin only (Phase 3). */
   @Get('register/devices.csv')
   async exportDevicesCsv(

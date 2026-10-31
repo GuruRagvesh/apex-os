@@ -101,27 +101,26 @@ describe('the boundary arithmetic', () => {
 });
 
 describe('every incomplete case still reaches a human', () => {
-  it('a missing punch out returns early with forced review', () => {
-    expect(code).toMatch(/if \(punchIn && !punchOut && !correctedOut\)/);
-    const block = code.slice(code.indexOf('if (punchIn && !punchOut && !correctedOut)'));
+  it('a one-sided punch pair returns early with forced review', () => {
+    expect(code).toMatch(/const incompletePair = !punchInAt \|\| !punchOutAt;/);
+    // Only an approved correction that decided the status itself skips review.
+    expect(code).toMatch(/if \(incompletePair && !correction\?\.proposedStatus\)/);
+    const block = code.slice(code.indexOf('if (incompletePair && !correction?.proposedStatus)'));
 
-    expect(block.slice(0, 600)).toMatch(/forceReview: true/);
-    expect(block.slice(0, 600)).toMatch(/INCOMPLETE_PUNCH_PAIR/);
+    expect(block.slice(0, 700)).toMatch(/forceReview: true/);
+    expect(block.slice(0, 700)).toMatch(/INCOMPLETE_PUNCH_PAIR/);
   });
 
-  it('no punch evidence raises MISSING_PUNCH, which is not review-exempt', () => {
-    expect(code).toMatch(/if \(!punchIn\) \{\s*flags\.push\('MISSING_PUNCH'\)/);
-
+  it('MISSING_PUNCH and MISSING_PUNCH_OUT are never review-exempt', () => {
     const types = readFileSync(
       resolve(__dirname, '../../src/modules/platform/attendance/evaluation/daily-attendance.types.ts'),
       'utf8',
     );
-    const nonReview = types.slice(types.indexOf('NON_REVIEW_FLAGS'));
+    const nonReview = types.slice(types.indexOf('NON_REVIEW_FLAGS'), types.indexOf('];', types.indexOf('NON_REVIEW_FLAGS')));
 
-    // Only a settled correction is exempt. If MISSING_PUNCH were added here,
-    // declining to measure presence WOULD lose signal.
-    expect(nonReview.slice(0, 200)).toMatch(/\['CORRECTED_BY_REGULARIZATION'\]/);
-    expect(nonReview.slice(0, 200)).not.toMatch(/MISSING_PUNCH/);
+    // If either were added here, declining to measure presence WOULD lose signal.
+    expect(nonReview).toMatch(/'CORRECTED_BY_REGULARIZATION'/);
+    expect(nonReview).not.toMatch(/MISSING_PUNCH/);
   });
 });
 

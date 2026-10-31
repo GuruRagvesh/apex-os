@@ -835,6 +835,31 @@ describe('S. scope and validation', () => {
     expect(calls[0]).toBe('tx:RepeatableRead');
   });
 
+  it('S6. one employee\'s daily view carries the same rows as the download, with punch locations', async () => {
+    const d = workingDates()[0];
+    const { service } = serviceRig({
+      official: workingDates().map((x) => storedDay('u1', x)),
+      punches: [
+        { userId: 'u1', businessDate: new Date(`${d}T00:00:00.000Z`), type: 'PUNCH_IN', serverOccurredAt: ist(d, '09:30'), latitude: 18.5204, longitude: 73.8567, locationVerification: 'VERIFIED', distanceFromLocationMeters: 12, attendanceLocation: { name: 'Pune Office' } },
+      ],
+    });
+    const view = await service.employeeDays({ id: 'hr' }, { month: MONTH, userId: 'u1' });
+    expect(view).toMatchObject({ month: MONTH, userId: 'u1', name: 'Ajay Singh' });
+    expect(view.days).toHaveLength(monthDates(MONTH).length);
+    expect(view.days.find((x) => x.date === d)).toMatchObject({
+      punchIn: '09:30',
+      punchOut: '18:45',
+      punchInLocation: 'Pune Office - 18.520400, 73.856700 - Inside geofence (12 m)',
+      punchOutLocation: null,
+    });
+  });
+
+  it('S7. a manager cannot open the daily view of someone outside their team', async () => {
+    const { service, prisma } = serviceRig({ scope: { isHr: false, userIds: ['u1'] } });
+    await expect(service.employeeDays({ id: 'mgr' }, { month: MONTH, userId: 'u2' })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.user.findMany).not.toHaveBeenCalled();
+  });
+
   it('S5. an export is audited with counts only', async () => {
     const { service, audit } = serviceRig({ official: workingDates().map((d) => storedDay('u1', d)) });
     await service.export({ id: 'hr' }, { month: MONTH }, 'zip');
@@ -1027,6 +1052,62 @@ describe('E. evidence on an unresolved working day', () => {
     const d = day(unresolved({ punches: [punch('PUNCH_OUT', D, '19:05')] }), 'u1', D);
     expectUnresolved(d);
     expect(d).toMatchObject({ punchIn: null, punchOut: '19:05', presenceHours: null, missingPunch: 'Punch-in missing' });
+  });
+
+  const loc = (latitude: number, longitude: number, over: Record<string, unknown> = {}) => ({
+    latitude,
+    longitude,
+    verification: 'VERIFIED',
+    distanceMeters: 42.4,
+    placeName: 'Pune Office',
+    ...over,
+  });
+
+  it('E1a. punch-in and punch-out locations are printed beside the punches they belong to', () => {
+    const r = unresolved({
+      punches: [
+        { ...punch('PUNCH_IN', D, '09:40'), location: loc(18.5204, 73.8567) },
+        { ...punch('PUNCH_OUT', D, '18:10'), location: loc(18.52, 73.85, { verification: 'OUTSIDE_GEOFENCE', distanceMeters: 812, placeName: null }) },
+      ],
+    });
+    expect(day(r, 'u1', D)).toMatchObject({
+      punchInLocation: 'Pune Office - 18.520400, 73.856700 - Inside geofence (42 m)',
+      punchOutLocation: '18.520000, 73.850000 - Outside geofence (812 m)',
+    });
+  });
+
+  it('E1b. no stored location, or no printed punch, leaves the location blank', () => {
+    const noLocation = day(unresolved({ punches: [punch('PUNCH_IN', D, '09:40'), punch('PUNCH_OUT', D, '18:10')] }), 'u1', D);
+    expect(noLocation).toMatchObject({ punchInLocation: null, punchOutLocation: null });
+    // A punch-in after the last punch-out means the departure is unknown: no time, so no location either.
+    const reopened = day(
+      unresolved({
+        punches: [
+          { ...punch('PUNCH_IN', D, '09:40'), location: loc(18.5204, 73.8567) },
+          { ...punch('PUNCH_OUT', D, '13:00'), location: loc(18.5204, 73.8567) },
+          { ...punch('PUNCH_IN', D, '14:00'), location: loc(18.5204, 73.8567) },
+        ],
+      }),
+      'u1',
+      D,
+    );
+    expect(reopened.punchOut).toBeNull();
+    expect(reopened.punchOutLocation).toBeNull();
+    expect(reopened.punchInLocation).toContain('18.520400, 73.856700');
+  });
+
+  it('E1c. an official day shows the location of the matching punch evidence', () => {
+    const f = withDay(facts(), 'u1', D, { status: 'PRESENT', punchInAt: ist(D, '09:40'), punchOutAt: ist(D, '18:45') });
+    const r = assembleMonthlyAttendanceReport({
+      ...f,
+      punches: [
+        { ...punch('PUNCH_IN', D, '09:40'), location: loc(18.5204, 73.8567, { verification: 'NOT_ENFORCED', distanceMeters: null, placeName: null }) },
+      ],
+    } as ReportSourceFacts);
+    expect(day(r, 'u1', D)).toMatchObject({
+      punchInLocation: '18.520400, 73.856700 - Geofence not enforced',
+      punchOutLocation: null,
+    });
   });
 
   it('E4. no evidence at all: blank times, No punch recorded', () => {
