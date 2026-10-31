@@ -28,6 +28,15 @@ const WORKDAY_TIMER_TRANSACTION = { maxWait: 10_000, timeout: 20_000 };
 /** BreakLog.source of a break started from the idle prompt (the person was IDLE). */
 export const BREAK_FROM_IDLE_SOURCE = 'MANUAL_BREAK_FROM_IDLE';
 
+export type BreakEndOrigin = 'USER_RESUME' | 'MEETING_JOIN' | 'MEETING_LEAVE' | 'MEETING_CANCEL';
+
+export type BreakEndContext = {
+  origin?: BreakEndOrigin;
+  ipAddress?: string;
+  userAgent?: string;
+  actorContext?: string;
+};
+
 export interface FinalizeWorkSessionOptions {
   effectiveEndAt: Date;
   terminalStatus: 'LOGGED_OUT' | 'AUTO_CLOSED';
@@ -832,7 +841,12 @@ export class WorkdayService {
     return { breakLog };
   }
 
-  async endBreak(userId: string) {
+  async endBreak(
+    userId: string,
+    input: BreakEndOrigin | BreakEndContext = 'USER_RESUME',
+  ) {
+    const context: BreakEndContext = typeof input === 'string' ? { origin: input } : input;
+    const origin = context.origin ?? 'USER_RESUME';
     const today = this.getTodayDate();
     const now = this.tva.now();
 
@@ -876,7 +890,15 @@ export class WorkdayService {
       }, tx);
 
       await tx.attendanceEvent.create({
-        data: { userId, workSessionId: session.id, eventType: 'BREAK_END' },
+        data: {
+          userId,
+          workSessionId: session.id,
+          eventType: 'BREAK_END',
+          source: origin === 'MEETING_CANCEL' ? 'system' : 'manual',
+          metadata: { origin, breakLogId: openBreak.id, breakType: openBreak.breakType },
+          ipAddress: context.ipAddress,
+          deviceMetadata: context.userAgent ? { userAgent: context.userAgent } : undefined,
+        },
       });
 
       await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now, tx);
@@ -898,7 +920,10 @@ export class WorkdayService {
       entityType: 'WorkdaySession',
       entityId: session.id,
       action: OperationalAction.BREAK_ENDED,
-      metadata: { durationMinutes },
+      metadata: { durationMinutes, origin, breakLogId: openBreak.id, breakType: openBreak.breakType },
+      ip: context.ipAddress,
+      device: context.userAgent,
+      actorContext: context.actorContext ?? origin,
     }).catch(() => {});
 
     return { breakLog: updated, durationMinutes };
@@ -954,7 +979,7 @@ export class WorkdayService {
     return { status: 'ok', applied };
   }
 
-  async resumeWork(userId: string) {
+  async resumeWork(userId: string, breakEndContext: BreakEndContext = {}) {
     const today = this.getTodayDate();
     const now = this.tva.now();
 
@@ -967,7 +992,7 @@ export class WorkdayService {
       orderBy: { createdAt: 'desc' },
     });
     if (current?.status === 'ON_BREAK') {
-      await this.endBreak(userId);
+      await this.endBreak(userId, { ...breakEndContext, origin: 'USER_RESUME' });
       return { message: 'Resumed', updated: 1 };
     }
 
@@ -1149,16 +1174,15 @@ export class WorkdayService {
     const remainingBreakMinutes = Math.max(0, DAILY_BREAK_ALLOWANCE_MINUTES - rt.totalBreakMinutes);
     const exceededBreakMinutes = Math.max(0, rt.totalBreakMinutes - DAILY_BREAK_ALLOWANCE_MINUTES);
 
-    // Tells the frontend when to show the auto-close consent prompt. This is
-    // deliberately independent of the backend's own grace-period safety net in
-    // shouldPolicyAutoStop: the prompt should appear promptly right at cutoff
-    // for anyone still WORKING/ON_BREAK, while the backend only force-closes
-    // later, once there's genuinely no activity signal for the grace window.
+    // Tells the frontend when to show the auto-close consent prompt. A manual
+    // break is exempt from current-day policy auto-stop, so it must not show a
+    // misleading prompt; once the person resumes WORKING, normal cutoff rules
+    // apply again.
     let needsAutoCloseConsent = false;
     let autoCloseTime: string | null = null;
     // Auto-close is frozen while the person is in a meeting: no prompt until it ends.
     const inMeeting = Boolean(session?.breakLogs?.some((b: any) => !b.endAt && b.breakType === 'MEETING'));
-    if (session && ['WORKING', 'ON_BREAK'].includes(session.status) && !inMeeting) {
+    if (session?.status === 'WORKING' && !inMeeting) {
       const policySetting = await this.prisma.appSetting.findUnique({ where: { key: 'workday_policy' } });
       const policy = (policySetting?.value as any) ?? null;
       if (policy?.autoClose === true) {

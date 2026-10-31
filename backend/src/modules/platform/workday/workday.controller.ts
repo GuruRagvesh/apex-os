@@ -5,6 +5,16 @@ import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { ClassifyMeetingInput, MeetingService } from './meeting.service';
 import { ProductivityTimelineService } from './productivity-timeline.service';
 
+function requestAuditContext(req: any, actorContext: string) {
+  const forwarded = req?.headers?.['x-forwarded-for'];
+  const forwardedIp = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0]?.trim();
+  return {
+    ipAddress: req?.ip || forwardedIp || req?.socket?.remoteAddress,
+    userAgent: req?.headers?.['user-agent'],
+    actorContext,
+  };
+}
+
 @ApiTags('Workday')
 @Controller('workday')
 @UseGuards(JwtAuthGuard)
@@ -78,7 +88,10 @@ export class WorkdayController {
 
   @Post('break/end')
   endBreak(@Request() req: any) {
-    return this.workdayService.endBreak(req.user.id ?? req.user.sub);
+    return this.workdayService.endBreak(
+      req.user.id ?? req.user.sub,
+      { origin: 'USER_RESUME', ...requestAuditContext(req, 'BREAK_END_ENDPOINT') },
+    );
   }
 
   @Post('idle')
@@ -88,7 +101,10 @@ export class WorkdayController {
 
   @Post('resume')
   resumeWork(@Request() req: any) {
-    return this.workdayService.resumeWork(req.user.id ?? req.user.sub);
+    return this.workdayService.resumeWork(
+      req.user.id ?? req.user.sub,
+      requestAuditContext(req, 'WORKDAY_RESUME_ENDPOINT'),
+    );
   }
 
   @Post('resume-auto-closed')

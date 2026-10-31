@@ -723,6 +723,7 @@ export class TeamInsightsService {
       const sessionIntervals = daySessions
         .map((session) => clippedInterval(session.startWorkAt, session.logoutAt, dayRange, now))
         .filter((item): item is Interval => !!item);
+      const derivedPresenceMinutes = unionMinutes(sessionIntervals);
       const derivedWorkingMinutes = sessionIntervals.reduce((sum, interval) => sum + netSessionMinutes(interval, breakIntervals), 0);
       const ticketIntervals = ticketLogs
         .map((log) => clippedInterval(log.startedAt, log.endedAt, dayRange, now))
@@ -802,6 +803,10 @@ export class TeamInsightsService {
         isWorkingDay: canonical?.calendar?.isWorkingDay ?? day.isWorkingDay,
         punchInAt: canonical?.punchInAt ?? punchInAt?.toISOString() ?? null,
         punchOutAt: canonical?.punchOutAt ?? punchOutAt?.toISOString() ?? null,
+        // Presence is the full punch/session span. Keep it separate from
+        // break-excluded worked minutes so calendar averages do not silently
+        // change meaning between the owner and a manager viewing that person.
+        presenceMinutes: canonical?.presenceMinutes ?? (sessionIntervals.length ? derivedPresenceMinutes : null),
         workingMinutes: canonical?.workedMinutes ?? (sessionIntervals.length ? derivedWorkingMinutes : row?.workedMinutes ?? null),
         productiveMinutes: unionMinutes([...ticketIntervals, ...meetingIntervals]),
         meetingMinutes: unionMinutes(meetingIntervals),
