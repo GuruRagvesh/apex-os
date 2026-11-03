@@ -434,6 +434,7 @@ describe('Phase 4 employee transitions (PostgreSQL)', () => {
       expect(done.status).toBe('COMPLETED');
       const u = await w.prisma.user.findUniqueOrThrow({ where: { id: e.id } });
       expect([u.departmentId, u.roleId]).toEqual([w.deptB, 'r-lead']);
+      expect(u.sessionsRevokedAt).not.toBeNull();
       const t = await w.prisma.departmentTransfer.findUniqueOrThrow({ where: { id: done.id } });
       expect(t.appliedAt!.getTime()).toBeGreaterThanOrEqual(t.effectiveAt.getTime());
       const profiles = await w.prisma.employeeAttendanceProfile.findMany({ where: { userId: e.id }, orderBy: { effectiveFrom: 'asc' } });

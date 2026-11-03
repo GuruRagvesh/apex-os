@@ -277,7 +277,10 @@ export class TransferService {
     const demoted = (fromAdmin && !toAdmin) || (state.fromRole.name === 'SUPER_ADMIN' && state.toRole?.name !== 'SUPER_ADMIN');
     await tx.user.update({
       where: { id: userId },
-      data: { departmentId: plan.toDepartmentId ?? null, roleId: plan.toRoleId, ...(demoted ? { sessionsRevokedAt: now } : {}) },
+      // Every department or role transfer changes authorization scope. Revoke
+      // login tokens so all tabs reload the new backend authority immediately;
+      // this does not touch WorkSession, punches, breaks or attendance history.
+      data: { departmentId: plan.toDepartmentId ?? null, roleId: plan.toRoleId, sessionsRevokedAt: now },
     });
 
     // Attendance profile: close at effectiveOn - 1, open from effectiveOn.
@@ -351,7 +354,7 @@ export class TransferService {
     await tx.departmentTransfer.update({ where: { id: t.id }, data: { status: 'COMPLETED', appliedAt: now, reviewReasonCode: null } });
     await writeAudit(tx, {
       actorId, entityType: 'DepartmentTransfer', entityId: t.id, action: 'TRANSFER_COMPLETED', fromState: 'SCHEDULED', toState: 'COMPLETED',
-      metadata: { fromDepartmentId: state.user.departmentId, toDepartmentId: plan.toDepartmentId ?? null, fromRoleId: state.user.roleId, toRoleId: plan.toRoleId, reroutes: reroutes.length, ticketSnapshots: ticketSnapshots.length, sessionsRevoked: demoted },
+      metadata: { fromDepartmentId: state.user.departmentId, toDepartmentId: plan.toDepartmentId ?? null, fromRoleId: state.user.roleId, toRoleId: plan.toRoleId, reroutes: reroutes.length, ticketSnapshots: ticketSnapshots.length, sessionsRevoked: true, demoted },
     });
     if (plan.toRoleId !== state.user.roleId) {
       await writeAudit(tx, { actorId, entityType: 'User', entityId: userId, action: 'USER_ROLE_CHANGED', metadata: { source: 'TRANSFER', transferId: t.id } });

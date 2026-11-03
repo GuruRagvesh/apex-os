@@ -73,6 +73,21 @@ describe('WorkdayService.getTeam hierarchy scope', () => {
     }));
   });
 
+  it('uses the shared operational hierarchy scope for live status and calendar people', async () => {
+    const { service, prisma } = build();
+    const hierarchyScope = {
+      visibleUserIds: jest.fn().mockResolvedValue({ role: 'TEAM_LEAD', departmentId: null, userIds: ['employee-9'], source: 'HIERARCHY' }),
+    };
+    (service as any).hierarchyScope = hierarchyScope;
+    await service.getTeam({ id: 'tl-1', role: { name: 'TEAM_LEAD' }, departmentId: 'dept-a' });
+
+    expect(hierarchyScope.visibleUserIds).toHaveBeenCalledWith(expect.objectContaining({ id: 'tl-1' }));
+    expect(prisma.team.findMany).not.toHaveBeenCalled();
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: { in: ['employee-9'] } }),
+    }));
+  });
+
   it('refuses invalid and future dates', async () => {
     const { service } = build();
     await expect(service.getTeam({ id: 'admin-1', role: { name: 'ADMIN' } }, '2026-02-30'))

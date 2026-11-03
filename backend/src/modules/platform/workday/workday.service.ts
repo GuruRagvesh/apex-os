@@ -14,6 +14,7 @@ import { AttendanceAuthorityService } from '../../../common/services/attendance-
 import { TVAService } from '../../../common/services/tva.service';
 import { isPunchedInSession, ticketCreationState } from '../../../common/services/active-workday-policy.service';
 import { CompOffService } from '../../operations/leave/comp-off.service';
+import { OperationalHierarchyScopeService } from '../../../common/services/operational-hierarchy-scope.service';
 
 // Combined daily allowance for all break types (lunch + restroom + tea + other).
 // Soft policy only — usage beyond this is reported via exceededBreakMinutes, never blocked.
@@ -69,6 +70,7 @@ export class WorkdayService {
     private attendanceAuthority: AttendanceAuthorityService,
     private tva: TVAService,
     @Optional() private compOff?: CompOffService,
+    @Optional() private hierarchyScope?: OperationalHierarchyScopeService,
   ) {}
 
   async getHistory(userId: string, requester: any) {
@@ -1249,7 +1251,13 @@ export class WorkdayService {
 
     let userFilter: any = { isActive: true, isSystemAccount: false, id: { not: requestingUser.id } };
 
-    if (!isHR && !isAdminLevel) {
+    if (this.hierarchyScope) {
+      const scope = await this.hierarchyScope.visibleUserIds(requestingUser);
+      if (!scope.userIds.length) return [];
+      userFilter.id = { in: scope.userIds };
+    }
+
+    if (!this.hierarchyScope && !isHR && !isAdminLevel) {
       if (['EMPLOYEE', 'INTERN'].includes(roleName)) {
         return [];
       }
