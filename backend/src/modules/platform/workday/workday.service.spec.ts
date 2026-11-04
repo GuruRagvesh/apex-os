@@ -41,7 +41,8 @@ describe('Workday team hierarchy visibility', () => {
         isActive: true,
         isSystemAccount: false,
         id: { in: ['employee-1', 'employee-2'] },
-        role: { name: { in: ['EMPLOYEE', 'INTERN'] } },
+        // Downstream Team Leads stay visible; the member list bounds who.
+        role: { name: { in: ['TEAM_LEAD', 'EMPLOYEE', 'INTERN'] } },
       }),
     }));
   });

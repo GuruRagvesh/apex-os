@@ -1,12 +1,14 @@
 import { OperationalHierarchyScopeService } from './operational-hierarchy-scope.service';
 
 describe('OperationalHierarchyScopeService', () => {
+  const HOME_MEMBERS = { departmentId: { in: ['home-dept'] }, role: { name: { in: ['EMPLOYEE', 'INTERN'] } } };
   const viewer = (role: string) => ({ id: `${role.toLowerCase()}-1`, role: { name: role }, departmentId: 'home-dept' });
 
   function build() {
     const prisma = {
       hierarchyAssignment: { findMany: jest.fn().mockResolvedValue([]) },
       team: { findMany: jest.fn().mockResolvedValue([]) },
+      organizationReportingLine: { findMany: jest.fn().mockResolvedValue([]) },
       managerDeptAccess: { findMany: jest.fn().mockResolvedValue([]) },
       user: { findMany: jest.fn().mockResolvedValue([]) },
     };
@@ -35,6 +37,7 @@ describe('OperationalHierarchyScopeService', () => {
         AND: [{ OR: [
           { id: { in: ['employee-2'] } },
           { departmentId: { in: ['dept-1'] } },
+          HOME_MEMBERS,
         ] }],
       }),
     }));
@@ -55,6 +58,7 @@ describe('OperationalHierarchyScopeService', () => {
     });
     expect(prisma.hierarchyAssignment.findMany).toHaveBeenCalledTimes(3);
     expect(prisma.team.findMany).toHaveBeenCalledTimes(3);
+    expect(prisma.organizationReportingLine.findMany).toHaveBeenCalledTimes(3);
   });
 
   it('combines explicit manager department grants without using the home department', async () => {
@@ -71,12 +75,105 @@ describe('OperationalHierarchyScopeService', () => {
     expect(JSON.stringify(query)).not.toContain('home-dept');
   });
 
-  it('returns no subordinates when a leader has no explicit scope', async () => {
+  it('gives every Team Lead the employees and interns of their current department', async () => {
     const { prisma, service } = build();
+    prisma.user.findMany.mockResolvedValue([{ id: 'employee-1' }, { id: 'intern-1' }]);
     await expect(service.visibleUserIds(viewer('TEAM_LEAD'))).resolves.toMatchObject({
+      userIds: ['employee-1', 'intern-1'], sources: ['HOME_DEPARTMENT'],
+    });
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        AND: [{ OR: [HOME_MEMBERS] }],
+      }),
+    }));
+  });
+
+  it('keeps a Manager empty when no explicit or reporting scope exists', async () => {
+    const { prisma, service } = build();
+    await expect(service.visibleUserIds(viewer('MANAGER'))).resolves.toMatchObject({
       userIds: [], sources: [],
     });
     expect(prisma.user.findMany).not.toHaveBeenCalled();
+  });
+
+  it('follows reports-to lines and expands departments led by downstream leaders', async () => {
+    const { prisma, service } = build();
+    prisma.organizationReportingLine.findMany
+      .mockResolvedValueOnce([{
+        subjectUserId: 'child-lead',
+        departmentId: 'child-dept',
+        subject: {
+          departmentId: 'child-dept',
+          role: { name: 'TEAM_LEAD' },
+          departmentMemberships: [{ departmentId: 'matrix-dept' }],
+        },
+      }])
+      .mockResolvedValueOnce([{
+        subjectUserId: 'employee-1',
+        departmentId: 'child-dept',
+        subject: {
+          departmentId: 'child-dept',
+          role: { name: 'EMPLOYEE' },
+          departmentMemberships: [],
+        },
+      }])
+      .mockResolvedValue([]);
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'child-lead' }, { id: 'employee-1' }, { id: 'employee-without-line' },
+    ]);
+
+    await expect(service.visibleUserIds(viewer('TEAM_LEAD'))).resolves.toMatchObject({
+      userIds: ['child-lead', 'employee-1', 'employee-without-line'],
+      sources: expect.arrayContaining(['HOME_DEPARTMENT', 'REPORTING_LINE']),
+    });
+    expect(prisma.organizationReportingLine.findMany).toHaveBeenCalledTimes(3);
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        AND: [{ OR: [
+          { id: { in: ['child-lead', 'employee-1'] } },
+          { departmentId: { in: ['child-dept', 'matrix-dept'] } },
+          HOME_MEMBERS,
+        ] }],
+      }),
+    }));
+  });
+
+  it('gives a Manager access to direct and recursive reports from the organization chart', async () => {
+    const { prisma, service } = build();
+    prisma.organizationReportingLine.findMany
+      .mockResolvedValueOnce([{
+        subjectUserId: 'lead-1',
+        departmentId: 'dept-1',
+        subject: {
+          departmentId: 'dept-1',
+          role: { name: 'TEAM_LEAD' },
+          departmentMemberships: [],
+        },
+      }])
+      .mockResolvedValueOnce([{
+        subjectUserId: 'employee-1',
+        departmentId: 'dept-1',
+        subject: {
+          departmentId: 'dept-1',
+          role: { name: 'EMPLOYEE' },
+          departmentMemberships: [],
+        },
+      }])
+      .mockResolvedValue([]);
+    prisma.user.findMany.mockResolvedValue([{ id: 'lead-1' }, { id: 'employee-1' }]);
+
+    await expect(service.visibleUserIds(viewer('MANAGER'))).resolves.toMatchObject({
+      userIds: ['lead-1', 'employee-1'],
+      sources: ['REPORTING_LINE'],
+    });
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        AND: [{ OR: [
+          { id: { in: ['lead-1', 'employee-1'] } },
+          { departmentId: { in: ['dept-1'] } },
+        ] }],
+      }),
+    }));
   });
 
   it('does not grant access through stale old-department team membership', async () => {
@@ -88,7 +185,53 @@ describe('OperationalHierarchyScopeService', () => {
     }]);
 
     await expect(service.visibleUserIds(viewer('TEAM_LEAD'))).resolves.toMatchObject({ userIds: [] });
-    expect(prisma.user.findMany).not.toHaveBeenCalled();
+    expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        AND: [{ OR: [HOME_MEMBERS] }],
+      }),
+    }));
+  });
+
+  it('does not expose peer or senior Team Leads through the shared home department', async () => {
+    const { prisma, service } = build();
+    await service.visibleUserIds(viewer('TEAM_LEAD'));
+
+    const clauses = prisma.user.findMany.mock.calls[0][0].where.AND[0].OR;
+    // The only home-department clause is restricted to employees and interns,
+    // so a Team Lead there is visible only through a reporting line.
+    expect(clauses).toEqual([HOME_MEMBERS]);
+  });
+
+  it('shows a same-department Team Lead only when they report to the viewer', async () => {
+    const { prisma, service } = build();
+    prisma.organizationReportingLine.findMany
+      .mockResolvedValueOnce([{
+        subjectUserId: 'sub-lead',
+        departmentId: 'home-dept',
+        subject: { departmentId: 'home-dept', role: { name: 'TEAM_LEAD' }, departmentMemberships: [{ departmentId: 'home-dept' }] },
+      }])
+      .mockResolvedValue([]);
+    prisma.user.findMany.mockResolvedValue([{ id: 'sub-lead' }]);
+
+    await expect(service.visibleUserIds(viewer('TEAM_LEAD'))).resolves.toMatchObject({ userIds: ['sub-lead'] });
+    // The report's lead role in the shared department must not widen it to
+    // every Team Lead there.
+    expect(prisma.user.findMany.mock.calls[0][0].where.AND).toEqual([{ OR: [
+      { id: { in: ['sub-lead'] } },
+      HOME_MEMBERS,
+    ] }]);
+  });
+
+  it('keeps all roles for an explicit department grant on the home department', async () => {
+    const { prisma, service } = build();
+    prisma.hierarchyAssignment.findMany
+      .mockResolvedValueOnce([{ scope: 'DEPARTMENT', subjectUserId: null, departmentId: 'home-dept', assigneeUser: { departmentId: 'home-dept', role: { name: 'TEAM_LEAD' } } }])
+      .mockResolvedValue([]);
+
+    await service.visibleUserIds(viewer('TEAM_LEAD'));
+    expect(prisma.user.findMany.mock.calls[0][0].where.AND).toEqual([{ OR: [
+      { departmentId: { in: ['home-dept'] } },
+    ] }]);
   });
 
   it('gives administrators all eligible active non-system people', async () => {
