@@ -96,6 +96,22 @@ describe('Team Insights canonical calendar colours', () => {
 });
 
 describe('Team Insights hierarchy scope without a workday session', () => {
+  it('uses the shared operational hierarchy scope for calendar details', async () => {
+    const hierarchyScope = {
+      visibleUserIds: jest.fn().mockResolvedValue({ role: 'MANAGER', departmentId: null, userIds: ['employee-9'], source: 'HIERARCHY' }),
+    };
+    const access = { roleName: jest.fn().mockReturnValue('MANAGER') };
+    const service = new TeamInsightsService(
+      {} as any, access as any, {} as any, {} as any,
+      undefined, undefined, undefined, hierarchyScope as any,
+    );
+
+    await expect((service as any).allowedScope({ id: 'manager-1', role: { name: 'MANAGER' } })).resolves.toEqual({
+      role: 'MANAGER', departmentId: null, userIds: ['employee-9'],
+    });
+    expect(hierarchyScope.visibleUserIds).toHaveBeenCalledTimes(1);
+  });
+
   it('resolves a team lead\'s active team members without reading punch sessions', async () => {
     const prisma = {
       team: {

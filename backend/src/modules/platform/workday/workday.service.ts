@@ -14,6 +14,7 @@ import { AttendanceAuthorityService } from '../../../common/services/attendance-
 import { TVAService } from '../../../common/services/tva.service';
 import { isPunchedInSession, ticketCreationState } from '../../../common/services/active-workday-policy.service';
 import { CompOffService } from '../../operations/leave/comp-off.service';
+import { OperationalHierarchyScopeService } from '../../../common/services/operational-hierarchy-scope.service';
 
 // Combined daily allowance for all break types (lunch + restroom + tea + other).
 // Soft policy only — usage beyond this is reported via exceededBreakMinutes, never blocked.
@@ -69,6 +70,7 @@ export class WorkdayService {
     private attendanceAuthority: AttendanceAuthorityService,
     private tva: TVAService,
     @Optional() private compOff?: CompOffService,
+    @Optional() private hierarchyScope?: OperationalHierarchyScopeService,
   ) {}
 
   async getHistory(userId: string, requester: any) {
@@ -1249,7 +1251,13 @@ export class WorkdayService {
 
     let userFilter: any = { isActive: true, isSystemAccount: false, id: { not: requestingUser.id } };
 
-    if (!isHR && !isAdminLevel) {
+    if (this.hierarchyScope) {
+      const scope = await this.hierarchyScope.visibleUserIds(requestingUser);
+      if (!scope.userIds.length) return [];
+      userFilter.id = { in: scope.userIds };
+    }
+
+    if (!this.hierarchyScope && !isHR && !isAdminLevel) {
       if (['EMPLOYEE', 'INTERN'].includes(roleName)) {
         return [];
       }
@@ -1278,10 +1286,12 @@ export class WorkdayService {
       }
     }
 
-    // This endpoint represents people below the viewer in the operational
-    // hierarchy, not peers or seniors who merely share a department.
+    // This endpoint represents the Team Lead's department plus people below
+    // the viewer through teams and reporting lines. It never includes seniors.
     if (roleName === 'TEAM_LEAD') {
-      userFilter.role = { name: { in: ['EMPLOYEE', 'INTERN'] } };
+      // A department head can have downstream Team Leads in nested
+      // departments, so retain those leads alongside employees and interns.
+      userFilter.role = { name: { in: ['TEAM_LEAD', 'EMPLOYEE', 'INTERN'] } };
     } else if (roleName === 'MANAGER') {
       userFilter.role = { name: { in: ['TEAM_LEAD', 'EMPLOYEE', 'INTERN'] } };
     } else if (isAdminLevel || isHR) {

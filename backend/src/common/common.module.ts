@@ -10,6 +10,7 @@ import { CompanyDateService } from './services/company-date.service';
 import { AttendanceAuthorityService } from './services/attendance-authority.service';
 import { TVAService } from './services/tva.service';
 import { ActiveWorkdayPolicyService } from './services/active-workday-policy.service';
+import { OperationalHierarchyScopeService } from './services/operational-hierarchy-scope.service';
 import { TvaController } from './controllers/tva.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 
@@ -29,6 +30,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     AttendanceAuthorityService,
     TVAService,
     ActiveWorkdayPolicyService,
+    OperationalHierarchyScopeService,
   ],
   exports: [
     EventLoggerService,
@@ -42,6 +44,7 @@ import { PrismaModule } from '../prisma/prisma.module';
     AttendanceAuthorityService,
     TVAService,
     ActiveWorkdayPolicyService,
+    OperationalHierarchyScopeService,
   ],
 })
 export class CommonModule {}
