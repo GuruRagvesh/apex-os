@@ -4,9 +4,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 const LEADER_ROLES = ['TEAM_LEAD', 'MANAGER'] as const;
 const COMPANY_TARGET_ROLES = ['MANAGER', 'TEAM_LEAD', 'EMPLOYEE', 'INTERN'];
 const MANAGER_TARGET_ROLES = ['TEAM_LEAD', 'EMPLOYEE', 'INTERN'];
-// Team Leads see their complete home department and downstream Team Leads in
-// departments that report to them.
+// Team Leads see downstream Team Leads in departments that report to them.
 const TEAM_LEAD_TARGET_ROLES = ['TEAM_LEAD', 'EMPLOYEE', 'INTERN'];
+// A home department alone only exposes its members. Other Team Leads there
+// are peers or seniors unless they report to the viewer.
+const HOME_DEPARTMENT_TARGET_ROLES = ['EMPLOYEE', 'INTERN'];
 
 type ScopeViewer = {
   id: string;
@@ -25,9 +27,10 @@ type ScopeOptions = {
  * people surfaces. Role determines actions; explicit hierarchy, department
  * and team grants determine the people those actions may target.
  *
- * Team Leads receive their current home department. Additional visibility is
- * accumulated from explicit grants, formal teams and the organization
- * reporting tree. Managers remain explicit-scope only.
+ * Team Leads receive the employees and interns of their current home
+ * department. Additional visibility is accumulated from explicit grants,
+ * formal teams and the organization reporting tree. Managers remain
+ * explicit-scope only.
  */
 @Injectable()
 export class OperationalHierarchyScopeService {
@@ -64,15 +67,22 @@ export class OperationalHierarchyScopeService {
     const now = new Date();
     const visibleIds = new Set<string>();
     const departmentIds = new Set<string>();
+    const memberDepartmentIds = new Set<string>();
     const sources = new Set<string>();
     const visitedSupervisors = new Set<string>();
     let frontier = [viewer.id];
     let hierarchyCompanyWide = false;
 
-    if (role === 'TEAM_LEAD' && viewer.departmentId) {
-      departmentIds.add(viewer.departmentId);
+    const homeDepartmentId = role === 'TEAM_LEAD' ? viewer.departmentId ?? null : null;
+    if (homeDepartmentId) {
+      memberDepartmentIds.add(homeDepartmentId);
       sources.add('HOME_DEPARTMENT');
     }
+    // A report leading the viewer's own department must not widen it to every
+    // Team Lead there; leads below the viewer arrive through their own lines.
+    const addLedDepartment = (departmentId: string | null | undefined) => {
+      if (departmentId && departmentId !== homeDepartmentId) departmentIds.add(departmentId);
+    };
 
     // Follow access assignments, formal teams and the organization chart to
     // include direct reports plus the complete downstream chain.
@@ -164,9 +174,8 @@ export class OperationalHierarchyScopeService {
         const leadsDepartment = ['TEAM_LEAD', 'MANAGER'].includes(line.subject.role.name)
           || line.subject.departmentMemberships.length > 0;
         if (leadsDepartment) {
-          const primaryDepartmentId = line.departmentId ?? line.subject.departmentId;
-          if (primaryDepartmentId) departmentIds.add(primaryDepartmentId);
-          line.subject.departmentMemberships.forEach((membership) => departmentIds.add(membership.departmentId));
+          addLedDepartment(line.departmentId ?? line.subject.departmentId);
+          line.subject.departmentMemberships.forEach((membership) => addLedDepartment(membership.departmentId));
         }
       }
       frontier = next;
@@ -192,6 +201,8 @@ export class OperationalHierarchyScopeService {
       userIds = await this.findEligibleUsers(targetRoles, viewer.id, options.departmentId, {
         subjectIds: [...visibleIds],
         departmentIds: [...departmentIds],
+        // An explicit grant on the home department already covers all roles.
+        memberDepartmentIds: [...memberDepartmentIds].filter((id) => !departmentIds.has(id)),
       });
     }
 
@@ -208,7 +219,7 @@ export class OperationalHierarchyScopeService {
     targetRoles: string[],
     viewerId: string,
     selectedDepartment?: string,
-    scope?: { subjectIds: string[]; departmentIds: string[] },
+    scope?: { subjectIds: string[]; departmentIds: string[]; memberDepartmentIds?: string[] },
   ): Promise<string[]> {
     const where: any = {
       isActive: true,
@@ -221,6 +232,12 @@ export class OperationalHierarchyScopeService {
       const clauses: any[] = [];
       if (scope.subjectIds.length) clauses.push({ id: { in: [...new Set(scope.subjectIds)] } });
       if (scope.departmentIds.length) clauses.push({ departmentId: { in: [...new Set(scope.departmentIds)] } });
+      if (scope.memberDepartmentIds?.length) {
+        clauses.push({
+          departmentId: { in: [...new Set(scope.memberDepartmentIds)] },
+          role: { name: { in: HOME_DEPARTMENT_TARGET_ROLES } },
+        });
+      }
       if (!clauses.length) return [];
       where.AND = [{ OR: clauses }];
     }
