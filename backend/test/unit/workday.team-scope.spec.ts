@@ -21,13 +21,13 @@ describe('WorkdayService.getTeam hierarchy scope', () => {
     return { service, prisma };
   };
 
-  it('shows a team leader only employees and interns in their explicit team membership', async () => {
+  it('shows a team leader employees, interns, and downstream team leads in their resolved scope', async () => {
     const { service, prisma } = build();
     await service.getTeam({ id: 'tl-1', role: { name: 'TEAM_LEAD' }, departmentId: 'dept-a' });
     expect(prisma.user.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         id: { in: ['employee-1', 'intern-1'] },
-        role: { name: { in: ['EMPLOYEE', 'INTERN'] } },
+        role: { name: { in: ['TEAM_LEAD', 'EMPLOYEE', 'INTERN'] } },
       }),
     }));
   });

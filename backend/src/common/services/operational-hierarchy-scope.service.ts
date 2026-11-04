@@ -4,8 +4,8 @@ import { PrismaService } from '../../prisma/prisma.service';
 const LEADER_ROLES = ['TEAM_LEAD', 'MANAGER'] as const;
 const COMPANY_TARGET_ROLES = ['MANAGER', 'TEAM_LEAD', 'EMPLOYEE', 'INTERN'];
 const MANAGER_TARGET_ROLES = ['TEAM_LEAD', 'EMPLOYEE', 'INTERN'];
-// Department-level Team Leads must also see Team Leads of teams inside their
-// department. Team-only leads remain constrained by explicit membership.
+// Team Leads see their complete home department and downstream Team Leads in
+// departments that report to them.
 const TEAM_LEAD_TARGET_ROLES = ['TEAM_LEAD', 'EMPLOYEE', 'INTERN'];
 
 type ScopeViewer = {
@@ -25,8 +25,9 @@ type ScopeOptions = {
  * people surfaces. Role determines actions; explicit hierarchy, department
  * and team grants determine the people those actions may target.
  *
- * Access is never inferred from User.departmentId. No explicit grant means no
- * subordinate visibility.
+ * Team Leads receive their current home department. Additional visibility is
+ * accumulated from explicit grants, formal teams and the organization
+ * reporting tree. Managers remain explicit-scope only.
  */
 @Injectable()
 export class OperationalHierarchyScopeService {
@@ -68,14 +69,19 @@ export class OperationalHierarchyScopeService {
     let frontier = [viewer.id];
     let hierarchyCompanyWide = false;
 
-    // Follow direct employee reporting lines and explicit team membership to
-    // include both direct reports and the complete downstream chain.
+    if (role === 'TEAM_LEAD' && viewer.departmentId) {
+      departmentIds.add(viewer.departmentId);
+      sources.add('HOME_DEPARTMENT');
+    }
+
+    // Follow access assignments, formal teams and the organization chart to
+    // include direct reports plus the complete downstream chain.
     while (frontier.length && !hierarchyCompanyWide) {
       const batch = frontier.filter((id) => !visitedSupervisors.has(id));
       if (!batch.length) break;
       batch.forEach((id) => visitedSupervisors.add(id));
 
-      const [assignments, teams] = await Promise.all([
+      const [assignments, teams, reportingLines] = await Promise.all([
         this.prisma.hierarchyAssignment.findMany({
           where: { assigneeUserId: { in: batch }, ...this.activeAt(now) },
           select: {
@@ -91,6 +97,26 @@ export class OperationalHierarchyScopeService {
             departmentId: true,
             teamLead: { select: { departmentId: true } },
             members: { select: { userId: true, user: { select: { departmentId: true } } } },
+          },
+        }),
+        this.prisma.organizationReportingLine.findMany({
+          where: {
+            supervisorId: { in: batch },
+            subject: { isActive: true, isSystemAccount: false },
+          },
+          select: {
+            subjectUserId: true,
+            departmentId: true,
+            subject: {
+              select: {
+                departmentId: true,
+                role: { select: { name: true } },
+                departmentMemberships: {
+                  where: { isDepartmentLead: true },
+                  select: { departmentId: true },
+                },
+              },
+            },
           },
         }),
       ]);
@@ -122,6 +148,25 @@ export class OperationalHierarchyScopeService {
           if (member.user.departmentId !== team.departmentId) continue;
           if (!visibleIds.has(member.userId)) next.push(member.userId);
           visibleIds.add(member.userId);
+        }
+      }
+      for (const line of reportingLines) {
+        sources.add('REPORTING_LINE');
+        if (line.subjectUserId !== viewer.id) {
+          if (!visibleIds.has(line.subjectUserId)) next.push(line.subjectUserId);
+          visibleIds.add(line.subjectUserId);
+        }
+
+        // When a downstream person leads a department, that whole department
+        // is below the viewer even if some employees do not yet have individual
+        // reporting rows. This represents nested departments without a second
+        // parent/child department model.
+        const leadsDepartment = ['TEAM_LEAD', 'MANAGER'].includes(line.subject.role.name)
+          || line.subject.departmentMemberships.length > 0;
+        if (leadsDepartment) {
+          const primaryDepartmentId = line.departmentId ?? line.subject.departmentId;
+          if (primaryDepartmentId) departmentIds.add(primaryDepartmentId);
+          line.subject.departmentMemberships.forEach((membership) => departmentIds.add(membership.departmentId));
         }
       }
       frontier = next;

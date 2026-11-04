@@ -1286,10 +1286,12 @@ export class WorkdayService {
       }
     }
 
-    // This endpoint represents people below the viewer in the operational
-    // hierarchy, not peers or seniors who merely share a department.
+    // This endpoint represents the Team Lead's department plus people below
+    // the viewer through teams and reporting lines. It never includes seniors.
     if (roleName === 'TEAM_LEAD') {
-      userFilter.role = { name: { in: ['EMPLOYEE', 'INTERN'] } };
+      // A department head can have downstream Team Leads in nested
+      // departments, so retain those leads alongside employees and interns.
+      userFilter.role = { name: { in: ['TEAM_LEAD', 'EMPLOYEE', 'INTERN'] } };
     } else if (roleName === 'MANAGER') {
       userFilter.role = { name: { in: ['TEAM_LEAD', 'EMPLOYEE', 'INTERN'] } };
     } else if (isAdminLevel || isHR) {
