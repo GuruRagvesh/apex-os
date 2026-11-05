@@ -6,13 +6,15 @@ import { useDesktopNotifications } from '@/hooks/useDesktopNotifications';
 import { enablePushNotifications } from '@/lib/push-notifications';
 import toast from 'react-hot-toast';
 
-const DISMISSED_KEY = 'apex:desktop-notif-prompt-dismissed';
+const SNOOZED_UNTIL_KEY = 'apex:system-notif-prompt-snoozed-until:v2';
+const PROMPT_SNOOZE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * Mounted once, globally, in the dashboard layout. Runs the workday and approval
  * reminder hooks unconditionally (they safely no-op — falling back to an in-app
- * toast — until permission is granted), and shows a small, dismissible opt-in
- * card the first time this user hasn't already decided or declined. Never shows
+ * toast — until permission is granted), and shows a small, dismissible per-device
+ * opt-in card. "Not now" snoozes it for seven days instead of permanently hiding
+ * the only path to background break alarms. Never shows
  * the native browser permission prompt itself — that only fires on the explicit
  * "Enable" click below, per browser requirements and to avoid an aggressive popup.
  */
@@ -22,7 +24,8 @@ export function DesktopNotificationManager() {
 
   useEffect(() => {
     try {
-      setDismissed(localStorage.getItem(DISMISSED_KEY) === 'true');
+      const snoozedUntil = Number(localStorage.getItem(SNOOZED_UNTIL_KEY) ?? 0);
+      setDismissed(Number.isFinite(snoozedUntil) && snoozedUntil > Date.now());
     } catch {
       setDismissed(false);
     }
@@ -39,7 +42,7 @@ export function DesktopNotificationManager() {
   const dismiss = () => {
     setDismissed(true);
     try {
-      localStorage.setItem(DISMISSED_KEY, 'true');
+      localStorage.setItem(SNOOZED_UNTIL_KEY, String(Date.now() + PROMPT_SNOOZE_MS));
     } catch {
       // Non-fatal — the prompt may reappear next session, which is an
       // acceptable degradation, not a broken feature.
@@ -49,7 +52,10 @@ export function DesktopNotificationManager() {
   const enable = async () => {
     try {
       const result = await enablePushNotifications();
-      if (result === 'enabled') toast.success('System notifications enabled on this device');
+      if (result === 'enabled') {
+        try { localStorage.removeItem(SNOOZED_UNTIL_KEY); } catch { /* Permission remains authoritative. */ }
+        toast.success('System notifications enabled on this device');
+      }
       else if (result === 'unconfigured') toast.error('Server push is not configured yet');
       else if (result === 'denied') toast.error('Notifications are blocked in this browser');
       else toast.error('Push notifications are not supported on this device');
@@ -69,14 +75,14 @@ export function DesktopNotificationManager() {
     >
       <div className="flex items-start gap-3">
         <div className="p-2 rounded-lg flex-shrink-0" style={{ backgroundColor: 'var(--accent-subtle)' }}>
-          <Bell size={15} style={{ color: 'var(--accent)' }} />
+          <Bell size={16} style={{ color: 'var(--accent-text)' }} />
         </div>
         <div className="flex-1 min-w-0">
           <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>
-            Turn on desktop reminders?
+            Enable system notifications?
           </p>
           <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-            Receive break, workday, ticket, project and approval alerts on this computer or phone, including while Apex OS is in the background.
+            Receive break alarms and Apex alerts on this laptop or phone, including when the Apex tab is closed. Enable this separately on every device you use.
           </p>
           <div className="flex items-center gap-2 mt-3">
             <button
@@ -84,7 +90,7 @@ export function DesktopNotificationManager() {
               className="text-xs font-semibold px-3 py-1.5 rounded-lg text-white transition-opacity hover:opacity-90"
               style={{ backgroundColor: 'var(--accent)' }}
             >
-              Enable
+              Enable notifications
             </button>
             <button
               onClick={dismiss}

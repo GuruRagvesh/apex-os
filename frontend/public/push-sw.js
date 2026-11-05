@@ -6,7 +6,9 @@ self.addEventListener('push', (event) => {
     body: payload.body || 'You have a new notification.',
     data: { url: payload.url || '/dashboard', notificationId: payload.notificationId },
     tag: payload.notificationId || undefined,
-    renotify: false,
+    renotify: payload.type === 'WARNING',
+    requireInteraction: payload.type === 'WARNING',
+    silent: false,
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });

@@ -218,9 +218,12 @@ describe('request count, Tickets endpoint answering 500', () => {
     expect(tickets.calls.length).toBe(12);
   });
 
-  it('every useSocket() reports reconnects to the one page-wide coordinator', () => {
+  it('every useSocket() shares one connection that reports reconnects to the page-wide coordinator', () => {
     const src = require('fs').readFileSync(require('path').join(__dirname, '../../../frontend/hooks/useSocket.ts'), 'utf8');
-    expect(src).toMatch(/socket\.io\.on\('reconnect', \(\) => \{ void onSocketReconnect\(queryClient\); \}\)/);
+    expect(src).toMatch(/socket\.io\.on\('reconnect', \(\) => \{ if \(reconnectClient\) void onSocketReconnect\(reconnectClient\); \}\)/);
+    // The connection is opened once, inside acquireSocket, and reused by every caller.
+    expect(src.match(/\bio\(SOCKET_URL/g)).toHaveLength(1);
+    expect(src).toMatch(/if \(sharedSocket\) return sharedSocket;/);
     expect(src).not.toMatch(/refetchFailedQueries|refetchQueries|invalidateQueries/);
   });
 

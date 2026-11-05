@@ -94,6 +94,19 @@ export class WorkdayController {
     );
   }
 
+  @Get('break/warning')
+  getBreakWarning(@Request() req: any) {
+    return this.workdayService.getActiveBreakWarning(req.user.id ?? req.user.sub);
+  }
+
+  @Post('break/warning/action')
+  handleBreakWarning(
+    @Request() req: any,
+    @Body() dto: { breakLogId: string; phase: 'EARLY' | 'FINAL'; action: 'LATER' },
+  ) {
+    return this.workdayService.handleBreakWarning(req.user.id ?? req.user.sub, dto);
+  }
+
   @Post('idle')
   reportIdle(@Request() req: any, @Body() dto: { idleDuration: number }) {
     return this.workdayService.reportIdle(req.user.id ?? req.user.sub, dto.idleDuration);

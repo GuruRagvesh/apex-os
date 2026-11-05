@@ -55,6 +55,8 @@ export class NotificationEventService {
       entityId?: string;
       entityType?: string;
       dedupeKey?: string;
+      /** Critical alarms, such as an active break timer, bypass quiet hours and per-event channel switches. */
+      forceDelivery?: boolean;
     }
   ) {
     // 1. Fetch user preferences
@@ -68,7 +70,9 @@ export class NotificationEventService {
 
     // 2. Preferences decide the delivery channels only (spec §4). The
     //    Notification Center row below is created whatever they say.
-    const channels = effectiveChannels(resolvedPrefs, eventKey);
+    const channels = notificationData.forceDelivery
+      ? { popup: true, push: true }
+      : effectiveChannels(resolvedPrefs, eventKey);
 
     // 3. Create persistent notification in database
     let notification: any;
@@ -102,17 +106,21 @@ export class NotificationEventService {
 
     const inQuietHours = resolvedPrefs.quietHoursEnabled !== false && this.isInQuietHours(quietFrom, quietTo, userTimezone, this.tva.now());
 
-    if (!inQuietHours && channels.popup) {
+    if ((!inQuietHours || notificationData.forceDelivery) && channels.popup) {
       // 5. Deliver real-time socket notification
       this.gateway.emitNotificationToUser(userId, notification);
     }
 
     if (channels.push && this.pushNotifications) {
-      try { await this.pushNotifications.deliver(notification); }
+      try { await this.pushNotifications.deliver(notification, notificationData.forceDelivery === true); }
       catch { /* Push failure never rolls back the durable in-app notification. */ }
     }
 
     return notification;
+  }
+
+  emitBreakWarningChanged(userId: string, breakLogId: string) {
+    this.gateway.emitBreakWarningChanged(userId, breakLogId);
   }
 
   isInQuietHours(from: string, to: string, timezone: string, now: Date): boolean {
