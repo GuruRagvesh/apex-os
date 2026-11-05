@@ -109,6 +109,7 @@ export const HANDLERS: Handler[] = [
   { key: 'TicketAssignee.userId', model: 'TicketAssignee', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Ticket Co-assignments', note: 'Open tickets were handled at archive.' },
   { key: 'TicketWatcher.userId', model: 'TicketWatcher', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Ticket Watching', note: 'Open-ticket watching was removed at archive.' },
   { key: 'Notification.userId', model: 'Notification', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Notifications', note: 'Own inbox.' },
+  { key: 'PolicyAcknowledgement.userId', model: 'PolicyAcknowledgement', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Policy Acknowledgements', note: 'The acknowledgement belongs to the departing person and is removed with their account.' },
   { key: 'PushSubscription.userId', model: 'PushSubscription', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: false, sheet: 'Push Subscriptions', note: 'Removed at archive; any left are deleted.' },
   { key: 'ActivityLog.userId', model: 'ActivityLog', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, sheet: 'Activity Logs', note: 'Own activity.' },
   { key: 'AttendancePunchHandoff.userId', model: 'AttendancePunchHandoff', field: 'userId', fk: true, holds: 'id', action: 'DEL', history: true, retention: 'ATTENDANCE', sheet: 'Punch Handoffs', note: 'Own phone handoffs.' },
@@ -275,6 +276,8 @@ export const HANDLERS: Handler[] = [
     key: `BusinessDayOverride.${field}`, model: 'BusinessDayOverride', field, fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Policies Acted On', note: 'Override kept.',
   })),
   { key: 'AppSetting.updatedBy', model: 'AppSetting', field: 'updatedBy', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Policies Acted On', note: 'Audit pointer.' },
+  { key: 'PolicyDocumentRevision.createdById', model: 'PolicyDocumentRevision', field: 'createdById', fk: false, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Policies Acted On', note: 'Published policy history stays; its required author moves to the Deleted account principal.' },
+  { key: 'PolicyDocumentRevision.publishedById', model: 'PolicyDocumentRevision', field: 'publishedById', fk: false, holds: 'id', action: 'NULL', history: true, sheet: 'Policies Acted On', note: 'Published policy history stays; its optional publisher reference is cleared.' },
   { key: 'RetentionRule.approvedById', model: 'RetentionRule', field: 'approvedById', fk: false, holds: 'id', action: 'REASSIGN', history: true, sheet: 'Policies Acted On', note: 'Rule kept.' },
 
   // ── 6. Lifecycle foundation (Phase 1): clear optional references ──────────
@@ -377,6 +380,7 @@ export const NOT_USER_REFERENCES: Record<string, string> = {
   'AttendanceMonthClose.recipientEmail': 'A finance mailbox copied at send time, not an employee.',
   'User.userLocation': 'A location label.',
   'User.employeeId': 'The person\'s own code; deleted with the row.',
+  'PolicyDocumentRevision.owner': 'A policy owner label such as People Operations or Operations, not a person identifier.',
   'User.verifiedBy': 'NAME text about another person; no ownership proof, kept and counted.',
   'EmployeeDocument.verifiedBy': 'NAME text about another document; no ownership proof, kept and counted.',
   'UserArchiveSnapshot.userId': 'Managed by the service: consumed snapshot cleared, others cleared.',
