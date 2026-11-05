@@ -161,11 +161,57 @@ model User {
   reviewQueueAssignments ReviewQueueAssignment[] @relation("ReviewQueueAssignedReviewer")
   reviewQueueForwards    ReviewQueueAssignment[] @relation("ReviewQueueForwardedBy")
   reviewQueueSubjects    ReviewQueueAssignment[] @relation("ReviewQueueSubject")
+  policyAcknowledgements PolicyAcknowledgement[]
 
   @@index([departmentId])
   @@index([roleId])
   @@index([isActive])
   @@map("users")
+}
+
+/// Acknowledgement of an employee-safe, published Policy Center item.
+/// This is deliberately separate from operational policy configuration: reading
+/// or acknowledging a policy can never activate attendance, leave or payroll rules.
+model PolicyAcknowledgement {
+  id             String   @id @default(cuid())
+  userId         String
+  policyKey      String
+  policyVersion  Int
+  viewedAt       DateTime @default(now())
+  acknowledgedAt DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, policyKey, policyVersion])
+  @@index([userId, acknowledgedAt])
+  @@map("policy_acknowledgements")
+}
+
+/// Editable policy copy. Published rows are immutable; acknowledgements retain
+/// the exact version even after a later revision becomes effective.
+model PolicyDocumentRevision {
+  id             String    @id @default(cuid())
+  policyKey      String
+  domain         String
+  version        Int
+  status         String    @default("DRAFT")
+  title          String
+  summary        String
+  guidance       String
+  owner          String
+  content        Json
+  effectiveFrom  DateTime? @db.Date
+  createdById    String
+  publishedById  String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  publishedAt    DateTime?
+
+  @@unique([policyKey, version])
+  @@index([domain, status, effectiveFrom])
+  @@index([policyKey, status])
+  @@map("policy_document_revisions")
 }
 
 model EmployeeDocument {

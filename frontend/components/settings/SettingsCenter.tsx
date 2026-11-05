@@ -12,9 +12,10 @@ import { UserAvatar } from '@apex/shared-ui/components/user-avatar';
 import toast from 'react-hot-toast';
 import {
   User, Shield, Palette, Building2,
-  CalendarDays, Eye, EyeOff, Lock, Tags, Bell, UsersRound, Clock3, ClipboardCheck,
+  Eye, EyeOff, Lock, Tags, Bell, UsersRound, Clock3,
   ExternalLink, Globe2, IndianRupee, Mail, MapPin,
   ArrowLeft, Network,
+  BookOpenCheck,
 } from 'lucide-react';
 import { cn } from '@apex/shared-utilities';
 import { useTheme, type ThemeId, type ThemeChoice, type AccentId } from '@apex/shared-utilities/use-theme';
@@ -25,6 +26,8 @@ import { AvailabilityControl } from '@/components/profile/AvailabilityControl';
 import { OrganizationHierarchySection } from './OrganizationHierarchySection';
 import { ComplianceSettings } from '@/components/transitions/ComplianceSettings';
 import { BreakSoundPicker, DEFAULT_BREAK_SOUND, isBreakSoundId } from '@/components/notifications/BreakSoundPicker';
+import { MyPoliciesSection } from './MyPoliciesSection';
+import { PolicyAdministrationSection } from './PolicyAdministrationSection';
 
 // ── Shared CSS-variable-aware styles ──────────────────────────────────────────
 const inputCls  = 'apex-input';
@@ -1253,7 +1256,7 @@ function WorkdayPolicySection({ canEdit = true }: { canEdit?: boolean }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SECTION: Task Types (admin only)
+// SECTION: Ticket Classification (admin only)
 // ─────────────────────────────────────────────────────────────────────────────
 function TaskTypesSettings() {
   const [selectedDeptId, setSelectedDeptId] = useState<string | null>(null); // null = Global
@@ -1354,9 +1357,9 @@ function TaskTypesSettings() {
   return (
     <div>
       <div className="mb-4">
-        <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Ticket types</h2>
+        <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Ticket classification</h2>
         <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
-          Define the categories used to classify tickets by department. They appear in the ticket creation form for the selected department.
+          Define the live types and subtypes used to classify tickets by department. These choices appear in ticket creation for the selected department.
         </p>
         <input className="apex-input mt-4 w-full max-w-md" value={taxonomySearch} onChange={(event) => setTaxonomySearch(event.target.value)} placeholder="Search ticket types or subtypes" aria-label="Search ticket types and subtypes" />
       </div>
@@ -1900,44 +1903,11 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
   );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POLICY CENTER — organization rules grouped into focused internal tabs
-// ─────────────────────────────────────────────────────────────────────────────
-type PolicyTab = 'leave' | 'workday' | 'task-types' | 'sla';
-
-function PolicyCenter() {
-  const [tab, setTab] = useState<PolicyTab>('leave');
-  const tabs: Array<{ id: PolicyTab; label: string; icon: React.ReactNode }> = [
-    { id: 'leave', label: 'Leave policy', icon: <CalendarDays size={16} /> },
-    { id: 'workday', label: 'Work schedule', icon: <Clock3 size={16} /> },
-    { id: 'task-types', label: 'Ticket types', icon: <Tags size={16} /> },
-    { id: 'sla', label: 'Service levels', icon: <ClipboardCheck size={16} /> },
-  ];
-
-  return <section className="space-y-5">
-    <header>
-      <h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Policy</h2>
-      <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }}>Manage the organization rules that govern leave, working time, ticket setup, and service standards.</p>
-    </header>
-    <nav aria-label="Policy sections" className="flex gap-2 overflow-x-auto border-b pb-px" style={{ borderColor: 'var(--border-subtle)' }}>
-      {tabs.map((item) => <button key={item.id} type="button" onClick={() => setTab(item.id)} aria-current={tab === item.id ? 'page' : undefined}
-        className="inline-flex flex-none items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors"
-        style={{ borderColor: tab === item.id ? 'var(--accent)' : 'transparent', color: tab === item.id ? 'var(--accent)' : 'var(--text-secondary)' }}>
-        {item.icon}{item.label}
-      </button>)}
-    </nav>
-    {tab === 'leave' && <LeavePolicySection canEdit={false} />}
-    {tab === 'workday' && <WorkdayPolicySection canEdit={false} />}
-    {tab === 'task-types' && <TaskTypesSettings />}
-    {tab === 'sla' && <SlaSection canEdit={false} />}
-  </section>;
-}
-
 // ROOT — left sidebar layout
 // ─────────────────────────────────────────────────────────────────────────────
 type SectionId =
   | 'profile' | 'appearance' | 'notifications' | 'security' | 'team'
-  | 'company' | 'policies' | 'hierarchy' | 'compliance';
+  | 'my-policies' | 'policy-admin' | 'company' | 'ticket-classification' | 'hierarchy' | 'compliance';
 
 type SettingsNavItem = { id: SectionId; label: string; icon: React.ReactNode; keywords: string };
 type SettingsNavGroup = { label: string; items: SettingsNavItem[] };
@@ -1946,6 +1916,7 @@ export function SettingsCenter() {
   const { user } = useAuthStore();
   const roleName    = (user?.role as any)?.name ?? user?.role ?? '';
   const isAdmin     = ['ADMIN', 'SUPER_ADMIN'].includes(roleName);
+  const isPolicyEditor = isAdmin || (user as any)?.isHR === true;
   const isLead = ['MANAGER', 'TEAM_LEAD', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const [active, setActive] = useState<SectionId>('profile');
   const accountItems: SettingsNavItem[] = [
@@ -1953,13 +1924,14 @@ export function SettingsCenter() {
     { id: 'appearance', label: 'Display & theme', icon: <Palette size={16} />, keywords: 'display theme appearance accent colour color font compact welcome screen' },
     { id: 'notifications', label: 'Notifications', icon: <Bell size={16} />, keywords: 'popup push ticket leave quiet hours' },
     { id: 'security', label: 'Security', icon: <Shield size={16} />, keywords: 'password sign in account session' },
+    { id: 'my-policies', label: 'My policies', icon: <BookOpenCheck size={16} />, keywords: 'policy handbook leave attendance conduct security acknowledgement' },
   ];
   const teamItems: SettingsNavItem[] = isLead ? [
     { id: 'team', label: 'Team operations', icon: <UsersRound size={16} />, keywords: 'assignment approvals capacity escalation delivery rules' },
   ] : [];
   const organizationItems: SettingsNavItem[] = isAdmin ? [
     { id: 'company', label: 'Organization profile', icon: <Building2 size={16} />, keywords: 'company organization name email timezone branding theme accent' },
-    { id: 'policies', label: 'Policy', icon: <ClipboardCheck size={16} />, keywords: 'leave work schedule ticket types service levels SLA' },
+    { id: 'ticket-classification', label: 'Ticket classification', icon: <Tags size={16} />, keywords: 'ticket types subtypes departments request categories taxonomy' },
     { id: 'hierarchy', label: 'Organization hierarchy', icon: <Network size={16} />, keywords: 'organization chart reporting manager team lead department structure roles hierarchy' },
     { id: 'compliance', label: 'Compliance', icon: <Shield size={16} />, keywords: 'retention record legal hold delete rollout switch transfer resignation payroll acknowledgement' },
   ] : [];
@@ -1970,13 +1942,13 @@ export function SettingsCenter() {
   ];
   useEffect(() => {
     const raw = new URLSearchParams(window.location.search).get('tab') ?? '';
-    const mapped = ['leave-policy', 'leave', 'workday', 'task-types', 'sla', 'policies'].includes(raw) ? 'policies' : raw;
+    const mapped = raw === 'task-types' ? 'ticket-classification' : ['leave-policy', 'leave', 'workday', 'sla', 'policies'].includes(raw) ? 'my-policies' : raw;
     const resolved = (mapped === 'preferences' ? 'notifications' : mapped) as SectionId;
-    const allowedItems = [...accountItems, ...teamItems, ...organizationItems];
+    const allowedItems = [...accountItems, ...teamItems, ...organizationItems, ...(isPolicyEditor ? [{ id: 'policy-admin' as const }] : [])];
     const allowed = allowedItems.map((item) => item.id);
     setActive(allowed.includes(resolved) ? resolved : 'profile');
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [roleName]);
+  }, [roleName, isPolicyEditor]);
 
   const leaveHierarchy = () => {
     setActive('profile');
@@ -2023,9 +1995,11 @@ export function SettingsCenter() {
           {active === 'appearance' && <AppearanceSettings mode="personal" />}
           {active === 'notifications' && <NotificationsSection isManager={isLead} />}
           {active === 'security' && <SecuritySection user={user} />}
+          {active === 'my-policies' && <MyPoliciesSection canManagePolicies={isPolicyEditor} onManagePolicies={() => { setActive('policy-admin'); window.history.replaceState(null, '', '/settings?tab=policy-admin'); }} />}
+          {active === 'policy-admin' && isPolicyEditor && <PolicyAdministrationSection onBack={() => { setActive('my-policies'); window.history.replaceState(null, '', '/settings?tab=my-policies'); }} />}
           {active === 'team' && isLead && <TeamLeadershipSection />}
           {active === 'company' && isAdmin && <div className="space-y-7"><CompanySection /><AppearanceSettings mode="company" /></div>}
-          {active === 'policies' && isAdmin && <PolicyCenter />}
+          {active === 'ticket-classification' && isAdmin && <TaskTypesSettings />}
           {active === 'hierarchy' && isAdmin && <OrganizationHierarchySection />}
           {active === 'compliance' && isAdmin && <ComplianceSettings me={user ? { id: user.id } : undefined} isSuperAdmin={roleName === 'SUPER_ADMIN'} />}
         </main>

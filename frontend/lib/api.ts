@@ -69,6 +69,11 @@ export const settingsApi = {
   testEmail:           (to?: string) => r(api.post('/settings/email/test', { to })),
   getWorkdayPolicy:    ()         => r(api.get('/settings/workday-policy')),
   updateWorkdayPolicy: (data: any) => r(api.patch('/settings/workday-policy', data)),
+  getMyPolicyCenter:   ()         => r(api.get('/settings/policy-center')),
+  acknowledgePolicy:   (policyKey: string, version: number) => r(api.post(`/settings/policy-center/${encodeURIComponent(policyKey)}/acknowledgements`, { version })),
+  getPolicyAdministration: () => r(api.get('/settings/policy-center/administration')),
+  savePolicyDraft: (policyKey: string, data: any) => r(api.post(`/settings/policy-center/administration/${encodeURIComponent(policyKey)}/draft`, data)),
+  publishPolicyDraft: (policyKey: string, effectiveFrom: string) => r(api.post(`/settings/policy-center/administration/${encodeURIComponent(policyKey)}/publish`, { effectiveFrom })),
 };
 
 // Task Types
