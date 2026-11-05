@@ -24,6 +24,7 @@ import { TeamLeadershipSection } from './TeamLeadershipSection';
 import { AvailabilityControl } from '@/components/profile/AvailabilityControl';
 import { OrganizationHierarchySection } from './OrganizationHierarchySection';
 import { ComplianceSettings } from '@/components/transitions/ComplianceSettings';
+import { BreakSoundPicker, DEFAULT_BREAK_SOUND, isBreakSoundId } from '@/components/notifications/BreakSoundPicker';
 
 // ── Shared CSS-variable-aware styles ──────────────────────────────────────────
 const inputCls  = 'apex-input';
@@ -417,6 +418,7 @@ const NOTIF_DEFAULTS = {
   quietHoursEnabled: true,
   quietFrom:      '22:00',
   quietTo:        '08:00',
+  breakWarningSound: DEFAULT_BREAK_SOUND,
 };
 
 // Per-event channels (spec §4, §11.4). Notification Center always keeps every
@@ -628,6 +630,18 @@ function NotificationsSection({ isManager }: { isManager: boolean }) {
       ))}
 
       <div className={cardCls}>
+        <div>
+          <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Break warning sound</h3>
+          <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>Preview each sound, then choose the alarm Apex OS plays for break reminders while the app is open. Browser push uses your device’s system sound.</p>
+        </div>
+        <BreakSoundPicker
+          value={isBreakSoundId(prefs.breakWarningSound) ? prefs.breakWarningSound : DEFAULT_BREAK_SOUND}
+          onChange={(breakWarningSound) => setPrefs((current) => ({ ...current, breakWarningSound }))}
+          constrained
+        />
+      </div>
+
+      <div className={cardCls}>
         <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Delivery</h3>
         <ToggleRow label="Popup alerts" desc="Show a brief on-screen alert for selected events. The bell history remains available." checked={prefs.inApp} onChange={() => toggle('inApp')} />
         <ToggleRow label="System push alerts" desc="Send selected alerts to registered devices, including when Apex OS is in the background." checked={prefs.pushEnabled} onChange={() => toggle('pushEnabled')} />
@@ -635,11 +649,11 @@ function NotificationsSection({ isManager }: { isManager: boolean }) {
           <div className="rounded-lg border p-3" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--surface-sunken)' }}>
             <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>This device</p>
             <p className="mt-1 text-xs" role="status" style={{ color: 'var(--text-secondary)' }}>
-              {deviceStatus === 'enabled' ? 'Registered for push alerts.' : deviceStatus === 'blocked' ? 'Notifications are blocked in this browser. Allow them in browser settings.' : deviceStatus === 'unsupported' ? 'Push alerts are not supported in this browser.' : deviceStatus === 'checking' ? 'Checking browser permission…' : 'Not registered for push alerts.'}
+              {deviceStatus === 'enabled' ? 'Registered for background system alerts on this device.' : deviceStatus === 'blocked' ? 'Notifications are blocked in this browser. Allow them in browser settings.' : deviceStatus === 'unsupported' ? 'Push alerts are not available in this browser. On iPhone or iPad, add Apex OS to the Home Screen first, then enable notifications from the installed web app.' : deviceStatus === 'checking' ? 'Checking browser permission…' : 'Not registered. Enable this device to receive break alarms even when the Apex tab is closed.'}
             </p>
             {deviceStatus === 'not-enabled' && <button type="button" onClick={enableThisDevice} disabled={enablingDevice || dirty}
               className="apex-btn apex-btn-secondary mt-2 text-sm disabled:opacity-50">
-              {enablingDevice ? 'Enabling…' : 'Enable on this device'}
+              {enablingDevice ? 'Enabling…' : 'Enable system notifications'}
             </button>}
             {deviceStatus === 'not-enabled' && dirty && <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>Save your changes first, then enable this device.</p>}
           </div>

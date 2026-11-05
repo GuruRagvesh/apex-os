@@ -16,6 +16,7 @@ import { DesktopNotificationManager } from '@/components/notifications/DesktopNo
 import { WorkPauseGuard } from '@/components/workday/WorkPauseGuard';
 import { MeetingInviteCenter } from '@/components/workday/MeetingInviteCenter';
 import { AnnouncementOverlayGuard } from '@/components/announcements/AnnouncementOverlayGuard';
+import { BreakWarningCenter } from '@/components/notifications/BreakWarningCenter';
 import { syncStoredOwner } from '@apex/operations-tickets-lifecycle/shared/ticket-nav-state';
 import {
   Ticket, CalendarDays, AlertTriangle, FolderKanban,
@@ -196,6 +197,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <WorkPauseGuard />
       <MeetingInviteCenter />
       <AnnouncementOverlayGuard />
+      <BreakWarningCenter />
     </div>
   );
 }

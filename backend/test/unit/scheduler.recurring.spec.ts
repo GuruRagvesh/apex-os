@@ -38,6 +38,7 @@ const mockPrisma = {
   breakLog: {
     findMany: jest.fn(),
     update: jest.fn(),
+    updateMany: jest.fn(),
   },
   attendanceEvent: {
     create: jest.fn(),
@@ -251,25 +252,50 @@ describe('SchedulerService — recurring ticket query', () => {
     await expect(service.checkScheduledTickets()).resolves.toBeUndefined();
   });
 
-  it('sends one durable, deduplicated notification for an overdue planned break', async () => {
+  it('claims a due early warning on the break, then sends one forced, deduplicated alarm', async () => {
     const plannedEndAt = new Date('2026-10-05T06:00:00.000Z');
     mockPrisma.breakLog.findMany.mockResolvedValueOnce([{
       id: 'break-1',
       userId: 'u1',
-      breakType: 'TEA',
+      estimatedMinutes: 30,
       plannedEndAt,
+      warningStage: 'PENDING',
     }]);
+    mockPrisma.breakLog.updateMany.mockResolvedValueOnce({ count: 1 });
 
     await service.plannedBreakOverrunReminders();
 
+    expect(mockPrisma.breakLog.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ endAt: null, breakType: { not: 'MEETING' } }),
+    }));
+    expect(mockPrisma.breakLog.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'break-1', endAt: null, warningStage: 'PENDING' },
+      data: expect.objectContaining({ warningStage: 'EARLY_ACTIVE' }),
+    }));
     expect(mockNotificationEvent.sendNotification).toHaveBeenCalledWith(
       'u1',
       'breakOverrun',
       expect.objectContaining({
         entityId: 'break-1',
         entityType: 'BREAK',
-        dedupeKey: 'break-overrun:break-1',
+        dedupeKey: 'break-warning:break-1:early',
+        forceDelivery: true,
       }),
     );
+  });
+
+  it('does not ring when another instance already claimed the alarm', async () => {
+    mockPrisma.breakLog.findMany.mockResolvedValueOnce([{
+      id: 'break-2',
+      userId: 'u2',
+      estimatedMinutes: 5,
+      plannedEndAt: new Date('2026-10-05T06:00:00.000Z'),
+      warningStage: 'PENDING',
+    }]);
+    mockPrisma.breakLog.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await service.plannedBreakOverrunReminders();
+
+    expect(mockNotificationEvent.sendNotification).not.toHaveBeenCalled();
   });
 });

@@ -111,6 +111,11 @@ export class EventsGateway implements OnGatewayInit, OnGatewayConnection, OnGate
     this.server.to(`user:${userId}`).emit('notification:new', { notification });
   }
 
+  /** Keep a break alarm in sync across every open device for the same account. */
+  emitBreakWarningChanged(userId: string, breakLogId: string) {
+    this.server.to(`user:${userId}`).emit('break-warning:changed', { breakLogId });
+  }
+
   /** Notify the leave owner about an approval/rejection decision */
   emitLeaveStatusChanged(leaveId: string, status: string, userId: string) {
     this.server.to(`user:${userId}`).emit('leave:status_changed', { leaveId, status });

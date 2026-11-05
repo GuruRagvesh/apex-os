@@ -745,29 +745,37 @@ model WorkSession {
 }
 
 model BreakLog {
-  id               String          @id @default(cuid())
-  userId           String
-  workSessionId    String
-  breakType        String
-  estimatedMinutes Int?
-  plannedEndAt     DateTime?
-  startAt          DateTime
-  endAt            DateTime?
-  durationMinutes  Int?
-  autoDetected     Boolean         @default(false)
-  note             String?
-  createdAt        DateTime        @default(now())
-  reason           String?
-  source           String?
-  meetingId        String?
-  user             User            @relation(fields: [userId], references: [id])
-  workSession      WorkSession     @relation(fields: [workSessionId], references: [id])
-  ticketTimeLogs   TicketTimeLog[]
-  meeting          Meeting?        @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  id                 String          @id @default(cuid())
+  userId             String
+  workSessionId      String
+  breakType          String
+  estimatedMinutes   Int?
+  plannedEndAt       DateTime?
+  startAt            DateTime
+  endAt              DateTime?
+  durationMinutes    Int?
+  autoDetected       Boolean         @default(false)
+  note               String?
+  createdAt          DateTime        @default(now())
+  reason             String?
+  source             String?
+  meetingId          String?
+  /// Break alarm lifecycle: PENDING -> EARLY_ACTIVE -> FINAL_PENDING ->
+  /// FINAL_ACTIVE -> COMPLETE. Estimates of five minutes or less skip the
+  /// early stage. Meetings never leave PENDING because they have no plannedEndAt.
+  warningStage       String          @default("PENDING")
+  warningUpdatedAt   DateTime?
+  earlyWarningSentAt DateTime?
+  finalWarningSentAt DateTime?
+  user               User            @relation(fields: [userId], references: [id])
+  workSession        WorkSession     @relation(fields: [workSessionId], references: [id])
+  ticketTimeLogs     TicketTimeLog[]
+  meeting            Meeting?        @relation(fields: [meetingId], references: [id], onDelete: SetNull)
 
   @@index([userId])
   @@index([workSessionId])
   @@index([meetingId])
+  @@index([endAt, warningStage, plannedEndAt])
   @@map("break_logs")
 }
 
