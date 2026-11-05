@@ -167,11 +167,12 @@ describe('status corrections are applied safely', () => {
   });
 
   it('SC7. a reviewer who saw older facts gets a stale conflict, and nothing is applied', async () => {
-    const { service, attempts, evaluator } = rig();
+    const { service, attempts, evaluator, logged } = rig();
     await expect(service.decide('hr-1', 'reg-1', approve({ grantedStatus: 'PRESENT', reviewedFingerprint: 'fp-old' }))).rejects.toMatchObject({
       response: expect.objectContaining({ code: 'CORRECTION_STALE' }),
     });
     expect(attempts[0].updates).toEqual([expect.objectContaining({ status: 'STALE_REVIEW_REQUIRED' })]);
+    expect(logged).toEqual([expect.objectContaining({ action: 'REGULARIZATION_DECISION_STALE', entityId: 'reg-1' })]);
     expect(evaluator.reviseForApprovedCorrection).not.toHaveBeenCalled();
   });
 

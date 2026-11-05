@@ -501,8 +501,9 @@ export class CorrectionDecisionService {
     });
 
     if (outcome.kind === 'STALE') {
-      // Awaited: the stale attempt is the only record of this decision, so it
-      // must exist before the caller is told to decide again.
+      // The caller is about to receive a conflict response. Persist the audit
+      // event first so the stale attempt is visible immediately and cannot be
+      // lost in a fire-and-forget race with the next reviewer action.
       await this.eventLogger.log({
         actorId,
         entityType: 'AttendanceRegularization',
@@ -511,7 +512,7 @@ export class CorrectionDecisionService {
         fromState: 'PENDING',
         toState: 'STALE_REVIEW_REQUIRED',
         metadata: { attemptedDecision: decision, reason: reason.slice(0, 200), via: outcome.eligibility.via, staleFingerprint: outcome.row.staleFingerprint },
-      }).catch(() => {});
+      });
       throw conflict('CORRECTION_STALE', 'The attendance for this day changed after the request was raised. Review the current values and decide again.', {
         previous: { punchInAt: outcome.row.originalPunchIn, punchOutAt: outcome.row.originalPunchOut },
         requested: { punchInAt: outcome.row.requestedPunchIn, punchOutAt: outcome.row.requestedPunchOut, status: outcome.row.proposedStatus },
