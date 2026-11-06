@@ -7,9 +7,15 @@
 // into the dashboard screen instead of the dashboard importing it.
 import { DashboardScreen } from '@apex/intelligence-dashboard';
 import { HomeCalendarPanel } from '@/components/attendance-v2/home/HomeCalendarPanel';
+import { DefaultDepartmentCard } from '@/components/layout/DefaultDepartment';
 
 export default function DashboardPage() {
-  return <DashboardScreen
-    personalPanel={<HomeCalendarPanel />}
-  />;
+  return (
+    <>
+      <DefaultDepartmentCard />
+      <DashboardScreen
+        personalPanel={<HomeCalendarPanel />}
+      />
+    </>
+  );
 }

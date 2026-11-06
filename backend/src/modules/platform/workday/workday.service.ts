@@ -15,6 +15,7 @@ import { TVAService } from '../../../common/services/tva.service';
 import { isPunchedInSession, ticketCreationState } from '../../../common/services/active-workday-policy.service';
 import { CompOffService } from '../../operations/leave/comp-off.service';
 import { OperationalHierarchyScopeService } from '../../../common/services/operational-hierarchy-scope.service';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 
 // Combined daily allowance for all break types (lunch + restroom + tea + other).
 // Soft policy only — usage beyond this is reported via exceededBreakMinutes, never blocked.
@@ -1338,6 +1339,9 @@ export class WorkdayService {
         userFilter.departmentId = { in: [...new Set(deptIds)] };
       }
     }
+
+    const viewDept = viewDepartmentOf(requestingUser);
+    if (viewDept) userFilter.departmentId = viewDept;
 
     // This endpoint represents the Team Lead's department plus people below
     // the viewer through teams and reporting lines. It never includes seniors.

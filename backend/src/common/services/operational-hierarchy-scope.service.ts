@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { viewDepartmentOf } from './view-scope';
 
 const LEADER_ROLES = ['TEAM_LEAD', 'MANAGER'] as const;
 const COMPANY_TARGET_ROLES = ['MANAGER', 'TEAM_LEAD', 'EMPLOYEE', 'INTERN'];
@@ -52,10 +53,12 @@ export class OperationalHierarchyScopeService {
     const role = this.roleName(viewer);
     const companyWide = role === 'ADMIN' || role === 'SUPER_ADMIN' || Boolean(viewer.isHR);
     if (companyWide) {
+      // An admin's default department replaces "the whole company".
+      const departmentId = options.departmentId ?? viewDepartmentOf(viewer) ?? undefined;
       return {
         role,
-        departmentId: options.departmentId ?? null,
-        userIds: await this.findEligibleUsers(COMPANY_TARGET_ROLES, viewer.id, options.departmentId),
+        departmentId: departmentId ?? null,
+        userIds: await this.findEligibleUsers(COMPANY_TARGET_ROLES, viewer.id, departmentId),
         sources: ['COMPANY'],
       };
     }

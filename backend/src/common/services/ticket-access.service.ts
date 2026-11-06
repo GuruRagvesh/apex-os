@@ -3,6 +3,7 @@ import { Priority, TicketCategory, TicketStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ROLES } from '../../shared/constants/roles';
 import { AccessPolicyService } from './access-policy.service';
+import { viewDepartmentOf } from './view-scope';
 import { HierarchyApprovalService } from './hierarchy-approval.service';
 import { fromZonedTime } from 'date-fns-tz';
 import { COMPANY_CRON_TIMEZONE } from '../constants/company-time.constants';
@@ -207,6 +208,8 @@ export class TicketAccessService {
       select: { id: true },
     });
     if (!existing) throw new NotFoundException('Ticket not found');
+    // The default department narrows lists only; an admin can still open any ticket directly.
+    if (this.access.isAdmin(user)) return this.prisma.ticket.findUnique({ where: { id: existing.id }, include });
     const where = await this.buildTicketWhereForUser({}, user);
     const allowed = await this.prisma.ticket.count({
       where: this.andWhere({ id: existing.id }, where),
@@ -549,10 +552,11 @@ export class TicketAccessService {
   private async buildScopeWhere(user?: any): Promise<any> {
     if (!user) return {};
     const roleName = this.access.roleName(user);
-    if (this.access.isAdmin(user)) return {};
+    const viewDept = viewDepartmentOf(user);
+    if (this.access.isAdmin(user) && !viewDept) return {};
 
-    if (roleName === ROLES.MANAGER || roleName === ROLES.TEAM_LEAD) {
-      const deptIds = await this.access.managedDepartmentIds(user);
+    if (viewDept || roleName === ROLES.MANAGER || roleName === ROLES.TEAM_LEAD) {
+      const deptIds = viewDept ? [viewDept] : await this.access.managedDepartmentIds(user);
       const scopedOr: any[] = [
         { assignedToId: user.id },
         { createdById: user.id },

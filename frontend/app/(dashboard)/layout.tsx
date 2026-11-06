@@ -17,6 +17,7 @@ import { WorkPauseGuard } from '@/components/workday/WorkPauseGuard';
 import { MeetingInviteCenter } from '@/components/workday/MeetingInviteCenter';
 import { AnnouncementOverlayGuard } from '@/components/announcements/AnnouncementOverlayGuard';
 import { BreakWarningCenter } from '@/components/notifications/BreakWarningCenter';
+import { DefaultDepartmentBanner } from '@/components/layout/DefaultDepartment';
 import { syncStoredOwner } from '@apex/operations-tickets-lifecycle/shared/ticket-nav-state';
 import {
   Ticket, CalendarDays, AlertTriangle, FolderKanban,
@@ -183,6 +184,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <TopBar onOpenMenu={() => setMobileNavOpen(true)} menuOpen={mobileNavOpen} />
         {/* While the viewer's own review timer runs (from the ledger), on every page */}
         <ActiveReviewBanner />
+        <DefaultDepartmentBanner />
         <main id="apex-main-content" className="flex-1 overflow-y-auto p-3 sm:p-6">{children}</main>
       </div>
       <ColdStartBanner />

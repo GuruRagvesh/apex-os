@@ -15,6 +15,7 @@ import {
 } from '../transitions-codes';
 import { hrAndAdminIds, notifyMany, supervisorIds } from '../transition-support';
 import { adjustmentProblem, defaultNoticeForEmployee, lastWorkingDay, NoticeSource, separationDueAt, withdrawalClosesAt } from './notice';
+import { viewDepartmentOf } from '../../../../../common/services/view-scope';
 
 type Tx = any;
 const OPEN_STATES = ['NOTICE_RUNNING', 'CLEARANCE_IN_PROGRESS', 'CLEARED'];
@@ -328,6 +329,8 @@ export class ExitService {
     const page = Math.max(Number(q?.page) || 1, 1);
     const state = typeof q?.state === 'string' && q.state ? q.state.split(',').filter((s: string) => /^[A-Z_]+$/.test(s)) : undefined;
     const where: any = { ...(state?.length ? { state: { in: state } } : {}) };
+    const viewDept = viewDepartmentOf({ role: actor.roleName, viewDepartmentId: actor.viewDepartmentId });
+    if (viewDept) where.user = { departmentId: viewDept };
     const [total, rows] = await Promise.all([
       this.prisma.exitCase.count({ where }),
       this.prisma.exitCase.findMany({

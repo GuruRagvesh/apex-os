@@ -102,11 +102,13 @@ export interface TransitionActor {
   id: string;
   roleName: string;
   isHR: boolean;
+  /** Admin's default department (see common/services/view-scope). */
+  viewDepartmentId?: string | null;
 }
 
 export function actorFrom(req: any): TransitionActor {
   const u = req?.user ?? {};
-  return { id: u.id ?? u.sub, roleName: String(u.role?.name ?? u.role ?? ''), isHR: Boolean(u.isHR) };
+  return { id: u.id ?? u.sub, roleName: String(u.role?.name ?? u.role ?? ''), isHR: Boolean(u.isHR), viewDepartmentId: u.viewDepartmentId ?? null };
 }
 
 export const isAdmin = (a: TransitionActor) => a.roleName === 'ADMIN' || a.roleName === 'SUPER_ADMIN';

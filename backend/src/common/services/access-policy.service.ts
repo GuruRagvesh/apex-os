@@ -1,6 +1,7 @@
 import { ForbiddenException, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ROLES } from '../../shared/constants/roles';
+import { viewDepartmentOf } from './view-scope';
 
 type UserLike = {
   id: string;
@@ -106,6 +107,8 @@ export class AccessPolicyService {
    * screens and the Analytics project filter both use this one rule.
    */
   async projectWhereForUser(user: UserLike): Promise<any> {
+    const viewDept = viewDepartmentOf(user);
+    if (viewDept) return { OR: [{ members: { some: { userId: user.id } } }, { departmentId: viewDept }] };
     if (this.isAdmin(user)) return {};
     const roleName = this.roleName(user);
     if (roleName === ROLES.MANAGER || roleName === ROLES.TEAM_LEAD) {

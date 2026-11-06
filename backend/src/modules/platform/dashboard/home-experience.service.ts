@@ -7,6 +7,7 @@ import { TicketTimingService } from '../../../common/services/ticket-timing.serv
 import { LeaveAccessService } from '../../../common/services/leave-access.service';
 import { TVAService } from '../../../common/services/tva.service';
 import { LeaveService } from '../../operations/leave/leave.service';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 
 const TERMINAL_TICKET_STATUSES: TicketStatus[] = [
   TicketStatus.PENDING_APPROVAL,
@@ -379,7 +380,11 @@ export class HomeExperienceService {
     if (scope === 'team' && !['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role)) return [];
 
     let actorIds: string[] | null = [user.id];
-    if (scope === 'company') {
+    const viewDept = viewDepartmentOf(user);
+    if (scope === 'company' && viewDept) {
+      const people = await this.prisma.user.findMany({ where: { departmentId: viewDept }, select: { id: true } });
+      actorIds = [...new Set([user.id, ...people.map((person) => person.id)])];
+    } else if (scope === 'company') {
       actorIds = null;
     } else if (scope === 'team') {
       if (role === 'TEAM_LEAD') {
@@ -505,7 +510,8 @@ export class HomeExperienceService {
       return { ...empty, departments };
     }
 
-    let departmentIds: string[] | null = null;
+    const viewDept = viewDepartmentOf(user);
+    let departmentIds: string[] | null = viewDept ? [viewDept] : null;
     if (role === 'MANAGER') {
       const assignments = await this.prisma.managerDeptAccess.findMany({
         where: { managerId: user.id },

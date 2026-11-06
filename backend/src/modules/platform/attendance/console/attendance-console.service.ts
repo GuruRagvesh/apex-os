@@ -10,6 +10,7 @@ import { BusinessCalendarService } from '../calendar/business-calendar.service';
 import { LeaveBalanceService } from '../../../operations/leave/leave-balance.service';
 import { ROLES } from '../../../../shared/constants/roles';
 import { deviceLabel, deviceView } from '../punch/device-evidence';
+import { viewDepartmentOf } from '../../../../common/services/view-scope';
 
 /**
  * HR / manager attendance console (HC-1).
@@ -121,6 +122,11 @@ export class AttendanceConsoleService {
    * apply, so a query cannot accidentally escape its scope.
    */
   async resolveScope(actor: any): Promise<ConsoleScope> {
+    const viewDept = viewDepartmentOf(actor);
+    if (viewDept) {
+      const people = await this.prisma.user.findMany({ where: { departmentId: viewDept }, select: { id: true } });
+      return { userIds: [...new Set([actor.id, ...people.map((p) => p.id)])], isHr: true, eligible: true };
+    }
     if (this.accessPolicy.isHrOrAdmin(actor)) {
       return { userIds: null, isHr: true, eligible: true };
     }
@@ -259,7 +265,10 @@ export class AttendanceConsoleService {
 
     const [employees, records, pendingRegularizations] = await Promise.all([
       this.prisma.user.findMany({
-        where: this.scopeWhere(scope, this.peopleFilter(date, date, this.tva.companyToday())),
+        // The users table keys people by `id`, not `userId`.
+        where: scope.userIds === null
+          ? this.peopleFilter(date, date, this.tva.companyToday())
+          : { ...this.peopleFilter(date, date, this.tva.companyToday()), id: { in: scope.userIds } },
         select: { id: true },
       }),
       this.prisma.dailyAttendance.findMany({
