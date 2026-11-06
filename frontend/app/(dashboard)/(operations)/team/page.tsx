@@ -777,8 +777,7 @@ export default function TeamPage() {
   const role = (me?.role as any)?.name ?? me?.role ?? '';
   const isHR = (me as any)?.isHR;
   const canSeeStatus = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role) || isHR;
-  const mode = typeof window !== 'undefined' ? localStorage.getItem('apexMode') ?? 'super_admin' : 'super_admin';
-  const isSuperAdminCompanyMode = role === 'SUPER_ADMIN' && mode !== 'team_lead';
+  const isSuperAdminCompanyMode = role === 'SUPER_ADMIN';
 
   // Super Admin in company (admin) mode → show all departments + Live Status tab
   if (isSuperAdminCompanyMode) {
