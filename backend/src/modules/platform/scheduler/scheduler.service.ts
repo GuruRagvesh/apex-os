@@ -50,6 +50,22 @@ export function dueBreakWarningsWhere(now: Date): Prisma.BreakLogWhereInput {
   };
 }
 
+// An unanswered alarm rings in up to three rounds: the sound plays 20 times,
+// pauses five minutes, then the next round starts. Mirrors BreakWarningCenter.
+export const BREAK_ALARM_ROUNDS = 3;
+export const BREAK_ALARM_PLAYS_PER_ROUND = 20;
+export const BREAK_ALARM_PAUSE_MS = 5 * 60_000;
+// Length of one play of each selectable sound (frontend/public/sounds).
+const BREAK_SOUND_SECONDS: Record<string, number> = { 'apex-break': 10.1, 'chicken-call': 5.7, fahhh: 2.7 };
+
+/** 0-based round of an unanswered alarm that is ringing or most recently rang, or null once all rounds are spent. */
+export function breakAlarmRound(triggeredAt: Date, sound: unknown, now: Date): number | null {
+  const seconds = BREAK_SOUND_SECONDS[String(sound)] ?? BREAK_SOUND_SECONDS['apex-break'];
+  const cycleMs = seconds * BREAK_ALARM_PLAYS_PER_ROUND * 1000 + BREAK_ALARM_PAUSE_MS;
+  const round = Math.floor((now.getTime() - triggeredAt.getTime()) / cycleMs);
+  return round >= 0 && round < BREAK_ALARM_ROUNDS ? round : null;
+}
+
 @Injectable()
 export class SchedulerService {
   private readonly logger = new Logger('SchedulerService');
@@ -145,6 +161,50 @@ export class SchedulerService {
         this.notificationEventService.emitBreakWarningChanged?.(breakLog.userId, breakLog.id);
       } catch (error) {
         this.logger.error(`[scheduler] Break reminder failed for ${breakLog.id}: ${error}`);
+      }
+    }
+    await this.repeatUnansweredBreakAlarms(now);
+  }
+
+  /**
+   * Rounds 2 and 3 of an alarm nobody answered: push again so a sleeping phone
+   * or a closed tab rings and vibrates again. Later or Resume ends the rounds,
+   * because either one moves the break out of an *_ACTIVE stage.
+   */
+  private async repeatUnansweredBreakAlarms(now: Date) {
+    const ringing = await this.prisma.breakLog.findMany({
+      where: { endAt: null, warningStage: { in: ['EARLY_ACTIVE', 'FINAL_ACTIVE'] }, warningUpdatedAt: { not: null } },
+      select: { id: true, userId: true, warningStage: true, warningUpdatedAt: true, plannedEndAt: true },
+      take: 500,
+    });
+    if (!ringing.length) return;
+    const prefRows = await this.prisma.appSetting.findMany({
+      where: { key: { in: [...new Set(ringing.map((row) => `user-prefs-${row.userId}`))] } },
+      select: { key: true, value: true },
+    });
+    const soundByUser = new Map(prefRows.map((row) => [row.key.slice('user-prefs-'.length), (row.value as any)?.breakWarningSound]));
+
+    for (const breakLog of ringing) {
+      const round = breakAlarmRound(breakLog.warningUpdatedAt!, soundByUser.get(breakLog.userId), now);
+      if (!round) continue; // Round 1 was the alarm itself; null means all rounds are spent.
+      const phase = breakLog.warningStage === 'EARLY_ACTIVE' ? 'early' : 'final';
+      const dedupeKey = `break-warning:${breakLog.id}:${phase}:round${round + 1}`;
+      try {
+        const sent = await this.prisma.notification.findFirst({ where: { userId: breakLog.userId, dedupeKey }, select: { id: true } });
+        if (sent) continue;
+        const ended = !breakLog.plannedEndAt || breakLog.plannedEndAt.getTime() <= now.getTime();
+        await this.notificationEventService.sendNotification(breakLog.userId, 'breakOverrun', {
+          title: ended ? 'Your planned break has ended' : 'Your break is about to end',
+          message: `Reminder ${round + 1} of ${BREAK_ALARM_ROUNDS}. Resume work, or choose Later in Apex OS.`,
+          type: NotificationType.WARNING,
+          link: '/dashboard',
+          entityType: 'BREAK',
+          entityId: breakLog.id,
+          dedupeKey,
+          forceDelivery: true,
+        });
+      } catch (error) {
+        this.logger.error(`[scheduler] Break reminder round failed for ${breakLog.id}: ${error}`);
       }
     }
   }

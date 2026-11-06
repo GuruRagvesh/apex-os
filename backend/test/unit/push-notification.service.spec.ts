@@ -89,6 +89,24 @@ describe('PushNotificationService', () => {
     });
   });
 
+  it('sends a forced break alarm as an urgent, re-alerting push', async () => {
+    prisma.pushSubscription.findMany.mockResolvedValue([{
+      id: 'subscription-1', endpoint: 'https://push.example/subscription',
+      p256dh: 'p256dh-value', auth: 'auth-value',
+    }]);
+    (webPush.sendNotification as jest.Mock).mockResolvedValue({ statusCode: 201 });
+
+    await service().deliver({
+      id: 'notification-2', userId: 'user-1', title: 'Your planned break has ended',
+      message: 'Reminder 2 of 3', link: '/dashboard', type: 'WARNING',
+      entityType: 'BREAK', entityId: 'break-1', isRead: false, pushDeliveredAt: null,
+    }, true);
+
+    const [, payload, options] = (webPush.sendNotification as jest.Mock).mock.calls[0];
+    expect(options).toEqual({ TTL: 20 * 60, urgency: 'high' });
+    expect(JSON.parse(payload)).toMatchObject({ tag: 'break-break-1', alarm: true });
+  });
+
   it('disables an expired browser subscription without losing the notification', async () => {
     prisma.pushSubscription.findMany.mockResolvedValue([{
       id: 'subscription-1', endpoint: 'https://push.example/expired',

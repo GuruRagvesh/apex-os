@@ -2,13 +2,19 @@ self.addEventListener('push', (event) => {
   let payload = {};
   try { payload = event.data ? event.data.json() : {}; } catch { payload = {}; }
   const title = payload.title || 'Apex OS';
+  const tag = payload.tag || payload.notificationId || undefined;
   const options = {
     body: payload.body || 'You have a new notification.',
     data: { url: payload.url || '/dashboard', notificationId: payload.notificationId },
-    tag: payload.notificationId || undefined,
-    renotify: payload.type === 'WARNING',
-    requireInteraction: payload.type === 'WARNING',
+    tag,
+    // renotify only takes effect with a tag: a repeated break alarm replaces the
+    // previous one and rings and vibrates again.
+    renotify: Boolean(tag) && (payload.alarm === true || payload.type === 'WARNING'),
+    requireInteraction: payload.alarm === true || payload.type === 'WARNING',
     silent: false,
+    // Phones vibrate for about seven seconds on a break alarm; Android uses it,
+    // other platforms ignore it.
+    ...(payload.alarm === true ? { vibrate: [900, 300, 900, 300, 900, 300, 900, 300, 900, 300, 900] } : {}),
   };
   event.waitUntil(self.registration.showNotification(title, options));
 });

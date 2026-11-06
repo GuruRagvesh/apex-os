@@ -8,7 +8,7 @@ import { usersApi } from '@apex/core-users/api';
 import { useAuthStore } from '@apex/core-identity';
 import { workdayApi } from '@/lib/api';
 import { useSocket } from '@/hooks/useSocket';
-import { DEFAULT_BREAK_SOUND, breakSoundSource, isBreakSoundId } from './BreakSoundPicker';
+import { DEFAULT_BREAK_SOUND, breakSoundSeconds, breakSoundSource, isBreakSoundId } from './BreakSoundPicker';
 import { ModalPortal } from '@/components/ui/ModalPortal';
 
 type BreakWarning = {
@@ -19,6 +19,13 @@ type BreakWarning = {
   phase: 'EARLY' | 'FINAL';
   triggeredAt: string;
 };
+
+// An unanswered alarm rings in up to three rounds: the sound plays 20 times,
+// pauses five minutes, then the next round starts. The scheduler re-sends the
+// device notification on the same timetable (BREAK_ALARM_* in scheduler.service).
+const ALARM_ROUNDS = 3;
+const PLAYS_PER_ROUND = 20;
+const PAUSE_BETWEEN_ROUNDS_MS = 5 * 60_000;
 
 export function BreakWarningCenter() {
   const userId = useAuthStore((state) => state.user?.id);
@@ -37,6 +44,9 @@ export function BreakWarningCenter() {
     queryFn: () => workdayApi.getBreakWarning() as Promise<{ warning: BreakWarning | null }>,
     enabled: Boolean(userId),
     refetchInterval: 15_000,
+    // Keep checking while Apex is a background tab, so the alarm still starts
+    // when the person is in another tab or watching a video.
+    refetchIntervalInBackground: true,
   });
 
   useSocket({
@@ -51,28 +61,84 @@ export function BreakWarningCenter() {
   const savedSound = preferences.data?.breakWarningSound;
   const selectedSound = isBreakSoundId(savedSound) ? savedSound : DEFAULT_BREAK_SOUND;
 
+  const triggeredAt = warning?.triggeredAt ?? null;
   useEffect(() => {
     audioRef.current?.pause();
     audioRef.current = null;
-    if (!warningKey || mutedWarning === warningKey) return;
+    if (!warningKey || !triggeredAt || mutedWarning === warningKey) return;
     const audio = new Audio(breakSoundSource(selectedSound));
-    let completedPlays = 0;
-    const playAgain = () => {
-      completedPlays += 1;
-      if (completedPlays >= 3) return;
+    const playMs = breakSoundSeconds(selectedSound) * 1000;
+    const roundMs = playMs * PLAYS_PER_ROUND;
+    const cycleMs = roundMs + PAUSE_BETWEEN_ROUNDS_MS;
+    let round = 0;
+    let plays = 0;
+    let pauseTimer: number | undefined;
+
+    // Browsers block sound until the person has interacted with the page. If
+    // that happens, ring on their next click or key press instead.
+    function retryOnGesture() {
+      window.removeEventListener('pointerdown', retryOnGesture);
+      window.removeEventListener('keydown', retryOnGesture);
+      playOnce();
+    }
+    function playOnce() {
       audio.currentTime = 0;
-      void audio.play().catch(() => { /* The visible popup still carries the warning. */ });
+      void audio.play().catch(() => {
+        window.addEventListener('pointerdown', retryOnGesture, { once: true });
+        window.addEventListener('keydown', retryOnGesture, { once: true });
+      });
+    }
+    function startRound(index: number, alreadyPlayed = 0) {
+      if (index >= ALARM_ROUNDS) return;
+      round = index;
+      plays = alreadyPlayed;
+      playOnce();
+    }
+    const onEnded = () => {
+      plays += 1;
+      if (plays < PLAYS_PER_ROUND) {
+        playOnce();
+      } else if (round + 1 < ALARM_ROUNDS) {
+        pauseTimer = window.setTimeout(() => startRound(round + 1), PAUSE_BETWEEN_ROUNDS_MS);
+      }
     };
-    audio.loop = false;
-    audio.addEventListener('ended', playAgain);
+    audio.addEventListener('ended', onEnded);
     audioRef.current = audio;
-    void audio.play().catch(() => { /* The popup remains visible when autoplay is blocked. */ });
+
+    // Join the schedule from the moment the alarm started, so a reload or a
+    // second tab continues the current round instead of restarting it.
+    const elapsed = Math.max(0, Date.now() - new Date(triggeredAt).getTime());
+    const current = Math.floor(elapsed / cycleMs);
+    const offset = elapsed - current * cycleMs;
+    if (current < ALARM_ROUNDS) {
+      if (offset < roundMs) startRound(current, Math.floor(offset / playMs));
+      else pauseTimer = window.setTimeout(() => startRound(current + 1), cycleMs - offset);
+    }
+
     return () => {
-      audio.removeEventListener('ended', playAgain);
+      audio.removeEventListener('ended', onEnded);
+      window.removeEventListener('pointerdown', retryOnGesture);
+      window.removeEventListener('keydown', retryOnGesture);
+      window.clearTimeout(pauseTimer);
       audio.pause();
       audio.currentTime = 0;
     };
-  }, [mutedWarning, selectedSound, warningKey]);
+  }, [mutedWarning, selectedSound, triggeredAt, warningKey]);
+
+  // While the alarm is up, flash the tab title so it stands out among other tabs.
+  useEffect(() => {
+    if (!warningKey) return;
+    const originalTitle = document.title;
+    let flashOn = false;
+    const flash = window.setInterval(() => {
+      flashOn = !flashOn;
+      document.title = flashOn ? '⏰ Break alarm · Apex OS' : originalTitle;
+    }, 1000);
+    return () => {
+      window.clearInterval(flash);
+      document.title = originalTitle;
+    };
+  }, [warningKey]);
 
   const stopAlarm = () => {
     audioRef.current?.pause();
@@ -104,6 +170,8 @@ export function BreakWarningCenter() {
     },
     onError: () => void queryClient.invalidateQueries({ queryKey: ['active-break-warning'] }),
   });
+  // Rounds 2 and 3 of an early warning usually ring after the planned end.
+  const breakTimeOver = warning ? new Date(warning.plannedEndAt).getTime() <= Date.now() : false;
   const durationLabel = useMemo(() => warning?.estimatedMinutes ? `${warning.estimatedMinutes}-minute break` : '60-minute default break', [warning]);
 
   return (
@@ -119,7 +187,7 @@ export function BreakWarningCenter() {
               <div className="min-w-0 flex-1">
                 <p className="text-xs font-semibold uppercase tracking-wide" style={{ color: 'var(--color-warning)' }}>{durationLabel}</p>
                 <h2 id="break-warning-title" className="mt-1 text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
-                  {warning.phase === 'EARLY' ? 'Your break ends in 5 minutes' : 'Your estimated break time is complete'}
+                  {warning.phase === 'EARLY' && !breakTimeOver ? 'Your break ends in 5 minutes' : 'Your estimated break time is complete'}
                 </h2>
                 <p className="mt-2 text-sm" style={{ color: 'var(--text-secondary)' }}>
                   {warning.phase === 'EARLY' ? 'Resume work now, or choose Later to receive one final reminder at the estimated end time.' : 'You can resume work, or choose Later to continue without another reminder.'}
