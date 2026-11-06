@@ -7,9 +7,10 @@ import { cn } from '@apex/shared-utilities';
 export const DEFAULT_BREAK_SOUND = 'apex-break';
 
 export const BREAK_SOUNDS = [
-  { id: 'apex-break', name: 'Apex Break', description: 'A clear, steady break alarm', src: '/sounds/apex-break.mp3' },
-  { id: 'chicken-call', name: 'Chicken Call', description: 'A lively, attention-grabbing alert', src: '/sounds/chicken-call.mp3' },
-  { id: 'fahhh', name: 'Fahhh', description: 'A short, playful reminder', src: '/sounds/fahhh.mp3' },
+  // seconds: length of one play; the server uses the same values to time alarm rounds.
+  { id: 'apex-break', name: 'Apex Break', description: 'A clear, steady break alarm', src: '/sounds/apex-break.mp3', seconds: 10.1 },
+  { id: 'chicken-call', name: 'Chicken Call', description: 'A lively, attention-grabbing alert', src: '/sounds/chicken-call.mp3', seconds: 5.7 },
+  { id: 'fahhh', name: 'Fahhh', description: 'A short, playful reminder', src: '/sounds/fahhh.mp3', seconds: 2.7 },
 ] as const;
 
 export type BreakSoundId = typeof BREAK_SOUNDS[number]['id'];
@@ -20,6 +21,10 @@ export function isBreakSoundId(value: unknown): value is BreakSoundId {
 
 export function breakSoundSource(value: unknown): string {
   return BREAK_SOUNDS.find((sound) => sound.id === value)?.src ?? BREAK_SOUNDS[0].src;
+}
+
+export function breakSoundSeconds(value: unknown): number {
+  return BREAK_SOUNDS.find((sound) => sound.id === value)?.seconds ?? BREAK_SOUNDS[0].seconds;
 }
 
 export function BreakSoundPicker({
