@@ -103,7 +103,15 @@ export class PushNotificationService {
       body: notification.message,
       url: notification.link || '/dashboard',
       type: notification.type,
+      // Every round of one break alarm shares a tag, so the device replaces the
+      // previous alert and rings again instead of stacking duplicates.
+      tag: notification.entityType === 'BREAK' && notification.entityId ? `break-${notification.entityId}` : undefined,
+      alarm: forceDelivery,
     });
+    // Forced alarms ask the push service to wake a sleeping phone now (high
+    // urgency) and are held for 20 minutes for a device that is briefly offline
+    // or asleep, after which the alarm is stale.
+    const sendOptions = forceDelivery ? { TTL: 20 * 60, urgency: 'high' as const } : { TTL: 60 * 60, urgency: 'normal' as const };
     let delivered = false;
 
     for (const subscription of subscriptions) {
@@ -111,7 +119,7 @@ export class PushNotificationService {
         await webPush.sendNotification({
           endpoint: subscription.endpoint,
           keys: { p256dh: subscription.p256dh, auth: subscription.auth },
-        }, payload, { TTL: 60 * 60, urgency: 'normal' });
+        }, payload, sendOptions);
         delivered = true;
         await this.prisma.pushSubscription.update({
           where: { id: subscription.id },
