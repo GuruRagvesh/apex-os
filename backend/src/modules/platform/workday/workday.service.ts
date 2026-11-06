@@ -761,9 +761,11 @@ export class WorkdayService {
     if (estimatedMinutes !== null && (!Number.isInteger(estimatedMinutes) || estimatedMinutes < 1 || estimatedMinutes > 1440)) {
       throw new BadRequestException('Planned break duration must be a whole number from 1 to 1440 minutes');
     }
-    const plannedEndAt = estimatedMinutes === null
+    // A manual break without an estimate uses the agreed 60-minute fallback.
+    // Meetings are represented as breaks internally but are not break alarms.
+    const plannedEndAt = dto.breakType === 'MEETING'
       ? null
-      : new Date(now.getTime() + estimatedMinutes * 60_000);
+      : new Date(now.getTime() + (estimatedMinutes ?? 60) * 60_000);
 
     const session = await this.prisma.workSession.findFirst({
       where: { userId, date: today },
@@ -883,7 +885,8 @@ export class WorkdayService {
 
       const closed = await tx.breakLog.update({
         where: { id: openBreak.id },
-        data: { endAt: now, durationMinutes },
+        // Closing the break also retires its alarm, so no device rings later.
+        data: { endAt: now, durationMinutes, warningStage: 'COMPLETE', warningUpdatedAt: now },
       });
 
       await this.attendanceAuthority.updateWorkSession(session.id, {
@@ -928,7 +931,57 @@ export class WorkdayService {
       actorContext: context.actorContext ?? origin,
     }).catch(() => {});
 
+    this.notificationEventService.emitBreakWarningChanged?.(userId, openBreak.id);
+
     return { breakLog: updated, durationMinutes };
+  }
+
+  async getActiveBreakWarning(userId: string) {
+    const warning = await this.prisma.breakLog.findFirst({
+      where: { userId, endAt: null, warningStage: { in: ['EARLY_ACTIVE', 'FINAL_ACTIVE'] } },
+      orderBy: { startAt: 'desc' },
+      select: {
+        id: true,
+        breakType: true,
+        estimatedMinutes: true,
+        plannedEndAt: true,
+        startAt: true,
+        warningStage: true,
+        warningUpdatedAt: true,
+      },
+    });
+    if (!warning) return { warning: null };
+    return {
+      warning: {
+        breakLogId: warning.id,
+        breakType: warning.breakType,
+        estimatedMinutes: warning.estimatedMinutes,
+        plannedEndAt: warning.plannedEndAt,
+        startedAt: warning.startAt,
+        phase: warning.warningStage === 'EARLY_ACTIVE' ? 'EARLY' : 'FINAL',
+        triggeredAt: warning.warningUpdatedAt,
+      },
+    };
+  }
+
+  async handleBreakWarning(
+    userId: string,
+    dto: { breakLogId: string; phase: 'EARLY' | 'FINAL'; action: 'LATER' },
+  ) {
+    if (!dto?.breakLogId || !['EARLY', 'FINAL'].includes(dto.phase) || dto.action !== 'LATER') {
+      throw new BadRequestException('A valid break warning action is required');
+    }
+    const expectedStage = dto.phase === 'EARLY' ? 'EARLY_ACTIVE' : 'FINAL_ACTIVE';
+    const nextStage = dto.phase === 'EARLY' ? 'FINAL_PENDING' : 'COMPLETE';
+    // Conditional update: a second device pressing Later, or a break that
+    // ended meanwhile, changes nothing and is reported as no longer active.
+    const { count } = await this.prisma.breakLog.updateMany({
+      where: { id: dto.breakLogId, userId, endAt: null, warningStage: expectedStage },
+      data: { warningStage: nextStage, warningUpdatedAt: this.tva.now() },
+    });
+    if (!count) throw new ConflictException('This break warning is no longer active');
+    this.notificationEventService.emitBreakWarningChanged?.(userId, dto.breakLogId);
+    return { ok: true, warningStage: nextStage };
   }
 
   async reportIdle(userId: string, idleDuration: number) {

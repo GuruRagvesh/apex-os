@@ -75,7 +75,11 @@ export function WorkPauseOverlay({ kind, elapsedMinutes, plannedMinutes, resumin
     const layer = layerRef.current;
     if (!layer) return;
 
-    const siblings = Array.from(document.body.children).filter((element) => element !== layer) as HTMLElement[];
+    // Keep only the server-timed break warning interactive above this frozen
+    // scene. Every other application surface remains inert while paused.
+    const siblings = Array.from(document.body.children).filter((element) =>
+      element !== layer && !element.hasAttribute('data-break-warning-layer'),
+    ) as HTMLElement[];
     const previous = siblings.map((element) => ({ element, inert: element.inert }));
     siblings.forEach((element) => { element.inert = true; });
     return () => previous.forEach(({ element, inert }) => { element.inert = inert; });
