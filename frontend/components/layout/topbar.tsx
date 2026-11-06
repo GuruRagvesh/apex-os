@@ -14,6 +14,7 @@ import { CommandPalette } from '@apex/apps-web/components/command-palette';
 import { PersonalHighlightsTopbar } from '@apex/intelligence-dashboard';
 import toast from 'react-hot-toast';
 import { pollWhileHealthy } from '@apex/shared-auth';
+import { DepartmentFilter } from '@/components/layout/DefaultDepartment';
 
 // /hrms and /sales-crm are standalone workspace pages (frontend/app/(workspaces)) —
 // they no longer render inside the dashboard shell, so TopBar never mounts for them.
@@ -193,6 +194,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
         >
           <Search size={16} />
         </button>
+        <DepartmentFilter />
         {user && <PersonalHighlightsTopbar role={typeof user.role === 'string' ? user.role : (user.role as any)?.name ?? ''} />}
         {/* Keep the compact workday state in the header; detailed attendance remains on Home. */}
         <div className="relative">

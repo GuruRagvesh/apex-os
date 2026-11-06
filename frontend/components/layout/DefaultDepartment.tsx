@@ -1,6 +1,6 @@
 'use client';
 
-// Default department for Admin / Super Admin. When it is on, the server shows
+// Department filter for Admin / Super Admin (top bar). When a department is picked, the server shows
 // every page as if the chosen department were the whole company (see
 // backend/src/common/services/view-scope.ts). Saved in the user's preferences,
 // so it follows the account to every device.
@@ -67,79 +67,42 @@ export function useActiveViewDepartmentName(): string | null {
   return isAdmin && scope.enabled ? departmentName ?? 'one department' : null;
 }
 
-/** Home card: pick a department and switch the narrowed view on or off. */
-export function DefaultDepartmentCard() {
+/**
+ * Top-bar filter: "All departments" shows the whole company; picking one
+ * narrows every page to that department. Admins and Super Admins only.
+ */
+export function DepartmentFilter() {
   const isAdmin = useIsAdmin();
+  const pathname = usePathname() ?? '';
   const { scope, departments, loading } = useViewScope(isAdmin);
   const save = useSaveViewScope();
   if (!isAdmin || loading) return null;
 
-  const pending = save.isPending;
+  const value = scope.enabled && scope.departmentId ? scope.departmentId : '';
+  const exception = value ? Object.entries(COMPANY_WIDE_PAGES).find(([path]) => pathname.startsWith(path))?.[1] : undefined;
   return (
-    <section className="apex-card p-4 mb-4 flex flex-col sm:flex-row sm:items-center gap-3" aria-label="Default department">
-      <div className="flex items-center gap-3 flex-1 min-w-0">
-        <Building2 size={18} style={{ color: 'var(--accent)' }} aria-hidden />
-        <div className="min-w-0">
-          <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Default department</p>
-          <p className="text-xs" style={{ color: 'var(--text-secondary)' }}>
-            When on, every page shows only this department. You keep full admin powers.
-          </p>
-        </div>
-      </div>
+    <label
+      className="flex items-center gap-1.5 rounded-xl px-2 py-1.5 border"
+      style={{
+        borderColor: value ? 'var(--accent)' : 'var(--border-subtle)',
+        color: value ? 'var(--accent)' : 'var(--text-secondary)',
+      }}
+      title={exception ?? (value ? 'Every page shows only this department. You keep full admin powers.' : 'Showing the whole company')}
+    >
+      <Building2 size={14} aria-hidden className="flex-shrink-0" />
       <select
-        className="apex-input sm:w-56"
-        aria-label="Department"
-        value={scope.departmentId ?? ''}
-        disabled={pending}
-        onChange={(e) => save.mutate({ enabled: scope.enabled && !!e.target.value, departmentId: e.target.value || null })}
+        aria-label="Department filter"
+        className="bg-transparent text-xs font-medium outline-none cursor-pointer max-w-[7rem] sm:max-w-[10rem] truncate"
+        style={{ color: 'inherit' }}
+        value={value}
+        disabled={save.isPending}
+        onChange={(e) => save.mutate(e.target.value
+          ? { enabled: true, departmentId: e.target.value }
+          : { enabled: false, departmentId: scope.departmentId })}
       >
-        <option value="">Choose a department</option>
+        <option value="">All departments</option>
         {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
       </select>
-      <button
-        type="button"
-        role="switch"
-        aria-checked={scope.enabled}
-        aria-label="Use default department"
-        disabled={pending || !scope.departmentId}
-        onClick={() => save.mutate({ enabled: !scope.enabled, departmentId: scope.departmentId })}
-        className="relative w-10 h-6 rounded-full transition-colors flex-shrink-0 disabled:opacity-50"
-        style={{ backgroundColor: scope.enabled ? 'var(--accent)' : 'var(--bg-tertiary)' }}
-      >
-        <span className={`absolute top-1 w-4 h-4 bg-white rounded-full shadow transition-all ${scope.enabled ? 'left-5' : 'left-1'}`} />
-      </button>
-    </section>
-  );
-}
-
-/** Slim notice on every page while the default department is on. */
-export function DefaultDepartmentBanner() {
-  const isAdmin = useIsAdmin();
-  const pathname = usePathname() ?? '';
-  const { scope, departmentName } = useViewScope(isAdmin);
-  const save = useSaveViewScope();
-  if (!isAdmin || !scope.enabled || !scope.departmentId) return null;
-
-  const exception = Object.entries(COMPANY_WIDE_PAGES).find(([path]) => pathname.startsWith(path))?.[1];
-  return (
-    <div
-      role="status"
-      className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 sm:px-6 py-1.5 text-xs border-b"
-      style={{ backgroundColor: 'var(--bg-secondary)', borderColor: 'var(--border-subtle)', color: 'var(--text-secondary)' }}
-    >
-      <span>
-        Viewing <strong style={{ color: 'var(--text-primary)' }}>{departmentName ?? 'one department'}</strong> only.
-        {exception ? ` ${exception}` : ''}
-      </span>
-      <button
-        type="button"
-        className="underline"
-        style={{ color: 'var(--accent)' }}
-        disabled={save.isPending}
-        onClick={() => save.mutate({ enabled: false, departmentId: scope.departmentId })}
-      >
-        Show whole company
-      </button>
-    </div>
+    </label>
   );
 }
