@@ -158,15 +158,16 @@ describe('Phase 1 lifecycle foundation (PostgreSQL)', () => {
     await w?.moduleRef.close();
   });
 
-  it('an open primary TL/Manager assignment blocks archival until it is ended', async () => {
+  it('an open primary TL/Manager assignment is ended by the archive, not a blocker (owner rule 2026-11-06)', async () => {
     const A = w.seed.employees.A;
     const B = w.seed.employees.B;
     const row = await w.prisma.hierarchyAssignment.create({ data: { id: id(), scope: 'EMPLOYEE', role: 'TEAM_LEAD', subjectUserId: B.id, assigneeUserId: A.id } });
     const pre = await w.svc.archivePreflight(A.id, w.admin);
-    expect(pre.blockers).toEqual(expect.objectContaining({ OPEN_REPORTING_LINES: 1 }));
-    expect(pre.canArchive).toBe(false);
-    await w.prisma.hierarchyAssignment.update({ where: { id: row.id }, data: { effectiveTo: NOW } });
-    expect((await w.svc.archivePreflight(A.id, w.admin)).blockers.OPEN_REPORTING_LINES).toBeUndefined();
+    expect(pre.blockers.OPEN_REPORTING_LINES).toBeUndefined();
+    expect(pre.connections).toEqual(expect.objectContaining({ APPROVAL_LINE_ENDED: 1 }));
+    expect(pre.canArchive).toBe(true);
+    await w.svc.archive(A.id, w.admin, { idempotencyKey: id() });
+    expect((await w.prisma.hierarchyAssignment.findUniqueOrThrow({ where: { id: row.id } })).effectiveTo).not.toBeNull();
   });
 
   it('archives a person with rows in every Phase 1 table, then Permanent Delete runs every §8.1 handler under the real triggers', async () => {
