@@ -27,6 +27,7 @@ import {
   useTicketNavState,
 } from '@apex/operations-tickets-lifecycle/components/use-ticket-nav-state';
 import { pollWhileHealthy } from '@apex/shared-auth';
+import { useActiveViewDepartmentName } from '@/components/layout/DefaultDepartment';
 
 const STATUSES = ['', 'OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CLOSED'];
 const PRIORITIES = ['', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'];
@@ -238,6 +239,7 @@ export default function TicketsPage() {
   // Assignee filter options: GET /users is already scoped by role (leads and
   // managers see their managed departments), the same scope as assignment.
   const roleNameForFilters = (currentUser?.role as any)?.name ?? currentUser?.role ?? '';
+  const viewDepartmentName = useActiveViewDepartmentName();
   const canFilterByAssignee = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleNameForFilters);
   const { data: assigneeOptions } = useQuery({
     queryKey: ['ticket-filter-assignees'],
@@ -293,6 +295,7 @@ export default function TicketsPage() {
 
   const roleName = (currentUser?.role as any)?.name ?? currentUser?.role ?? '';
   const scopeText =
+    viewDepartmentName ? `Showing ${viewDepartmentName} tickets` :
     roleName === 'SUPER_ADMIN' || roleName === 'ADMIN' ? 'Showing company-wide tickets' :
     roleName === 'MANAGER' ? 'Showing managed department tickets' :
     roleName === 'TEAM_LEAD' ? 'Showing your team tickets' :

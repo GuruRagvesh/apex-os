@@ -10,6 +10,7 @@ import { BusinessCalendarService } from '../attendance/calendar/business-calenda
 import { OperationalHierarchyScopeService } from '../../../common/services/operational-hierarchy-scope.service';
 import { MyAttendanceV2Service } from '../attendance/v2/my-attendance-v2.service';
 import type { MyAttendanceDayV2 } from '../attendance/v2/my-attendance-v2.contract';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 
 const LEADER_ROLES = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'];
 const PERSONAL_INSIGHT_ROLES = ['INTERN', 'EMPLOYEE', 'TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'];
@@ -306,6 +307,7 @@ export class TeamInsightsService {
   }
 
   private async allowedScope(viewer: any, departmentId?: string) {
+    departmentId = departmentId || viewDepartmentOf(viewer) || undefined;
     const role = this.access.roleName(viewer);
     if (!LEADER_ROLES.includes(role)) throw new ForbiddenException('Team insights are available to authorized leaders only.');
 

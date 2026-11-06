@@ -293,6 +293,10 @@ describe('HC-1 scoping', () => {
 
     const attendanceWhere = prisma.dailyAttendance.findMany.mock.calls[0][0].where;
     expect(attendanceWhere.userId).toEqual({ in: ['emp-1'] });
+    // The users table has no userId column; scoping it by userId made Prisma throw (500).
+    const userWheres = prisma.user.findMany.mock.calls.map((call: any) => call[0].where);
+    expect(userWheres.some((where: any) => where.userId !== undefined)).toBe(false);
+    expect(userWheres).toContainEqual(expect.objectContaining({ id: { in: ['emp-1'] } }));
   });
 });
 

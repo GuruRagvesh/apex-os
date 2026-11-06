@@ -3,6 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { activeViewDepartment, isAdminRole } from '../../../../common/services/view-scope';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -37,6 +38,12 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new UnauthorizedException();
     }
     const { password, ...result } = user;
-    return result;
+    // Admins only: the default department they narrowed their view to.
+    let viewDepartmentId: string | null = null;
+    if (isAdminRole(user)) {
+      const prefs = await this.prisma.appSetting.findUnique({ where: { key: `user-prefs-${user.id}` }, select: { value: true } });
+      viewDepartmentId = activeViewDepartment(prefs?.value);
+    }
+    return { ...result, viewDepartmentId };
   }
 }

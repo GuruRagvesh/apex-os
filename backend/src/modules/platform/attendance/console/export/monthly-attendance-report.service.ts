@@ -11,6 +11,7 @@ import { assembleMonthlyAttendanceReport, monthDates } from './report-assembler'
 import { csvPackage, packageName, workbookName } from './report-csv';
 import { monthlyAttendanceWorkbookBuffer } from './report-workbook';
 import type { MonthlyAttendanceReport, ReportSourceFacts } from './report-model';
+import { viewDepartmentOf } from '../../../../../common/services/view-scope';
 
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -97,6 +98,8 @@ export class MonthlyAttendanceReportService {
 
   /** build(), plus the read context the on-screen register also needs. */
   private async snapshot(actor: any, filters: ExportFilters) {
+    // An admin's default department reads as an explicit department filter, so the workbook names it.
+    if (!filters.departmentId && viewDepartmentOf(actor)) filters = { ...filters, departmentId: viewDepartmentOf(actor)! };
     const month = this.resolveMonth(filters);
     if (filters.departmentId !== undefined && (typeof filters.departmentId !== 'string' || filters.departmentId.length > 64)) {
       throw new BadRequestException('Invalid department');

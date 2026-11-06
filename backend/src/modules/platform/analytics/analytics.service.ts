@@ -9,6 +9,7 @@ import { LEDGER_OWNER_TYPES, LEDGER_STAGES } from '../../operations/tickets/tick
 import { computeReviewerMetrics, REVIEW_METRICS_CYCLE_SELECT, toMetricsCycle } from '../../../common/services/review-metrics';
 import { calculateWorkdayRuntime } from '../workday/workday.calculation';
 import { periodStart, resolveRange, secondsByDay, AnalyticsRange } from './analytics-period';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 
 // Productive employee time = the primary assignee's WORK and REWORK ledger
 // segments that count as work. (The ledger never writes a stage called
@@ -81,6 +82,8 @@ export class AnalyticsService {
   /** The people whose figures the caller may see, as a user where clause. */
   private async peopleWhere(currentUser: any): Promise<{ where: any; scope: 'self' | 'team' | 'company' }> {
     const roleName = this.accessPolicy.roleName(currentUser);
+    const viewDept = viewDepartmentOf(currentUser);
+    if (viewDept) return { where: { OR: [{ id: currentUser.id }, { departmentId: viewDept }] }, scope: 'team' };
     if (this.accessPolicy.isAdmin(currentUser)) return { where: {}, scope: 'company' };
     if (['MANAGER', 'TEAM_LEAD'].includes(roleName)) {
       const deptIds = await this.accessPolicy.managedDepartmentIds(currentUser);
@@ -375,7 +378,8 @@ export class AnalyticsService {
       throw new ForbiddenException('Manager metrics are restricted to managers and admins');
     }
 
-    const deptIds = ['ADMIN', 'SUPER_ADMIN'].includes(roleName)
+    const viewDept = viewDepartmentOf(currentUser);
+    const deptIds = viewDept ? [viewDept] : ['ADMIN', 'SUPER_ADMIN'].includes(roleName)
       ? (await this.prisma.department.findMany({ select: { id: true } })).map(d => d.id)
       : await this.accessPolicy.managedDepartmentIds(currentUser);
 

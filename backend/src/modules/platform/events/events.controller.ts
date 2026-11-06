@@ -6,6 +6,7 @@ import { EventLoggerService } from '../../../common/services/event-logger.servic
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TVAService } from '../../../common/services/tva.service';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 
 const ACTION_DESCRIPTIONS: Record<string, string> = {
   TICKET_CREATED: 'created a ticket',
@@ -219,7 +220,11 @@ export class EventsController {
       if (query.to && !Number.isNaN(new Date(query.to).getTime())) where.timestamp.lte = new Date(query.to);
     }
 
-    if (isAdmin) {
+    const viewDept = viewDepartmentOf(user);
+    if (isAdmin && viewDept && !query.userId) {
+      const people = await this.prisma.user.findMany({ where: { departmentId: viewDept }, select: { id: true } });
+      where.actorId = { in: [...new Set([user.id, ...people.map((p) => p.id)])] };
+    } else if (isAdmin) {
       if (query.userId) {
         where.actorId = query.userId;
       }

@@ -184,9 +184,11 @@ describe('boundaries', () => {
     // (pollWhileHealthy, Tickets 500 / polling repair), and the reviewed
     // availability/profile-photo enhancements made the collaboration state
     // visible without conflating it with ticket workload. The shared search
-    // input class now also keeps text clear of its leading icon.
+    // input class now also keeps text clear of its leading icon. The Super
+    // Admin / Team Lead mode chooser is gone, so a Super Admin always gets the
+    // company directory here (narrowed by their default department, if on).
     const page = read('frontend/app/(dashboard)/(operations)/team/page.tsx');
-    expect(createHash('sha256').update(page).digest('hex')).toBe('f15ca47b33bd499a0b652d3a90fdf1a786a2de082480a8c2a1a043be311380d3');
+    expect(createHash('sha256').update(page).digest('hex')).toBe('cedcb8c67f4a18acdb9a5b109d9521ed7f33a249032487a7bde286d9bdbe14a3');
   });
 
   it('department responses read users through the safe select, never a full-row include', () => {

@@ -42,20 +42,16 @@ function LoginForm() {
       setAuth(res.user, res.accessToken);
       toast.success(`Welcome back, ${res.user.name}!`);
 
-      const roleName = res.user?.role?.name || res.user?.role || '';
       const mustChange = res.user?.mustChangePassword;
 
       // Correct priority order:
       // 1. Force password change first — security above all
       // 2. Welcome page for first-timers
-      // 3. SUPER_ADMIN mode selection
-      // 4. Dashboard
+      // 3. Dashboard
       if (mustChange) {
         router.push('/change-password');
       } else if (localStorage.getItem('apexWelcomeSeen') !== 'true') {
         router.push('/welcome');
-      } else if (roleName === 'SUPER_ADMIN') {
-        router.push('/select-mode');
       } else {
         router.push('/dashboard');
       }
