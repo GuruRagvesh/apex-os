@@ -9,7 +9,7 @@ import { usePathname } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import { useAuthStore } from '@/store/auth.store';
+import { useAuthStore } from '@apex/core-identity';
 import { usersApi } from '@apex/core-users/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
 
