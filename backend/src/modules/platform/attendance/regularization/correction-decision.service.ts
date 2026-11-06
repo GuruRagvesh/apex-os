@@ -501,7 +501,9 @@ export class CorrectionDecisionService {
     });
 
     if (outcome.kind === 'STALE') {
-      this.eventLogger.log({
+      // Awaited: the stale attempt is the only record of this decision, so it
+      // must exist before the caller is told to decide again.
+      await this.eventLogger.log({
         actorId,
         entityType: 'AttendanceRegularization',
         entityId: id,
