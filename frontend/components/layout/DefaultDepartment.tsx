@@ -11,15 +11,14 @@ import { Building2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuthStore } from '@apex/core-identity';
 import { usersApi } from '@apex/core-users/api';
-import { departmentsApi } from '@apex/core-organization-departments/api';
+import { departmentsApi, useTopBarDepartment, type TopBarDepartment } from '@apex/core-organization-departments/api';
 
 type ViewScope = { enabled: boolean; departmentId: string | null };
 
-// Pages whose figures stay company-wide even with a default department.
+// Pages whose figures stay company-wide even with a department selected.
+// Inventory (by assigned employee) and Departments now follow the filter.
 const COMPANY_WIDE_PAGES: Record<string, string> = {
   '/attendance/payroll': 'Payroll always covers the whole company.',
-  '/assets': 'Inventory is not linked to departments, so it shows the whole company.',
-  '/departments': 'Departments always lists every department.',
 };
 
 function useIsAdmin(): boolean {
@@ -37,7 +36,8 @@ function useViewScope(enabled: boolean) {
   });
   const departments = useQuery({
     queryKey: ['view-scope-departments'],
-    queryFn: () => departmentsApi.getAll() as Promise<any[]>,
+    // The switcher must always offer every department.
+    queryFn: () => departmentsApi.getAllCompany() as Promise<any[]>,
     enabled,
     staleTime: 300_000,
   });
@@ -54,17 +54,30 @@ function useSaveViewScope() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (viewScope: ViewScope) => usersApi.updatePreferences({ viewScope }),
-    // Every list and figure depends on it, so refetch everything.
-    onSuccess: () => queryClient.invalidateQueries(),
+    // Every list and figure depends on it, so refetch everything except a
+    // single person's productivity timeline: it does not depend on the
+    // department, and refetching it before the new people list arrives would
+    // ask for a person outside the new department (403). It reloads when the
+    // panel moves to the new department's first person.
+    onSuccess: () => queryClient.invalidateQueries({
+      predicate: (query) => query.queryKey[0] !== 'productivity-timeline',
+    }),
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not save the default department'),
   });
 }
 
 /** The department name while an admin's default department is on, else null. */
 export function useActiveViewDepartmentName(): string | null {
-  const isAdmin = useIsAdmin();
-  const { scope, departmentName } = useViewScope(isAdmin);
-  return isAdmin && scope.enabled ? departmentName ?? 'one department' : null;
+  return useActiveViewDepartment()?.name ?? null;
+}
+
+/**
+ * The top-bar department while an admin has one selected, else null.
+ * Page-level department filters lock to it and people pickers list only its
+ * people; the server applies the same narrowing (view-scope.ts).
+ */
+export function useActiveViewDepartment(): TopBarDepartment | null {
+  return useTopBarDepartment(useIsAdmin());
 }
 
 /**

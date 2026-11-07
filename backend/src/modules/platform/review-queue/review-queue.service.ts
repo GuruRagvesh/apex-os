@@ -20,6 +20,7 @@ import {
   type ReviewRequestType,
 } from './review-queue.types';
 import { alertReasons, alertTitle, groupSystemAlerts, isSystemRequestType } from './system-alerts';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 
 type Reviewer = {
   id: string;
@@ -91,7 +92,10 @@ export class ReviewQueueService {
     if (origin === 'system' && !this.isHrOrAdmin(actor)) {
       throw new ForbiddenException('Only HR and administrators can view system alerts');
     }
-    const visible = await this.visibleItems(actor, scope);
+    // `actor` is re-read from the database; the admin's top-bar department lives on req.user.
+    const viewDept = viewDepartmentOf(user);
+    const visible = (await this.visibleItems(actor, scope))
+      .filter((item) => !viewDept || item.employee?.department?.id === viewDept);
     const wanted = visible.filter((item) => (item.origin === 'SYSTEM') === (origin === 'system'));
     const items = origin === 'system' ? groupSystemAlerts(wanted) : wanted;
     return { scope, origin, total: items.length, items };

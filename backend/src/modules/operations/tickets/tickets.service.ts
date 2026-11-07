@@ -13,6 +13,7 @@ import { ActiveWorkdayPolicyService } from '../../../common/services/active-work
 import { TVAService } from '../../../common/services/tva.service';
 import { TicketLedgerService, LEDGER_PAUSE_REASONS, LEDGER_STAGES, LEDGER_OWNER_TYPES, LEDGER_SOURCES } from './ticket-ledger.service';
 import { TicketImportService } from './ticket-import.service';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 
 function isUUID(str: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(str);
@@ -581,8 +582,10 @@ export class TicketsService {
       throw new ForbiddenException('You do not have permission to assign Task tickets to other users');
     }
 
+    // Admin with a top-bar department: only that department's people (not the admin).
+    const viewDept = viewDepartmentOf(user);
     const users = await this.prisma.user.findMany({
-      where: { isActive: true },
+      where: { isActive: true, ...(viewDept ? { departmentId: viewDept, id: { not: user.id } } : {}) },
       select: {
         id: true,
         name: true,

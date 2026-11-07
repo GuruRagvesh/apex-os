@@ -98,8 +98,8 @@ export class MonthlyAttendanceReportService {
 
   /** build(), plus the read context the on-screen register also needs. */
   private async snapshot(actor: any, filters: ExportFilters) {
-    // An admin's default department reads as an explicit department filter, so the workbook names it.
-    if (!filters.departmentId && viewDepartmentOf(actor)) filters = { ...filters, departmentId: viewDepartmentOf(actor)! };
+    // An admin's top-bar department locks the department filter, so the workbook names it.
+    if (viewDepartmentOf(actor)) filters = { ...filters, departmentId: viewDepartmentOf(actor)! };
     const month = this.resolveMonth(filters);
     if (filters.departmentId !== undefined && (typeof filters.departmentId !== 'string' || filters.departmentId.length > 64)) {
       throw new BadRequestException('Invalid department');

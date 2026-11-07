@@ -4,7 +4,7 @@ import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
 import { usersApi } from '@apex/core-users/api';
-import { departmentsApi } from '@apex/core-organization-departments/api';
+import { departmentsApi, lockedByTopBarHint, useTopBarDepartment } from '@apex/core-organization-departments/api';
 import {
   Activity, AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Download,
   Info, Package, RotateCcw, Search, Siren, X,
@@ -176,7 +176,10 @@ export default function ActivityLogScreen() {
   const [category, setCategory] = useState('');
   const [eventType, setEventType] = useState('');
   const [severity, setSeverity] = useState<Severity>('');
-  const [departmentId, setDepartmentId] = useState('');
+  const [pickedDepartmentId, setDepartmentId] = useState('');
+  // The admin's top-bar department locks the department filter.
+  const topBarDepartment = useTopBarDepartment(isAdmin);
+  const departmentId = topBarDepartment?.id ?? pickedDepartmentId;
   const [personId, setPersonId] = useState('');
   const [page, setPage] = useState(1);
   const [logView, setLogView] = useState<'operations' | 'inventory'>('operations');
@@ -265,7 +268,7 @@ export default function ActivityLogScreen() {
       ? item.category === 'attendance' || item.category === 'leave'
       : item.category === category)
     : ACTION_OPTIONS;
-  const activeFilters = [deferredQuery, category, eventType, severity, departmentId, personId, dateRange === 'custom' ? customFrom || customTo : ''].filter(Boolean).length;
+  const activeFilters = [deferredQuery, category, eventType, severity, pickedDepartmentId, personId, dateRange === 'custom' ? customFrom || customTo : ''].filter(Boolean).length;
 
   const resetFilters = () => {
     setQuery(''); setCategory(''); setEventType(''); setSeverity(''); setDepartmentId(''); setPersonId('');
@@ -331,7 +334,7 @@ export default function ActivityLogScreen() {
         <div className="grid gap-3 lg:grid-cols-[minmax(220px,1.5fr)_repeat(4,minmax(130px,0.75fr))]">
           <FilterSelect label="Period" value={dateRange} onChange={(value) => setDateRange(value as DateRange)} options={[{ value: 'today', label: 'Today' }, { value: 'last7', label: 'Last 7 days' }, { value: 'last30', label: 'Last 30 days' }, { value: 'all', label: 'All time' }, { value: 'custom', label: 'Custom period' }]} />
           {canFilterPeople ? (
-            <FilterSelect label="Department" value={departmentId} onChange={setDepartmentId} options={[{ value: '', label: isAdmin ? 'All departments' : 'All managed departments' }, ...departments.map((department: any) => ({ value: department.id, label: department.name ?? 'Unnamed department' }))]} />
+            <FilterSelect label="Department" value={departmentId} onChange={setDepartmentId} lockedHint={topBarDepartment ? lockedByTopBarHint(topBarDepartment.name) : undefined} options={[{ value: '', label: isAdmin ? 'All departments' : 'All managed departments' }, ...departments.map((department: any) => ({ value: department.id, label: department.name ?? 'Unnamed department' }))]} />
           ) : <div className="flex h-10 items-center rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 text-xs text-[var(--text-tertiary)]">Your department</div>}
           {canFilterPeople ? (
             <FilterSelect label="Person" value={personId} onChange={setPersonId} options={[{ value: '', label: departmentId ? 'Everyone in department' : (isAdmin ? 'All people' : 'All managed people') }, ...visiblePeople.map((person: any) => ({ value: person.id, label: person.name ?? person.email ?? 'Unnamed user' }))]} />
@@ -365,8 +368,8 @@ export default function ActivityLogScreen() {
   );
 }
 
-function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string }> }) {
-  return <label className="relative block"><span className="sr-only">{label}</span><select value={value} onChange={(event) => onChange(event.target.value)} className={`h-10 w-full appearance-none rounded-lg border px-3 pr-8 text-xs outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950 ${value ? 'border-blue-300 bg-blue-50/70 font-semibold text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300' : 'border-[var(--border-primary)] bg-[var(--surface-card)] text-[var(--text-secondary)]'}`}>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><ChevronRight size={14} className="pointer-events-none absolute right-2.5 top-1/2 rotate-90 -translate-y-1/2 text-[var(--text-tertiary)]" /></label>;
+function FilterSelect({ label, value, onChange, options, lockedHint }: { label: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string }>; lockedHint?: string }) {
+  return <label className="relative block" title={lockedHint}><span className="sr-only">{label}</span><select value={value} disabled={Boolean(lockedHint)} onChange={(event) => onChange(event.target.value)} className={`h-10 disabled:cursor-not-allowed w-full appearance-none rounded-lg border px-3 pr-8 text-xs outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950 ${value ? 'border-blue-300 bg-blue-50/70 font-semibold text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300' : 'border-[var(--border-primary)] bg-[var(--surface-card)] text-[var(--text-secondary)]'}`}>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><ChevronRight size={14} className="pointer-events-none absolute right-2.5 top-1/2 rotate-90 -translate-y-1/2 text-[var(--text-tertiary)]" /></label>;
 }
 
 function TimelineActivityList({ groups, expandedEventId, onToggle }: { groups: Array<{ label: string; events: AuditEvent[] }>; expandedEventId: string | null; onToggle: (eventId: string) => void }) {

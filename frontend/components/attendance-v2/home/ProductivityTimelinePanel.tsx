@@ -250,7 +250,9 @@ export function ProductivityTimelinePanel() {
   const timelineQuery = useQuery({
     queryKey: ['productivity-timeline', personId, month],
     queryFn: () => workdayApi.getProductivityTimeline(personId, month) as Promise<TimelineData>,
-    enabled: visible && !!personId,
+    // Wait until the person is in the current list: after the top-bar
+    // department changes, the previous person may be outside the new scope.
+    enabled: visible && !!personId && !peopleQuery.isFetching && people.some((person) => person.id === personId),
     staleTime: 30_000,
   });
   const data = timelineQuery.data;

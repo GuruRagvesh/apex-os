@@ -16,7 +16,7 @@ import {
 } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { ticketsApi } from '../api';
-import { departmentsApi } from '@apex/core-organization-departments/api';
+import { departmentsApi, lockedByTopBarHint, useTopBarDepartment } from '@apex/core-organization-departments/api';
 import { useAuthStore } from '@apex/core-identity';
 import { PRIORITY_COLORS, PRIORITY_LABELS } from '@apex/shared-configuration';
 import { DEPT_COLORS } from '../../shared/ticket-vocabulary';
@@ -341,7 +341,11 @@ type KanbanData = Record<string, any[]>;
 export default function KanbanScreen() {
   const qc = useQueryClient();
   const { user } = useAuthStore();
-  const [departmentId, setDepartmentId] = useState('');
+  const [pickedDepartmentId, setDepartmentId] = useState('');
+  // The admin's top-bar department locks this page's department filter.
+  const userRole = (user?.role as any)?.name ?? user?.role ?? '';
+  const topBarDepartment = useTopBarDepartment(['ADMIN', 'SUPER_ADMIN'].includes(userRole));
+  const departmentId = topBarDepartment?.id ?? pickedDepartmentId;
   const [search, setSearch] = useState('');
   const [localKanban, setLocalKanban] = useState<KanbanData>({});
   const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
@@ -485,7 +489,7 @@ export default function KanbanScreen() {
       columns[key] = Math.max(0, Math.round(lane.scrollTop));
     });
     return {
-      departmentId,
+      departmentId: pickedDepartmentId,
       search,
       board: { x: scrollOf(boardRef.current).x, y: scrollOf(mainScrollElement()).y },
       columns,
@@ -499,7 +503,7 @@ export default function KanbanScreen() {
     setSearch(nav.restored.search);
   }, [nav.restored]);
   const boardReady = nav.checked && !isLoading && !isError && !!kanban
-    && departmentId === (nav.restored?.departmentId ?? departmentId)
+    && pickedDepartmentId === (nav.restored?.departmentId ?? pickedDepartmentId)
     && debouncedSearch === (nav.restored?.search ?? debouncedSearch);
   useRestoreOnce(boardReady, (force) => {
     const r = nav.restored;
@@ -519,7 +523,7 @@ export default function KanbanScreen() {
     restoreApplied.current = true;
     return true;
   });
-  useEffect(() => { saveNav(); }, [departmentId, search]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { saveNav(); }, [pickedDepartmentId, search]); // eslint-disable-line react-hooks/exhaustive-deps
   useThrottledScroll(
     () => [mainScrollElement(), boardRef.current, ...Array.from(boardRef.current?.querySelectorAll('[data-kanban-lane]') ?? [])],
     saveNav,
@@ -567,6 +571,8 @@ export default function KanbanScreen() {
             <select
               value={departmentId}
               onChange={(e) => setDepartmentId(e.target.value)}
+              disabled={Boolean(topBarDepartment)}
+              title={topBarDepartment ? lockedByTopBarHint(topBarDepartment.name) : undefined}
               className="apex-select w-full sm:w-auto"
             >
               <option value="">All Departments</option>

@@ -497,6 +497,15 @@ export class TicketAccessService {
   }
 
   async visibleUserIdsForWorkload(user: any): Promise<string[] | null> {
+    // Admin with a top-bar department: only that department's people (not the admin).
+    const viewDept = viewDepartmentOf(user);
+    if (viewDept) {
+      const users = await this.prisma.user.findMany({
+        where: { isActive: true, departmentId: viewDept, id: { not: user.id } },
+        select: { id: true },
+      });
+      return users.map((u) => u.id);
+    }
     if (this.access.isAdmin(user)) return null;
     const roleName = this.access.roleName(user);
     if ([ROLES.MANAGER, ROLES.TEAM_LEAD].includes(roleName as any)) {

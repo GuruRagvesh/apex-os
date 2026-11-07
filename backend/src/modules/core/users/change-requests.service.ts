@@ -445,7 +445,8 @@ export class ChangeRequestsService {
     });
   }
 
-  async listPendingApprovals(requesterId: string, roleName: string, isHR = false) {
+  /** `viewDepartmentId`: an admin's top-bar department; only that department's people's requests are listed. */
+  async listPendingApprovals(requesterId: string, roleName: string, isHR = false, viewDepartmentId: string | null = null) {
     // JWTs created before the isHR claim was added may not carry the functional
     // authority flag. Hydrate it from the database so HR employees are neither
     // over- nor under-authorized by stale token metadata.
@@ -469,6 +470,7 @@ export class ChangeRequestsService {
       where: {
         OR: conditions,
         status: { in: ['PENDING_TL_APPROVAL', 'PENDING_MANAGER_APPROVAL', 'PENDING_ADMIN_APPROVAL', 'PENDING_HR_REVIEW'] },
+        ...(viewDepartmentId ? { targetUser: { departmentId: viewDepartmentId } } : {}),
       },
       orderBy: { createdAt: 'asc' },
       include: {

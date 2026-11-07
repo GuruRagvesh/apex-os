@@ -378,8 +378,12 @@ export class UsersService {
     }
     if (query.departmentId) where.departmentId = query.departmentId;
     if (query.roleId) where.roleId = query.roleId;
+    // Top-bar department: only that department's people, never the admin.
     const viewDept = viewDepartmentOf(requester);
-    if (viewDept) where.departmentId = viewDept;
+    if (viewDept) {
+      where.departmentId = viewDept;
+      where.id = { not: requester.id };
+    }
 
     if (requester && !this.accessPolicy.isHrOrAdmin(requester)) {
       const roleName = this.accessPolicy.roleName(requester);
@@ -1201,8 +1205,12 @@ export class UsersService {
   async getDirectory(requester?: any) {
     // Fetch all active users with role + dept
     const where: any = { isActive: true };
+    // Top-bar department: only that department's people, never the admin.
     const viewDept = viewDepartmentOf(requester);
-    if (viewDept) where.departmentId = viewDept;
+    if (viewDept) {
+      where.departmentId = viewDept;
+      where.id = { not: requester.id };
+    }
     if (requester && !this.accessPolicy.isHrOrAdmin(requester)) {
       const deptIds = await this.accessPolicy.managedDepartmentIds(requester);
       if (deptIds.length > 0) where.departmentId = { in: deptIds };

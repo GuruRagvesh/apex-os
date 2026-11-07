@@ -18,8 +18,8 @@ import { AssetsService } from './assets.service';
 export class AssetsController {
   constructor(private readonly assets: AssetsService, private readonly workbooks: AssetWorkbookService) {}
 
-  @Get() overview(@Query('section') section?: string) { return this.assets.overview(section); }
-  @Get('audit') audit() { return this.assets.listAudit(); }
+  @Get() overview(@CurrentUser() user: any, @Query('section') section?: string) { return this.assets.overview(section, user); }
+  @Get('audit') audit(@CurrentUser() user: any) { return this.assets.listAudit(user); }
   @Post('types') createType(@CurrentUser() user: any, @Body() body: any) { return this.assets.createType(user, body); }
   @Post('registry') createAsset(@CurrentUser() user: any, @Body() body: any) { return this.assets.createAsset(user, body); }
   @Patch('registry/:id') updateAsset(@CurrentUser() user: any, @Param('id') id: string, @Body() body: any) { return this.assets.updateAsset(user, id, body); }

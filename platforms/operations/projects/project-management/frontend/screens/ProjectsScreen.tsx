@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { projectsApi } from '../api';
-import { departmentsApi } from '@apex/core-organization-departments/api';
+import { departmentsApi, useTopBarDepartment } from '@apex/core-organization-departments/api';
 import { teamsApi } from '@apex/workforce-teams/api';
 import { useAuthStore } from '@apex/core-identity';
 import { PROJECT_STATUS_COLORS } from '../lib/project-status';
@@ -171,7 +171,10 @@ export default function ProjectsPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const statusFilter = searchParams.get('status') ?? '';
-  const deptFilter = searchParams.get('department') ?? '';
+  // The admin's top-bar department locks the department filter (the
+  // department list then holds only that one, so the dropdown is hidden).
+  const topBarDepartment = useTopBarDepartment(['ADMIN', 'SUPER_ADMIN'].includes(roleName));
+  const deptFilter = topBarDepartment?.id ?? searchParams.get('department') ?? '';
   const urlSearch = searchParams.get('q') ?? '';
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
   const [searchInput, setSearchInput] = useState(urlSearch);
@@ -239,7 +242,8 @@ export default function ProjectsPage() {
 
   const projectList: any[] = Array.isArray(data) ? data : (data?.projects || []);
   const totalPages: number = Array.isArray(data) ? 1 : Math.max(1, data?.totalPages ?? 1);
-  const hasFilters = Boolean(urlSearch || statusFilter || deptFilter);
+  // A locked top-bar department is not a page filter the user can clear here.
+  const hasFilters = Boolean(urlSearch || statusFilter || (!topBarDepartment && deptFilter));
   const deptOptions: any[] = Array.isArray(departments) ? departments : [];
 
   return (

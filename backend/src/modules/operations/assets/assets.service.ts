@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { randomUUID } from 'crypto';
 import { PrismaService } from '../../../prisma/prisma.service';
 import { matchAllocationUser } from './asset-allocation-user-match';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 
 const clean = (value: unknown) => typeof value === 'string' ? value.trim() || null : value ?? null;
 const date = (value: unknown) => value ? new Date(String(value)) : null;
@@ -11,37 +12,63 @@ const bool = (value: unknown) => value === true || ['yes', 'true', '1', 'returne
 export class AssetsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async overview(section = 'registry') {
+  /**
+   * Inventory as the requester may see it. With an admin's top-bar department
+   * (view-scope.ts), only items assigned to that department's people are shown;
+   * unassigned stock stays visible. Assets carry no department of their own, so
+   * the link is the assigned employee (`employeeId` → User.departmentId).
+   */
+  async overview(section = 'registry', user?: any) {
     const result: Record<string, any[]> = {
       assets: [], allocations: [], requests: [], rentals: [], mobile: [], repairs: [], types: [], imports: [], audit: [],
     };
+    const scope = await this.departmentScope(user);
 
     switch (section) {
       case 'allocations':
-        result.allocations = await this.prisma.assetAllocation.findMany({ include: { asset: true }, orderBy: { fromDate: 'desc' } });
+        result.allocations = await this.prisma.assetAllocation.findMany({
+          where: scope ? { employeeId: { in: scope.employeeIds } } : undefined,
+          include: { asset: true }, orderBy: { fromDate: 'desc' },
+        });
         break;
       case 'requests':
-        result.requests = await this.prisma.assetRequest.findMany({ orderBy: { createdAt: 'desc' } });
+        result.requests = await this.prisma.assetRequest.findMany({
+          where: scope ? { employeeId: { in: scope.employeeIds } } : undefined,
+          orderBy: { createdAt: 'desc' },
+        });
         break;
       case 'rentals':
-        result.rentals = await this.prisma.assetRentalPayment.findMany({ include: { asset: true }, orderBy: { periodMonth: 'desc' } });
+        result.rentals = await this.prisma.assetRentalPayment.findMany({
+          where: scope ? { asset: scope.assetWhere } : undefined,
+          include: { asset: true }, orderBy: { periodMonth: 'desc' },
+        });
         break;
       case 'mobile':
-        result.mobile = await this.prisma.assetMobileSubscription.findMany({ include: { recharges: { orderBy: { billingMonth: 'desc' } } }, orderBy: { employeeName: 'asc' } });
+        result.mobile = await this.prisma.assetMobileSubscription.findMany({
+          where: scope ? { OR: [{ employeeId: null }, { employeeId: { in: scope.employeeIds } }] } : undefined,
+          include: { recharges: { orderBy: { billingMonth: 'desc' } } }, orderBy: { employeeName: 'asc' },
+        });
         break;
       case 'repairs':
-        result.repairs = await this.prisma.assetRepair.findMany({ include: { asset: true }, orderBy: { reportedDate: 'desc' } });
+        result.repairs = await this.prisma.assetRepair.findMany({
+          where: scope ? { asset: scope.assetWhere } : undefined,
+          include: { asset: true }, orderBy: { reportedDate: 'desc' },
+        });
         break;
       case 'activity':
         [result.imports, result.audit] = await Promise.all([
-          this.prisma.assetImportBatch.findMany({ orderBy: { createdAt: 'desc' }, take: 25 }),
-          this.prisma.assetAuditEvent.findMany({ orderBy: { createdAt: 'desc' }, take: 200 }),
+          // Workbook imports cover the whole company, so they are hidden while narrowed.
+          scope ? Promise.resolve([]) : this.prisma.assetImportBatch.findMany({ orderBy: { createdAt: 'desc' }, take: 25 }),
+          this.listAudit(user),
         ]);
         break;
       case 'registry':
       default: {
         const [assets, types] = await Promise.all([
-          this.prisma.companyAsset.findMany({ include: { assetType: true, allocations: { where: { returned: false }, take: 1 } }, orderBy: { assetCode: 'asc' } }),
+          this.prisma.companyAsset.findMany({
+            where: scope ? scope.assetWhere : undefined,
+            include: { assetType: true, allocations: { where: { returned: false }, take: 1 } }, orderBy: { assetCode: 'asc' },
+          }),
           this.prisma.assetType.findMany({ orderBy: { name: 'asc' } }),
         ]);
         result.assets = assets;
@@ -51,11 +78,44 @@ export class AssetsService {
     return result;
   }
 
+  /** Null for the whole company; otherwise the department's people and the matching asset filter. */
+  private async departmentScope(user?: any): Promise<{ employeeIds: string[]; assetWhere: any } | null> {
+    const departmentId = viewDepartmentOf(user);
+    if (!departmentId) return null;
+    const people = await this.prisma.user.findMany({ where: { departmentId }, select: { id: true } });
+    const employeeIds = people.map((person) => person.id);
+    return {
+      employeeIds,
+      assetWhere: {
+        OR: [
+          // Unassigned stock: no open allocation.
+          { allocations: { none: { returned: false } } },
+          { allocations: { some: { returned: false, employeeId: { in: employeeIds } } } },
+        ],
+      },
+    };
+  }
+
   private async audit(user: any, entityType: string, entityId: string, action: string, before?: any, after?: any) {
     await this.prisma.assetAuditEvent.create({ data: { actorId: user.id, actorName: user.name, entityType, entityId, action, before: before ?? undefined, after: after ?? undefined } });
   }
 
-  listAudit() { return this.prisma.assetAuditEvent.findMany({ orderBy: { createdAt: 'desc' }, take: 200 }); }
+  /** Inventory audit trail; narrowed to the department's items and people under a top-bar department. */
+  async listAudit(user?: any) {
+    const scope = await this.departmentScope(user);
+    if (!scope) return this.prisma.assetAuditEvent.findMany({ orderBy: { createdAt: 'desc' }, take: 200 });
+    const [assets, allocations, requests, mobile] = await Promise.all([
+      this.prisma.companyAsset.findMany({ where: scope.assetWhere, select: { id: true } }),
+      this.prisma.assetAllocation.findMany({ where: { employeeId: { in: scope.employeeIds } }, select: { id: true } }),
+      this.prisma.assetRequest.findMany({ where: { employeeId: { in: scope.employeeIds } }, select: { id: true } }),
+      this.prisma.assetMobileSubscription.findMany({ where: { employeeId: { in: scope.employeeIds } }, select: { id: true } }),
+    ]);
+    const entityIds = [...assets, ...allocations, ...requests, ...mobile].map((row) => row.id);
+    return this.prisma.assetAuditEvent.findMany({
+      where: { OR: [{ entityId: { in: entityIds } }, { actorId: { in: scope.employeeIds } }] },
+      orderBy: { createdAt: 'desc' }, take: 200,
+    });
+  }
 
   async createType(user: any, body: any) {
     const name = String(body.name ?? '').trim().toUpperCase();

@@ -3,6 +3,7 @@ import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { ChangeRequestsService } from './change-requests.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 
 @ApiTags('Change Requests')
 @ApiBearerAuth()
@@ -47,7 +48,7 @@ export class ChangeRequestsController {
   @Get('change-requests/pending')
   listPendingApprovals(@Request() req: any) {
     const roleName = (req.user.role as any)?.name ?? req.user.role ?? '';
-    return this.changeRequestsService.listPendingApprovals(req.user.id ?? req.user.sub, roleName, Boolean(req.user.isHR));
+    return this.changeRequestsService.listPendingApprovals(req.user.id ?? req.user.sub, roleName, Boolean(req.user.isHR), viewDepartmentOf(req.user));
   }
 
   @Get('change-requests/:requestId')

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ticketsApi } from '@apex/operations-tickets-lifecycle/api';
-import { departmentsApi } from '@apex/core-organization-departments/api';
+import { departmentsApi, lockedByTopBarHint } from '@apex/core-organization-departments/api';
 import { usersApi } from '@apex/core-users/api';
 import { useAuthStore } from '@apex/core-identity';
 import toast from 'react-hot-toast';
@@ -27,7 +27,7 @@ import {
   useTicketNavState,
 } from '@apex/operations-tickets-lifecycle/components/use-ticket-nav-state';
 import { pollWhileHealthy } from '@apex/shared-auth';
-import { useActiveViewDepartmentName } from '@/components/layout/DefaultDepartment';
+import { useActiveViewDepartment, useActiveViewDepartmentName } from '@/components/layout/DefaultDepartment';
 
 const STATUSES = ['', 'OPEN', 'IN_PROGRESS', 'REVIEW', 'DONE', 'CLOSED'];
 const PRIORITIES = ['', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'];
@@ -222,9 +222,13 @@ export default function TicketsPage() {
   if (myTickets && currentUser?.id) extraFilters.assignedToId = currentUser.id;
   if (reviewFilter) extraFilters.filter = reviewFilter;
 
+  // The top-bar department locks the page's department filter.
+  const viewDepartment = useActiveViewDepartment();
+  const effectiveFilters = viewDepartment ? { ...filters, departmentId: viewDepartment.id } : filters;
+
   const { data, isLoading, refetch } = useQuery({
-    queryKey: ['tickets', { ...filters, ...extraFilters, search: debouncedSearch }, page],
-    queryFn: () => ticketsApi.getAll({ ...filters, ...extraFilters, search: debouncedSearch, page, limit: 25 }) as Promise<any>,
+    queryKey: ['tickets', { ...effectiveFilters, ...extraFilters, search: debouncedSearch }, page],
+    queryFn: () => ticketsApi.getAll({ ...effectiveFilters, ...extraFilters, search: debouncedSearch, page, limit: 25 }) as Promise<any>,
     // Time Left follows each assignee's work timer, which their own break / end
     // day / punch pauses and resumes without touching this page. Poll like Kanban.
     refetchInterval: pollWhileHealthy(30_000),
@@ -396,8 +400,11 @@ export default function TicketsPage() {
           </select>
 
           <select
-            value={filters.departmentId}
+            aria-label="Department"
+            value={effectiveFilters.departmentId}
             onChange={(e) => setFilter('departmentId', e.target.value)}
+            disabled={Boolean(viewDepartment)}
+            title={viewDepartment ? lockedByTopBarHint(viewDepartment.name) : undefined}
             className="apex-select"
           >
             <option value="">All Departments</option>

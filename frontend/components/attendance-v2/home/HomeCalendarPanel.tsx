@@ -27,6 +27,7 @@ import {
 } from './home-week';
 import s from './home-calendar.module.css';
 import { ProductivityTimelinePanel } from './ProductivityTimelinePanel';
+import { useActiveViewDepartment } from '../../layout/DefaultDepartment';
 
 type AttendanceKpiFilter = 'Total late marks' | 'Total present days' | 'Less working hours';
 
@@ -201,6 +202,33 @@ export function HomeCalendarPanel() {
     if (userId) setSelectedPersonId((current) => current || userId);
   }, [userId]);
 
+  // With a top-bar department selected (admins), the person filter lists only
+  // that department's people and starts with the first of them by name,
+  // instead of the signed-in admin. Clearing it returns to the admin's own view.
+  const topBarDepartment = useActiveViewDepartment();
+  const departmentPeople = useQuery({
+    queryKey: ['workday-team', 'attendance-name-filter', today],
+    queryFn: () => workdayApi.getTeam(today) as Promise<TeamMember[]>,
+    enabled: canViewTeamAttendance && Boolean(topBarDepartment),
+    staleTime: 60_000,
+    retry: shouldRetryTransientQuery,
+    retryDelay: transientQueryRetryDelay,
+  });
+  const firstDepartmentPersonId = useMemo(() => {
+    if (!topBarDepartment) return null;
+    return [...(departmentPeople.data ?? [])]
+      .filter((member) => member.id !== userId)
+      .sort((a, b) => a.name.localeCompare(b.name))[0]?.id ?? null;
+  }, [departmentPeople.data, topBarDepartment, userId]);
+  useEffect(() => {
+    if (!userId) return;
+    if (!topBarDepartment) {
+      setSelectedPersonId(userId);
+    } else if (firstDepartmentPersonId) {
+      setSelectedPersonId(firstDepartmentPersonId);
+    }
+  }, [topBarDepartment?.id, firstDepartmentPersonId, userId]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const compOffCredits = useQuery({
     queryKey: ['comp-off-mine'],
     queryFn: () => compOffApi.mine() as Promise<any[]>,
@@ -371,6 +399,7 @@ export function HomeCalendarPanel() {
           </button>
           {canViewTeamAttendance && <AttendancePersonFilter
             currentUser={{ id: userId, name: userName, role: normalizedRole.replaceAll('_', ' ') }}
+            hideCurrentUser={Boolean(topBarDepartment)}
             selectedId={selectedPersonId || userId}
             today={today}
             onSelect={(id) => { setSelectedPersonId(id); setPopup(null); }}
@@ -512,8 +541,10 @@ type TeamMember = {
   breakMinutesToday?: number;
 };
 
-function AttendancePersonFilter({ currentUser, selectedId, today, onSelect }: {
+function AttendancePersonFilter({ currentUser, hideCurrentUser = false, selectedId, today, onSelect }: {
   currentUser: { id: string; name: string; role: string };
+  /** Top-bar department selected: list only that department's people, not the admin. */
+  hideCurrentUser?: boolean;
   selectedId: string;
   today: string;
   onSelect: (id: string) => void;
@@ -546,7 +577,7 @@ function AttendancePersonFilter({ currentUser, selectedId, today, onSelect }: {
 
   const people = useMemo(() => {
     const byId = new Map<string, { id: string; name: string; role?: string; department?: string; photo?: string | null }>();
-    if (currentUser.id) byId.set(currentUser.id, currentUser);
+    if (currentUser.id && !hideCurrentUser) byId.set(currentUser.id, currentUser);
     for (const member of peopleQuery.data ?? []) {
       if (member.id === currentUser.id) continue;
       const role = typeof member.role === 'string' ? member.role : member.role?.name;
@@ -562,9 +593,9 @@ function AttendancePersonFilter({ currentUser, selectedId, today, onSelect }: {
     return Array.from(byId.values())
       .filter((person) => !term || [person.name, person.role, person.department].some((value) => value?.toLowerCase().includes(term)))
       .sort((a, b) => a.id === currentUser.id ? -1 : b.id === currentUser.id ? 1 : a.name.localeCompare(b.name));
-  }, [currentUser, peopleQuery.data, search]);
+  }, [currentUser, hideCurrentUser, peopleQuery.data, search]);
   const selected = people.find((person) => person.id === selectedId)
-    ?? (selectedId === currentUser.id ? currentUser : null);
+    ?? (selectedId === currentUser.id && !hideCurrentUser ? currentUser : null);
 
   return (
     <div ref={rootRef} className={s.personFilter}>

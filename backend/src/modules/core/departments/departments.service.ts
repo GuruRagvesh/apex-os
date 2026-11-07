@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, ConflictException, 
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { ROLES } from '../../../shared/constants/roles';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 
 /**
  * The only User columns a department response may carry. An `include` of a
@@ -54,9 +55,17 @@ export class DepartmentsService {
     return { ...rows[0].manager, accessLevel: rows[0].accessLevel };
   }
 
-  async findAll(user?: any) {
+  /**
+   * Departments the caller may see. An admin with a top-bar department sees
+   * only that one (view-scope.ts) unless `includeAll` is asked for: the top-bar
+   * switcher itself and edit forms (e.g. moving a person) need every department.
+   */
+  async findAll(user?: any, includeAll = false) {
     let where: any = {};
-    if (!this.access.isAdmin(user)) {
+    const viewDept = includeAll ? null : viewDepartmentOf(user);
+    if (viewDept) {
+      where = { id: viewDept };
+    } else if (!this.access.isAdmin(user)) {
       const deptIds = await this.access.managedDepartmentIds(user);
       if (deptIds.length === 0) return [];
       where = { id: { in: deptIds } };

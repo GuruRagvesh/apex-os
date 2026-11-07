@@ -5,7 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { rolesApi } from '@apex/core-organization-roles/api';
 import { usersApi } from '@apex/core-users/api';
-import { departmentsApi } from '@apex/core-organization-departments/api';
+import { departmentsApi, lockedByTopBarHint, useTopBarDepartment } from '@apex/core-organization-departments/api';
 import { useAuthStore } from '@apex/core-identity';
 import { cn } from '@apex/shared-utilities';
 import {
@@ -96,7 +96,10 @@ export default function UsersPage() {
   const router = useRouter();
   const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(me?.role?.name ?? '');
   const [search, setSearch] = useState('');
-  const [deptFilter, setDeptFilter] = useState('');
+  const [pickedDeptFilter, setDeptFilter] = useState('');
+  // The top-bar department locks the department filter.
+  const topBarDepartment = useTopBarDepartment(isAdmin);
+  const deptFilter = topBarDepartment?.id ?? pickedDeptFilter;
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [showNew, setShowNew] = useState(false);
@@ -142,7 +145,9 @@ export default function UsersPage() {
   };
 
   const { data: roles } = useQuery({ queryKey: ['roles'], queryFn: () => rolesApi.getAll() as Promise<any[]>, enabled: hasHydrated && isAdmin });
-  const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any[]>, enabled: hasHydrated && isAdmin });
+  // Every department: the create/edit forms may place a person anywhere. The
+  // list filter below is locked to the top-bar department while one is set.
+  const { data: departments } = useQuery({ queryKey: ['departments', 'all'], queryFn: () => departmentsApi.getAllCompany() as Promise<any[]>, enabled: hasHydrated && isAdmin });
 
   const updateCachedUserActiveStatus = (id: string, isActive: boolean) => {
     qc.setQueriesData({ queryKey: ['users'] }, (current: any) => {
@@ -329,7 +334,14 @@ export default function UsersPage() {
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
-        <select value={deptFilter} onChange={(e) => setDeptFilter(e.target.value)} className="apex-select">
+        <select
+          aria-label="Department"
+          value={deptFilter}
+          onChange={(e) => setDeptFilter(e.target.value)}
+          disabled={Boolean(topBarDepartment)}
+          title={topBarDepartment ? lockedByTopBarHint(topBarDepartment.name) : undefined}
+          className="apex-select"
+        >
           <option value="">All Departments</option>
           {Array.isArray(departments) && departments.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
         </select>
@@ -344,7 +356,7 @@ export default function UsersPage() {
           <option value="archived">Archived</option>
           <option value="all">All users</option>
         </select>
-        {(deptFilter || roleFilter || statusFilter) && (
+        {(pickedDeptFilter || roleFilter || statusFilter) && (
           <button
             onClick={() => { setDeptFilter(''); setRoleFilter(''); setStatusFilter(''); }}
             className="text-xs font-medium"

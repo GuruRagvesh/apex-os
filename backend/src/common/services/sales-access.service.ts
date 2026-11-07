@@ -2,6 +2,7 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { PrismaService } from '../../prisma/prisma.service';
 import { ROLES } from '../../shared/constants/roles';
 import { AccessPolicyService } from './access-policy.service';
+import { viewDepartmentOf } from './view-scope';
 
 @Injectable()
 export class SalesAccessService {
@@ -19,6 +20,8 @@ export class SalesAccessService {
   async findAccessibleLead(id: string, user: any, include?: any): Promise<any> {
     const existing = await this.prisma.lead.findUnique({ where: { id }, select: { id: true } });
     if (!existing) throw new NotFoundException('Lead not found');
+    // An admin can still open any lead directly while narrowed (as with tickets).
+    if (this.access.isAdmin(user)) return this.prisma.lead.findUnique({ where: { id }, include });
     const where = await this.buildLeadWhereForUser({}, user);
     const allowed = await this.prisma.lead.count({ where: this.andWhere({ id }, where) });
     if (!allowed) throw new ForbiddenException('You do not have permission to view this lead');
@@ -79,6 +82,9 @@ export class SalesAccessService {
   private async buildScope(user?: any): Promise<any> {
     if (!user) return {};
     const roleName = this.access.roleName(user);
+    // Admin with a top-bar department: that department's leads plus leads they own.
+    const viewDept = viewDepartmentOf(user);
+    if (viewDept) return { OR: [{ ownerId: user.id }, { departmentId: viewDept }] };
     if (this.access.isAdmin(user)) return {};
     if ([ROLES.MANAGER, ROLES.TEAM_LEAD].includes(roleName as any)) {
       const deptIds = await this.access.managedDepartmentIds(user);

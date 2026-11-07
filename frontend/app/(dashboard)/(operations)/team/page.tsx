@@ -13,6 +13,8 @@ import {
 } from 'lucide-react';
 import { formatInTimeZone } from 'date-fns-tz';
 import { pollWhileHealthy } from '@apex/shared-auth';
+import { lockedByTopBarHint } from '@apex/core-organization-departments/api';
+import { useActiveViewDepartment } from '@/components/layout/DefaultDepartment';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const ROLE_COLORS: Record<string, string> = {
@@ -349,6 +351,9 @@ function ManagerTeamView({ me }: { me: any }) {
 function MyTeamView({ me }: { me: any }) {
   const [search, setSearch]       = useState('');
   const [deptFilter, setDeptFilter] = useState('');
+  // The admin's top-bar department locks the department filter (the
+  // directory already holds only that department's people).
+  const topBarDepartment = useActiveViewDepartment();
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
@@ -484,8 +489,11 @@ function MyTeamView({ me }: { me: any }) {
           </div>
           <div className="relative">
             <select
-              value={deptFilter}
+              aria-label="Department"
+              value={topBarDepartment ? topBarDepartment.name : deptFilter}
               onChange={(e) => setDeptFilter(e.target.value)}
+              disabled={Boolean(topBarDepartment)}
+              title={topBarDepartment ? lockedByTopBarHint(topBarDepartment.name) : undefined}
               className="apex-select appearance-none pl-3 pr-8 py-2"
             >
               <option value="">All Departments</option>

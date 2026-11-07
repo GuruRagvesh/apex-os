@@ -83,7 +83,8 @@ export class AnalyticsService {
   private async peopleWhere(currentUser: any): Promise<{ where: any; scope: 'self' | 'team' | 'company' }> {
     const roleName = this.accessPolicy.roleName(currentUser);
     const viewDept = viewDepartmentOf(currentUser);
-    if (viewDept) return { where: { OR: [{ id: currentUser.id }, { departmentId: viewDept }] }, scope: 'team' };
+    // Top-bar department: only that department's people (not the admin).
+    if (viewDept) return { where: { departmentId: viewDept, id: { not: currentUser.id } }, scope: 'team' };
     if (this.accessPolicy.isAdmin(currentUser)) return { where: {}, scope: 'company' };
     if (['MANAGER', 'TEAM_LEAD'].includes(roleName)) {
       const deptIds = await this.accessPolicy.managedDepartmentIds(currentUser);
