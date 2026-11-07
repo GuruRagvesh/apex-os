@@ -151,7 +151,7 @@ export function AttendanceExceptionQueue() {
             <Stat label="Not started" value={data.summary.byState.OPEN} />
             <Stat label="With the manager" value={data.summary.byState.AWAITING_MANAGER} />
             <Stat label="With HR" value={data.summary.byState.AWAITING_HR} />
-            <span className="apex-text-subtle text-[11px]">
+            <span className="apex-text-subtle text-caption">
               {data.scope === 'COMPANY' ? 'Company-wide' : 'Your team'} · {data.from} to {data.to}
             </span>
           </div>
@@ -175,7 +175,7 @@ export function AttendanceExceptionQueue() {
         <div className="apex-card overflow-x-auto">
           <table className="w-full min-w-[860px] text-left text-sm">
             <thead>
-              <tr className="apex-text-subtle text-[11px] uppercase tracking-wide">
+              <tr className="apex-text-subtle text-caption uppercase tracking-wide">
                 <th className="pb-2">Employee</th>
                 <th className="pb-2">Date</th>
                 <th className="pb-2">Problem</th>
@@ -216,7 +216,7 @@ export function AttendanceExceptionQueue() {
               </li>
             ))}
           </ul>
-          <p className="apex-text-subtle mt-3 text-[11px]">
+          <p className="apex-text-subtle mt-3 text-caption">
             These reach the queue indirectly: an abandoned phone handoff, or a missing punch once
             the day is evaluated.
           </p>
@@ -242,7 +242,7 @@ function Row({
       <tr className="border-t border-[var(--border-secondary)] align-top">
         <td className="py-2 pr-3">
           <span className="apex-text font-medium">{item.employee?.name ?? 'Unknown'}</span>
-          <span className="apex-text-subtle block text-[11px]">
+          <span className="apex-text-subtle block text-caption">
             {item.employee?.employeeId ?? '—'}
             {item.employee?.department ? ` · ${item.employee.department}` : ''}
           </span>
@@ -251,7 +251,7 @@ function Row({
         <td className="py-2 pr-3">
           <span className="apex-text font-medium">{CATEGORY_LABEL[item.category]}</span>
           {item.categories.length > 1 && (
-            <span className="apex-text-subtle block text-[11px]">
+            <span className="apex-text-subtle block text-caption">
               also {item.categories
                 .filter((c) => c !== item.category)
                 .map((c) => CATEGORY_LABEL[c])
@@ -266,7 +266,7 @@ function Row({
         <td className="py-2 pr-3">
           <span
             className={[
-              'rounded-full px-2 py-0.5 text-[11px] font-medium',
+              'rounded-full px-2 py-0.5 text-caption font-medium',
               item.state === 'OPEN'
                 ? 'bg-[var(--warning-bg,rgba(234,179,8,.15))] text-[var(--warning,#a16207)]'
                 : 'apex-text-muted border border-[var(--border-secondary)]',
@@ -298,22 +298,22 @@ function Row({
           <td colSpan={6} className="py-3">
             <dl className="grid gap-3 sm:grid-cols-2">
               <div>
-                <dt className="apex-text-subtle text-[11px] uppercase tracking-wide">
+                <dt className="apex-text-subtle text-caption uppercase tracking-wide">
                   Why it was flagged
                 </dt>
                 <dd className="apex-text mt-1 text-xs">{item.whyFlagged}</dd>
               </div>
               <div>
-                <dt className="apex-text-subtle text-[11px] uppercase tracking-wide">
+                <dt className="apex-text-subtle text-caption uppercase tracking-wide">
                   What resolves it
                 </dt>
                 <dd className="apex-text mt-1 text-xs">{item.resolvingAction.label}</dd>
               </div>
               <div className="sm:col-span-2">
-                <dt className="apex-text-subtle text-[11px] uppercase tracking-wide">
+                <dt className="apex-text-subtle text-caption uppercase tracking-wide">
                   Evidence and context
                 </dt>
-                <dd className="apex-text-muted mt-1 break-all font-mono text-[11px]">
+                <dd className="apex-text-muted mt-1 break-all font-mono text-caption">
                   {Object.entries(item.evidence)
                     .filter(([, v]) => v !== null && v !== undefined && `${v}` !== '')
                     .map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`)
@@ -331,7 +331,7 @@ function Row({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1">
-      <span className="apex-text-subtle text-[11px] uppercase tracking-wide">{label}</span>
+      <span className="apex-text-subtle text-caption uppercase tracking-wide">{label}</span>
       {children}
     </label>
   );

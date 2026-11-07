@@ -141,9 +141,9 @@ export function DrawerFact({
 }) {
   const colour =
     tone === 'warn'
-      ? 'text-amber-600 dark:text-amber-400'
+      ? 'text-amber-700 dark:text-amber-400'
       : tone === 'good'
-        ? 'text-emerald-600 dark:text-emerald-400'
+        ? 'text-emerald-700 dark:text-emerald-400'
         : 'apex-text';
   return (
     <div>

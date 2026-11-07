@@ -40,7 +40,7 @@ export function UpcomingEvents({ events }: { events: any[] }) {
           }}>
           <span style={{ width: 7, height: 7, borderRadius: '50%', background: COLOR_DOTS[ev.color] ?? 'var(--text-tertiary)', flexShrink: 0 }} />
           <p style={{ flex: 1, fontSize: 12, color: 'var(--text-primary)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ev.title}</p>
-          <span style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0 }}>{ev.time ? fmtTime(ev.time) : ''}</span>
+          <span style={{ fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0 }}>{ev.time ? fmtTime(ev.time) : ''}</span>
         </div>
       ))}
     </div>

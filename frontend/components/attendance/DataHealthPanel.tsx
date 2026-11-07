@@ -60,7 +60,7 @@ export function DataHealthBadge({ enabled }: { enabled: boolean }) {
       className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-secondary)] px-2.5 py-1 text-xs"
       aria-label={`Data health: ${badgeText(data)}`}
     >
-      <span className="apex-text-subtle text-[10px] font-semibold uppercase tracking-wide">Data health</span>
+      <span className="apex-text-subtle text-caption font-semibold uppercase tracking-wide">Data health</span>
       <span aria-hidden="true" className={`h-1.5 w-1.5 rounded-full ${DOT[tone]}`} />
       <span className={TONE[tone]}>{badgeText(data)}</span>
     </Link>
@@ -120,7 +120,7 @@ function Panel({ data }: { data: DataHealth }) {
             ['Failed imports', data.counts.failedImports],
           ].map(([label, value]) => (
             <div key={label as string}>
-              <dt className="apex-text-subtle text-[11px] uppercase tracking-wide">{label}</dt>
+              <dt className="apex-text-subtle text-caption uppercase tracking-wide">{label}</dt>
               <dd className="apex-text font-medium tabular-nums">{displayCount(value as number | null)}</dd>
             </div>
           ))}

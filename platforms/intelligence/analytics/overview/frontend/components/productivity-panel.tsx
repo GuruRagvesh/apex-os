@@ -25,9 +25,9 @@ const PRESETS: Array<{ key: Exclude<RangePreset, 'custom'>; label: string }> = [
 function Stat({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="apex-card p-4">
-      <p className="text-[11px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>{label}</p>
+      <p className="text-caption font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>{label}</p>
       <p className="text-xl font-bold mt-1" style={{ color: 'var(--text-primary)' }}>{value}</p>
-      {sub && <p className="text-[11px] mt-1" style={{ color: 'var(--text-tertiary)' }}>{sub}</p>}
+      {sub && <p className="text-caption mt-1" style={{ color: 'var(--text-tertiary)' }}>{sub}</p>}
     </div>
   );
 }
@@ -105,7 +105,7 @@ export function ProductivityPanel() {
               aria-pressed={preset === p.key}
               className="px-3 py-1.5 rounded-lg text-xs font-medium border"
               style={preset === p.key
-                ? { borderColor: 'var(--accent)', backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }
+                ? { borderColor: 'var(--accent)', backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)' }
                 : { borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
             >
               {p.label}
@@ -116,7 +116,7 @@ export function ProductivityPanel() {
             aria-pressed={preset === 'custom'}
             className="px-3 py-1.5 rounded-lg text-xs font-medium border"
             style={preset === 'custom'
-              ? { borderColor: 'var(--accent)', backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }
+              ? { borderColor: 'var(--accent)', backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)' }
               : { borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
           >
             Custom
@@ -140,7 +140,7 @@ export function ProductivityPanel() {
             <button key={v} onClick={() => setView(v)} aria-pressed={view === v}
               className="px-2.5 py-1.5 rounded-lg text-xs font-medium border capitalize"
               style={view === v
-                ? { borderColor: 'var(--accent)', color: 'var(--accent)' }
+                ? { borderColor: 'var(--accent)', color: 'var(--accent-text)' }
                 : { borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}>
               {v}
             </button>
@@ -149,10 +149,10 @@ export function ProductivityPanel() {
       </div>
 
       {customInvalid ? (
-        <p className="text-xs text-red-500">Choose a start date on or before the end date.</p>
+        <p className="text-xs text-red-600">Choose a start date on or before the end date.</p>
       ) : error ? (
         <div className="apex-card p-5 flex items-center gap-3 border-l-4 border-red-400">
-          <AlertTriangle size={18} className="text-red-500 flex-shrink-0" />
+          <AlertTriangle size={18} className="text-red-600 flex-shrink-0" />
           <p className="text-sm flex-1" style={{ color: 'var(--text-primary)' }}>
             {(error as any)?.message || 'Productivity figures could not be loaded.'}
           </p>
@@ -187,7 +187,7 @@ export function ProductivityPanel() {
             <div className="apex-card overflow-hidden">
               <div className="px-4 py-3 flex items-center justify-between" style={{ borderBottom: '1px solid var(--border-subtle)' }}>
                 <h3 className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>Per employee</h3>
-                {userId && <button className="text-xs underline" style={{ color: 'var(--accent)' }} onClick={() => setUserId('')}>Show everyone</button>}
+                {userId && <button className="text-xs underline" style={{ color: 'var(--accent-text)' }} onClick={() => setUserId('')}>Show everyone</button>}
               </div>
               <div className="overflow-x-auto">
                 <table className="apex-table text-xs">

@@ -101,7 +101,7 @@ export function AutoCloseConsentModal({ autoCloseTime, onClose }: Props) {
         aria-labelledby="autoclose-consent-title"
         aria-describedby="autoclose-consent-body"
         className="apex-scale-in w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden"
-        style={{ backgroundColor: 'white' }}
+        style={{ backgroundColor: 'var(--surface-elevated)' }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-6 py-5 flex items-center gap-3" style={{ backgroundColor: '#0B1220' }}>
@@ -116,7 +116,7 @@ export function AutoCloseConsentModal({ autoCloseTime, onClose }: Props) {
               Auto-close time reached
             </h2>
             {autoCloseTime && (
-              <p className="text-xs text-slate-400 mt-0.5">Company auto-close time: {autoCloseTime}</p>
+              <p className="text-xs text-slate-500 mt-0.5">Company auto-close time: {autoCloseTime}</p>
             )}
           </div>
         </div>

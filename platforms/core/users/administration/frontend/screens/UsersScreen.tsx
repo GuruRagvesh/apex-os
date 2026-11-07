@@ -279,7 +279,7 @@ export default function UsersPage() {
     return (
       <div className="max-w-xl mx-auto apex-card p-8 text-center space-y-4">
         <div className="mx-auto w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--accent-subtle)' }}>
-          <ShieldAlert size={24} style={{ color: 'var(--accent)' }} />
+          <ShieldAlert size={24} style={{ color: 'var(--accent-text)' }} />
         </div>
         <div>
           <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Users & Roles is admin-only</h1>
@@ -298,7 +298,7 @@ export default function UsersPage() {
     <div className="space-y-5 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Users</h2>
+          <h2 className="apex-page-title">Users</h2>
           <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>
             {filteredUsers.length} of {userList.length} team members
             {archivedCount > 0 && statusFilter !== 'archived' && statusFilter !== 'all' && (
@@ -317,7 +317,7 @@ export default function UsersPage() {
 
       {/* Search */}
       <div className="relative">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
         <input
           type="text"
           placeholder="Search by name or email..."
@@ -348,7 +348,7 @@ export default function UsersPage() {
           <button
             onClick={() => { setDeptFilter(''); setRoleFilter(''); setStatusFilter(''); }}
             className="text-xs font-medium"
-            style={{ color: 'var(--color-danger)' }}
+            style={{ color: 'var(--danger-text)' }}
           >
             Clear filters
           </button>
@@ -533,7 +533,7 @@ export default function UsersPage() {
                             <button
                               type="button"
                               onClick={() => setArchiveTarget(u)}
-                              className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-600 text-white shadow-md transition hover:-translate-y-0.5 hover:bg-amber-700 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
+                              className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-700 text-white shadow-md transition hover:-translate-y-0.5 hover:bg-amber-800 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2"
                               title="Archive user"
                               aria-label={`Archive ${u.name}`}
                             >
@@ -602,7 +602,7 @@ export default function UsersPage() {
                       ];
                       const all = parts.map((p) => p.text).join(' · ');
                       return (
-                        <p className="relative mb-1.5 h-[15px] flex-shrink-0 truncate text-[11px] font-semibold leading-[15px]" data-testid="archive-readiness" title={all} aria-label={`Archive status: ${all}`}>
+                        <p className="relative mb-1.5 h-[15px] flex-shrink-0 truncate text-caption font-semibold leading-[15px]" data-testid="archive-readiness" title={all} aria-label={`Archive status: ${all}`}>
                           {parts.map((p, i) => (
                             <span key={p.text}>
                               {i > 0 && <span aria-hidden="true" style={{ color: 'var(--text-tertiary)' }}> · </span>}
@@ -629,13 +629,13 @@ export default function UsersPage() {
                       style={{ backgroundColor: 'var(--surface-card)' }}
                     >
                       <span className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-blue-50 text-blue-600 dark:bg-blue-950/80 dark:text-blue-300">
-                        <Icon size={13} aria-hidden="true" />
+                        <Icon size={14} aria-hidden="true" />
                       </span>
                       <span className="min-w-0">
-                        <span className="block truncate text-[8px] font-bold uppercase leading-none tracking-[0.03em]" style={{ color: 'var(--text-tertiary)' }} title={label}>
+                        <span className="block truncate text-caption font-bold uppercase leading-none tracking-[0.03em]" style={{ color: 'var(--text-tertiary)' }} title={label}>
                           {label}
                         </span>
-                        <span className="mt-1 line-clamp-2 text-[11px] font-bold leading-[1.1]" style={{ color: 'var(--text-primary)' }} title={value}>
+                        <span className="mt-1 line-clamp-2 text-caption font-bold leading-[1.1]" style={{ color: 'var(--text-primary)' }} title={value}>
                           {value}
                         </span>
                       </span>
@@ -649,7 +649,7 @@ export default function UsersPage() {
                   className="relative mt-2.5 flex w-full flex-shrink-0 items-center justify-center gap-2 rounded-2xl px-4 py-3 text-sm font-bold text-white shadow-[0_10px_24px_rgba(30,64,175,0.24)] transition hover:-translate-y-0.5 hover:shadow-[0_14px_30px_rgba(30,64,175,0.3)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
                   style={{ background: 'linear-gradient(135deg, #2563eb, #1e3a8a)' }}
                 >
-                  <ExternalLink size={17} />
+                  <ExternalLink size={16} />
                   View Profile
                 </button>
               </article>

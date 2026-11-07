@@ -531,7 +531,7 @@
 .lead-mb-3 { margin-bottom: var(--space-3); }
 .lead-ml-2 { margin-left: var(--space-2); }
 .lead-text-sm { font-size: 0.75rem; }
-.lead-text-xs { font-size: 0.65rem; }
+.lead-text-xs { font-size: 0.6875rem; }
 .lead-w-100 { width: 100px; }
 .lead-text-error { color: var(--color-error); }
 .lead-border-error { border-color: var(--color-error); }

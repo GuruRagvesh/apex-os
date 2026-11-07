@@ -111,7 +111,7 @@ export default function ApprovalsScreen() {
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="apex-section-border bg-white rounded-xl border p-6">
-        <h1 className="text-2xl font-bold text-slate-800 mb-6">Pending Approvals</h1>
+        <h1 className="apex-page-title mb-6">Pending Approvals</h1>
 
         <div className="divide-y divide-slate-100">
           {isLoading ? (
@@ -141,7 +141,7 @@ export default function ApprovalsScreen() {
                       <div key={idx} className="flex items-center gap-3 text-sm">
                         <span className="font-medium text-slate-600 w-32">{MULTI_FIELDS.find(f => f.value === ch.field)?.label || ch.field}:</span>
                         <span className="px-2.5 py-1 bg-slate-200 text-slate-600 rounded text-xs line-through">{getLabel(ch.field, ch.oldValue) || 'None'}</span>
-                        <ArrowRight size={14} className="text-slate-400" />
+                        <ArrowRight size={14} className="text-slate-500" />
                         <span className="px-2.5 py-1 bg-indigo-100 text-indigo-700 font-medium rounded text-xs">{getLabel(ch.field, ch.newValue)}</span>
                       </div>
                     ))}
@@ -158,7 +158,7 @@ export default function ApprovalsScreen() {
                   {!['APPROVED', 'REJECTED', 'CANCELLED'].includes(req.status) ? (
                     <>
                       <button
-                        className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded font-medium hover:bg-green-700 disabled:opacity-50 transition-colors shadow-sm"
+                        className="flex items-center gap-1.5 px-4 py-2 bg-green-700 text-white rounded font-medium hover:bg-green-800 disabled:opacity-50 transition-colors shadow-sm"
                         onClick={() => approveMutation.mutate(req.id)}
                         disabled={approveMutation.isPending && approveMutation.variables === req.id}
                       >

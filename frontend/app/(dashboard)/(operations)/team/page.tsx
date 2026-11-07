@@ -24,6 +24,7 @@ const ROLE_COLORS: Record<string, string> = {
   INTERN:      'bg-teal-100 text-teal-700',
 };
 
+// Department colours can be light, so they are deepened to keep white initials readable.
 function Avatar({ name, size = 'md', photoUrl, color }: { name: string; size?: 'sm' | 'md' | 'lg'; photoUrl?: string; color?: string }) {
   const initials = (name ?? '?').split(' ').map((n) => n[0]).join('').toUpperCase().slice(0, 2);
   const cls = { sm: 'w-8 h-8 text-xs', md: 'w-10 h-10 text-sm', lg: 'w-12 h-12 text-base' }[size];
@@ -31,7 +32,7 @@ function Avatar({ name, size = 'md', photoUrl, color }: { name: string; size?: '
   return (
     <div
       className={cn('rounded-full flex items-center justify-center font-semibold text-white flex-shrink-0', cls)}
-      style={{ background: color || 'linear-gradient(135deg,#1e40af 0%,#4f46e5 100%)' }}
+      style={{ background: color ? `color-mix(in srgb, ${color} 55%, #0f172a)` : 'linear-gradient(135deg,#1e40af 0%,#4f46e5 100%)' }}
     >
       {initials}
     </div>
@@ -85,11 +86,11 @@ function TeamMemberCard({ user }: { user: any }) {
         </div>
         <div className="flex items-center gap-3 mt-2.5 flex-wrap">
           <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-            <Building2 size={11} /> {user.department?.name ?? 'No dept'}
+            <Building2 size={12} /> {user.department?.name ?? 'No dept'}
           </span>
           <AvailabilityBadge user={user} />
           <span className="flex items-center gap-1 text-xs" style={{ color: 'var(--text-secondary)' }}>
-            <Ticket size={11} /> {user._count?.assignedTickets ?? user.ticketCount ?? 0} open tickets
+            <Ticket size={12} /> {user._count?.assignedTickets ?? user.ticketCount ?? 0} open tickets
           </span>
           <WorkloadDots count={user._count?.assignedTickets ?? user.ticketCount ?? 0} />
         </div>
@@ -223,7 +224,7 @@ function SuperAdminCompanyView({ me }: { me: any }) {
     <div className="space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="apex-page-title text-2xl" style={{ color: 'var(--text-primary)' }}>Company Directory</h2>
+          <h2 className="apex-page-title">Company Directory</h2>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>All {allUsers.length} members across {byDept.length} departments</p>
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ backgroundColor: 'var(--accent-subtle)', border: '1px solid var(--accent-border)' }}>
@@ -234,7 +235,7 @@ function SuperAdminCompanyView({ me }: { me: any }) {
 
       {/* Search */}
       <div className="relative">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -299,7 +300,7 @@ function ManagerTeamView({ me }: { me: any }) {
     <div className="space-y-6">
       <div className="flex items-start justify-between">
         <div>
-          <h2 className="apex-page-title text-2xl" style={{ color: 'var(--text-primary)' }}>My Team</h2>
+          <h2 className="apex-page-title">My Team</h2>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
             {allMembers.length} members across {byDept.length} department{byDept.length !== 1 ? 's' : ''} you manage
           </p>
@@ -312,7 +313,7 @@ function ManagerTeamView({ me }: { me: any }) {
 
       {/* Search */}
       <div className="relative">
-        <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -431,11 +432,11 @@ function MyTeamView({ me }: { me: any }) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="apex-page-title text-2xl" style={{ color: 'var(--text-primary)' }}>Team</h2>
+          <h2 className="apex-page-title">Team</h2>
           <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>{myDeptName} — manage your team and request new members</p>
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ backgroundColor: 'var(--accent-subtle)', border: '1px solid var(--accent-border)' }}>
-          <Users size={14} style={{ color: 'var(--accent)' }} />
+          <Users size={14} style={{ color: 'var(--accent-text)' }} />
           <span className="text-sm font-semibold" style={{ color: 'var(--accent-text)' }}>{myTeam.length} team members</span>
         </div>
       </div>
@@ -473,7 +474,7 @@ function MyTeamView({ me }: { me: any }) {
         </div>
         <div className="flex gap-3 mb-4">
           <div className="relative flex-1">
-            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
+            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -490,7 +491,7 @@ function MyTeamView({ me }: { me: any }) {
               <option value="">All Departments</option>
               {departments.map((d) => <option key={d} value={d}>{d}</option>)}
             </select>
-            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+            <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
           </div>
         </div>
         {isLoading ? (
@@ -599,13 +600,13 @@ function checkStale(member: any): boolean {
 }
 
 const STATUS_CONFIG: Record<string, { dot: string; label: string; color: string }> = {
-  WORKING:    { dot: 'bg-green-500',  label: 'Working',     color: 'var(--color-success)' },
-  ON_BREAK:   { dot: 'bg-orange-400', label: 'On Break',    color: 'var(--color-warning)' },
-  IDLE:       { dot: 'bg-yellow-400', label: 'Idle',        color: 'var(--color-warning)' },
-  ON_LEAVE:   { dot: 'bg-blue-500',   label: 'On Leave',    color: 'var(--color-info)' },
+  WORKING:    { dot: 'bg-green-500',  label: 'Working',     color: 'var(--success-text)' },
+  ON_BREAK:   { dot: 'bg-orange-400', label: 'On Break',    color: 'var(--warning-text)' },
+  IDLE:       { dot: 'bg-yellow-400', label: 'Idle',        color: 'var(--warning-text)' },
+  ON_LEAVE:   { dot: 'bg-blue-500',   label: 'On Leave',    color: 'var(--info-text)' },
   LOGGED_OUT: { dot: 'bg-gray-400',   label: 'Ended day',   color: 'var(--text-secondary)' },
   OFFLINE:    { dot: 'bg-gray-300',   label: 'Not started', color: 'var(--text-tertiary)' },
-  LOGGED_IN:  { dot: 'bg-yellow-300', label: 'Logged in',   color: 'var(--color-warning)' },
+  LOGGED_IN:  { dot: 'bg-yellow-300', label: 'Logged in',   color: 'var(--warning-text)' },
 };
 
 // ─── Live Status View ─────────────────────────────────────────────────────────
@@ -645,7 +646,7 @@ function LiveStatusView() {
       {/* Stale sessions warning banner */}
       {staleCount > 0 && (
         <div className="flex items-center gap-2.5 px-4 py-2.5 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 rounded-xl">
-          <AlertTriangle size={14} className="text-amber-600 dark:text-amber-400 flex-shrink-0" />
+          <AlertTriangle size={14} className="text-amber-700 dark:text-amber-400 flex-shrink-0" />
           <p className="text-xs font-medium text-amber-700 dark:text-amber-300">
             {staleCount} member{staleCount > 1 ? 's have' : ' has'} a session from a previous day that was never closed — highlighted below
           </p>
@@ -698,15 +699,15 @@ function LiveStatusView() {
                       <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot}`} />
                       {cfg.label}
                       {m.workStatus === 'ON_BREAK' && onBreakSince && (
-                        <span className="ml-1 text-[10px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded border border-orange-200">
+                        <span className="ml-1 text-caption bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded border border-orange-200">
                           since {fmtTime(onBreakSince)}
                         </span>
                       )}
                       {m.onLeaveToday && (
-                        <span className="ml-1 text-[10px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{m.leaveType ?? 'Leave'}</span>
+                        <span className="ml-1 text-caption bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded">{m.leaveType ?? 'Leave'}</span>
                       )}
                       {stale && (
-                        <span className="flex items-center gap-0.5 text-[10px] bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded font-semibold">
+                        <span className="flex items-center gap-0.5 text-caption bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-400 px-1.5 py-0.5 rounded font-semibold">
                           <AlertTriangle size={8} />
                           Stale
                         </span>
@@ -719,8 +720,8 @@ function LiveStatusView() {
                         ? `Ended at ${fmtTime(endedAt)}`
                         : (startedAt ? fmtTime(startedAt) : 'Not started today')
                       }
-                      {m.isLate && <span className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 font-sans text-[10px] font-semibold">Late</span>}
-                      {m.autoClosed && <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-sans text-[10px] font-semibold">Auto-closed</span>}
+                      {m.isLate && <span className="px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 font-sans text-caption font-semibold">Late</span>}
+                      {m.autoClosed && <span className="px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 font-sans text-caption font-semibold">Auto-closed</span>}
                     </div>
                   </td>
                   <td className="px-5 py-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
@@ -730,13 +731,13 @@ function LiveStatusView() {
                     {m.breakCount > 0 ? (
                       <div className="group relative inline-block cursor-help">
                         <span className="underline decoration-dashed underline-offset-2">{`${m.breakCount}x · ${fmtMin(m.breakMinutesToday)}`}</span>
-                        <div className="hidden group-hover:block absolute z-50 left-0 bottom-full mb-2 w-64 p-2 bg-slate-800 dark:bg-slate-700 text-slate-100 text-[10px] rounded shadow-lg whitespace-pre-wrap">
+                        <div className="hidden group-hover:block absolute z-50 left-0 bottom-full mb-2 w-64 p-2 bg-slate-800 dark:bg-slate-700 text-slate-100 text-caption rounded shadow-lg whitespace-pre-wrap">
                           {m.todaySession?.breakLogs?.map((b: any, idx: number) => (
                             <div key={b.id ?? idx} className="mb-1 border-b border-slate-700 pb-1 last:border-0 last:pb-0">
                               <span className="font-semibold text-orange-300">{b.source === 'LOGOUT_AWAY' ? 'Logout/Away' : b.breakType}</span>
                               <br/>
                               {fmtTime(b.startAt)} to {b.endAt ? fmtTime(b.endAt) : 'Now'} — {fmtMin(b.durationMinutes ?? 0)}
-                              {b.reason && <><br/><span className="text-slate-400">Reason: {b.reason}</span></>}
+                              {b.reason && <><br/><span className="text-slate-500">Reason: {b.reason}</span></>}
                             </div>
                           ))}
                         </div>
@@ -789,7 +790,7 @@ export default function TeamPage() {
             <button
               onClick={() => setTab('team')}
               className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors', tab === 'team' ? 'border-indigo-500' : 'border-transparent')}
-              style={{ color: tab === 'team' ? 'var(--accent)' : 'var(--text-secondary)' }}
+              style={{ color: tab === 'team' ? 'var(--accent-text)' : 'var(--text-secondary)' }}
               onMouseEnter={(e) => { if (tab !== 'team') e.currentTarget.style.color = 'var(--text-primary)'; }}
               onMouseLeave={(e) => { if (tab !== 'team') e.currentTarget.style.color = 'var(--text-secondary)'; }}
             >
@@ -798,7 +799,7 @@ export default function TeamPage() {
             <button
               onClick={() => setTab('live')}
               className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5', tab === 'live' ? 'border-indigo-500' : 'border-transparent')}
-              style={{ color: tab === 'live' ? 'var(--accent)' : 'var(--text-secondary)' }}
+              style={{ color: tab === 'live' ? 'var(--accent-text)' : 'var(--text-secondary)' }}
               onMouseEnter={(e) => { if (tab !== 'live') e.currentTarget.style.color = 'var(--text-primary)'; }}
               onMouseLeave={(e) => { if (tab !== 'live') e.currentTarget.style.color = 'var(--text-secondary)'; }}
             >
@@ -821,7 +822,7 @@ export default function TeamPage() {
             <button
               onClick={() => setTab('team')}
               className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors', tab === 'team' ? 'border-indigo-500' : 'border-transparent')}
-              style={{ color: tab === 'team' ? 'var(--accent)' : 'var(--text-secondary)' }}
+              style={{ color: tab === 'team' ? 'var(--accent-text)' : 'var(--text-secondary)' }}
               onMouseEnter={(e) => { if (tab !== 'team') e.currentTarget.style.color = 'var(--text-primary)'; }}
               onMouseLeave={(e) => { if (tab !== 'team') e.currentTarget.style.color = 'var(--text-secondary)'; }}
             >
@@ -830,7 +831,7 @@ export default function TeamPage() {
             <button
               onClick={() => setTab('live')}
               className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5', tab === 'live' ? 'border-indigo-500' : 'border-transparent')}
-              style={{ color: tab === 'live' ? 'var(--accent)' : 'var(--text-secondary)' }}
+              style={{ color: tab === 'live' ? 'var(--accent-text)' : 'var(--text-secondary)' }}
               onMouseEnter={(e) => { if (tab !== 'live') e.currentTarget.style.color = 'var(--text-primary)'; }}
               onMouseLeave={(e) => { if (tab !== 'live') e.currentTarget.style.color = 'var(--text-secondary)'; }}
             >
@@ -852,7 +853,7 @@ export default function TeamPage() {
           <button
             onClick={() => setTab('team')}
             className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors', tab === 'team' ? 'border-indigo-500' : 'border-transparent')}
-            style={{ color: tab === 'team' ? 'var(--accent)' : 'var(--text-secondary)' }}
+            style={{ color: tab === 'team' ? 'var(--accent-text)' : 'var(--text-secondary)' }}
             onMouseEnter={(e) => { if (tab !== 'team') e.currentTarget.style.color = 'var(--text-primary)'; }}
             onMouseLeave={(e) => { if (tab !== 'team') e.currentTarget.style.color = 'var(--text-secondary)'; }}
           >
@@ -861,7 +862,7 @@ export default function TeamPage() {
           <button
             onClick={() => setTab('live')}
             className={cn('px-4 py-2.5 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5', tab === 'live' ? 'border-indigo-500' : 'border-transparent')}
-            style={{ color: tab === 'live' ? 'var(--accent)' : 'var(--text-secondary)' }}
+            style={{ color: tab === 'live' ? 'var(--accent-text)' : 'var(--text-secondary)' }}
             onMouseEnter={(e) => { if (tab !== 'live') e.currentTarget.style.color = 'var(--text-primary)'; }}
             onMouseLeave={(e) => { if (tab !== 'live') e.currentTarget.style.color = 'var(--text-secondary)'; }}
           >

@@ -189,14 +189,14 @@ export function PunchHandoffQr({
           // eslint-disable-next-line @next/next/no-img-element
           <img src={dataUrl} alt="Scan to complete your punch on your phone" className="h-full w-full" />
         ) : (
-          <Loader2 size={20} className="animate-spin text-gray-400" />
+          <Loader2 size={20} className="animate-spin text-slate-500" />
         )}
       </div>
 
       <p className="apex-text-muted mt-2 text-xs">
         Scan with your phone camera to finish this punch there.
       </p>
-      <p className="apex-text-subtle mt-1 text-[11px]">
+      <p className="apex-text-subtle mt-1 text-caption">
         You will need to be signed in to Apex OS on your phone.
       </p>
     </div>

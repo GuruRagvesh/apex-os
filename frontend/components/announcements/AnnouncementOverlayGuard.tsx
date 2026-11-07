@@ -88,7 +88,7 @@ export function AnnouncementOverlayGuard() {
               <p className="text-xs text-slate-500">Published {new Date(announcement.startsAt).toLocaleString()}{announcement.creatorName ? ` by ${announcement.creatorName}` : ''}</p>
               <button type="button" onClick={handleReturn} autoFocus
                 className="inline-flex min-h-11 items-center gap-2 rounded-full bg-blue-600 px-5 py-2.5 text-sm font-bold text-white shadow-lg shadow-blue-600/20 transition hover:-translate-y-0.5 hover:bg-blue-700 focus-visible:outline focus-visible:outline-4 focus-visible:outline-blue-300">
-                <Undo2 size={17} aria-hidden="true" /> Return
+                <Undo2 size={16} aria-hidden="true" /> Return
               </button>
             </div>
           </div>

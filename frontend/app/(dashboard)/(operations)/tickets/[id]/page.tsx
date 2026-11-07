@@ -113,7 +113,7 @@ function TicketTimingPanel({ ticket }: { ticket: any }) {
       {budget ? (
         <div className="flex items-center justify-between gap-2">
           <span className="text-xs" style={rowLabel}>Time Left</span>
-          <span className={cn('text-sm font-medium', budget.over ? 'text-red-500' : '')} style={!budget.over ? rowValue : undefined}>
+          <span className={cn('text-sm font-medium', budget.over ? 'text-red-600' : '')} style={!budget.over ? rowValue : undefined}>
             {budget.label}
           </span>
         </div>
@@ -131,7 +131,7 @@ function TicketTimingPanel({ ticket }: { ticket: any }) {
           {dueCountdownText(t) && (
             <div className="flex items-center justify-between gap-2">
               <span className="text-xs" style={rowLabel}>{t.isOverdue ? 'Overdue' : 'Due in'}</span>
-              <span className={cn('text-sm font-medium', t.isOverdue ? 'text-red-500' : '')} style={!t.isOverdue ? rowValue : undefined}>
+              <span className={cn('text-sm font-medium', t.isOverdue ? 'text-red-600' : '')} style={!t.isOverdue ? rowValue : undefined}>
                 {t.isOverdue ? t.countdownLabel : dueCountdownText(t)!.replace(/^Due in /, '')}
               </span>
             </div>
@@ -298,7 +298,7 @@ function AttachmentCard({ att, ticketId, onDelete, highlight, inlinePreview }: {
           ) : wantsPreview && loadingPreview ? (
             <Loader2 size={16} className="animate-spin" style={{ color: 'var(--text-tertiary)' }} />
           ) : isPdf ? (
-            <FileText size={18} className="text-red-400" />
+            <FileText size={18} className="text-red-600" />
           ) : isDoc ? (
             <FileText size={18} className="text-blue-400" />
           ) : (
@@ -312,34 +312,34 @@ function AttachmentCard({ att, ticketId, onDelete, highlight, inlinePreview }: {
             <p className="text-xs font-medium truncate max-w-[180px]" style={{ color: 'var(--text-secondary)' }} title={att.filename}>{att.filename}</p>
             {purposeLabel && (
               <span className={cn(
-                'inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded',
+                'inline-flex items-center gap-0.5 text-caption font-bold px-1.5 py-0.5 rounded',
                 att.purpose === 'POC' || att.isPoc ? 'bg-purple-100 text-purple-700' : 'bg-slate-100 text-slate-700',
               )}>
                 {purposeLabel}
               </span>
             )}
             {highlight && (
-              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-purple-600 text-white">Latest</span>
+              <span className="text-caption font-bold px-1.5 py-0.5 rounded bg-purple-600 text-white">Latest</span>
             )}
             {att.cycleNo ? (
-              <span className="text-[10px] px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}>
+              <span className="text-caption px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}>
                 Cycle {att.cycleNo}
               </span>
             ) : null}
             {protection && (
-              <span className="inline-flex items-center gap-0.5 text-[10px]" style={{ color: 'var(--text-tertiary)' }} title={protection}>
+              <span className="inline-flex items-center gap-0.5 text-caption" style={{ color: 'var(--text-tertiary)' }} title={protection}>
                 {/* The reason is read once, from the visible line below. */}
                 <Lock size={10} aria-hidden="true" />
               </span>
             )}
           </div>
-          <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
+          <p className="text-caption mt-0.5" style={{ color: 'var(--text-tertiary)' }}>
             {sizeKb ? `${sizeKb} KB · ` : ''}
             {att.createdAt ? new Date(att.createdAt).toLocaleDateString() : ''}
             {att.uploadedBy?.name ? ` · by ${att.uploadedBy.name}` : att.legacyProtected ? ' · uploader not recorded' : ''}
           </p>
           {protection && (
-            <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{protection}</p>
+            <p className="text-caption mt-0.5" style={{ color: 'var(--text-tertiary)' }}>{protection}</p>
           )}
         </div>
 
@@ -354,7 +354,7 @@ function AttachmentCard({ att, ticketId, onDelete, highlight, inlinePreview }: {
             onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
           >
-            <Eye size={13} />
+            <Eye size={14} />
           </button>
           <button
             onClick={handleDownload}
@@ -365,7 +365,7 @@ function AttachmentCard({ att, ticketId, onDelete, highlight, inlinePreview }: {
             onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--text-primary)'; e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
             onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)'; e.currentTarget.style.backgroundColor = 'transparent'; }}
           >
-            <Download size={13} />
+            <Download size={14} />
           </button>
           {att.canDelete === true && onDelete && (
             <button
@@ -376,9 +376,9 @@ function AttachmentCard({ att, ticketId, onDelete, highlight, inlinePreview }: {
               }}
               title="Delete"
               aria-label={`Delete ${att.filename}`}
-              className="p-1 rounded transition-colors text-red-400 hover:text-red-500 hover:bg-red-50/10"
+              className="p-1 rounded transition-colors text-red-600 hover:text-red-500 hover:bg-red-50/10"
             >
-              <Trash2 size={13} />
+              <Trash2 size={14} />
             </button>
           )}
         </div>
@@ -427,9 +427,9 @@ function AiSuggestionsPanel({ ticketId }: { ticketId: string }) {
   };
 
   const rows = [
-    { icon: <Lightbulb size={14} className="text-amber-500" />, label: 'Next Action', value: data?.nextAction },
+    { icon: <Lightbulb size={14} className="text-amber-700" />, label: 'Next Action', value: data?.nextAction },
     { icon: <UserCheck size={14} className="text-indigo-500" />, label: 'Suggested Assignee', value: data?.suggestedAssignee },
-    { icon: <Hourglass size={14} className="text-emerald-500" />, label: 'Estimated Time', value: data?.estimatedTime },
+    { icon: <Hourglass size={14} className="text-emerald-700" />, label: 'Estimated Time', value: data?.estimatedTime },
   ];
 
   return (
@@ -448,15 +448,15 @@ function AiSuggestionsPanel({ ticketId }: { ticketId: string }) {
           </div>
           <span className="text-sm font-semibold" style={{ color: 'var(--text-secondary)' }}>AI Suggestions</span>
           <span
-            className="text-[10px] font-medium px-1.5 py-0.5 rounded"
-            style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}
+            className="text-caption font-medium px-1.5 py-0.5 rounded"
+            style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)' }}
           >
             GPT-4o mini
           </span>
         </div>
         {open
-          ? <ChevronUp size={15} style={{ color: 'var(--text-tertiary)' }} />
-          : <ChevronDown size={15} style={{ color: 'var(--text-tertiary)' }} />}
+          ? <ChevronUp size={16} style={{ color: 'var(--text-tertiary)' }} />
+          : <ChevronDown size={16} style={{ color: 'var(--text-tertiary)' }} />}
       </button>
 
       {/* Collapsible body */}
@@ -469,7 +469,7 @@ function AiSuggestionsPanel({ ticketId }: { ticketId: string }) {
             </div>
           )}
           {error && !aiDisabled && (
-            <p className="py-3 text-xs text-red-500">
+            <p className="py-3 text-xs text-red-600">
               Failed to load suggestions. Please try again later.
             </p>
           )}
@@ -486,7 +486,7 @@ function AiSuggestionsPanel({ ticketId }: { ticketId: string }) {
                 <div key={row.label} className="flex items-start gap-2.5">
                   <div className="mt-0.5 flex-shrink-0">{row.icon}</div>
                   <div>
-                    <p className="text-[10px] font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>{row.label}</p>
+                    <p className="text-caption font-semibold uppercase tracking-wider" style={{ color: 'var(--text-tertiary)' }}>{row.label}</p>
                     <p className="text-sm mt-0.5" style={{ color: 'var(--text-secondary)' }}>{row.value}</p>
                   </div>
                 </div>
@@ -605,7 +605,7 @@ function PocUploadModal({
             className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
             style={{ backgroundColor: 'var(--accent-subtle)' }}
           >
-            <Paperclip size={18} style={{ color: 'var(--accent)' }} />
+            <Paperclip size={18} style={{ color: 'var(--accent-text)' }} />
           </div>
           <div>
             <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>Submit for review</h3>
@@ -1313,7 +1313,7 @@ export default function TicketDetailPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
           <div className="apex-card rounded-2xl shadow-2xl w-full max-w-lg p-6 space-y-4">
             <div className="flex items-center gap-2">
-              <Ban size={18} className="text-amber-600" />
+              <Ban size={18} className="text-amber-700" />
               <h3 className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>Block Ticket</h3>
             </div>
             <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
@@ -1335,7 +1335,7 @@ export default function TicketDetailPage() {
               <button
                 onClick={() => blockMutation.mutate()}
                 disabled={blockMutation.isPending || blockReason.trim().length < 3}
-                className="flex-1 bg-amber-600 hover:bg-amber-700 text-white font-medium py-2.5 rounded-lg text-sm disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+                className="flex-1 bg-amber-700 hover:bg-amber-800 text-white font-medium py-2.5 rounded-lg text-sm disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
               >
                 {blockMutation.isPending ? <><Loader2 size={14} className="animate-spin" /> Blocking…</> : <><Ban size={14} /> Block ticket</>}
               </button>
@@ -1401,7 +1401,7 @@ export default function TicketDetailPage() {
                 className="text-xs px-2 py-0.5 rounded font-medium flex items-center gap-1"
                 style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)' }}
               >
-                <Building2 size={11} />
+                <Building2 size={12} />
                 {ticket.department.name}
               </span>
             )}
@@ -1418,7 +1418,7 @@ export default function TicketDetailPage() {
               {vis.badgeText}
             </span>
             {ticket.isOverdue && (
-              <span className="flex items-center gap-0.5 text-[10px] font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
+              <span className="flex items-center gap-0.5 text-caption font-bold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
                 <AlertTriangle size={9} /> OVERDUE
               </span>
             )}
@@ -1428,7 +1428,7 @@ export default function TicketDetailPage() {
               </span>
             )}
           </div>
-          <h2 className="text-xl font-bold [overflow-wrap:anywhere]" style={{ color: 'var(--text-primary)' }}>{ticket.title}</h2>
+          <h2 className="apex-page-title [overflow-wrap:anywhere]">{ticket.title}</h2>
           <TimingHeaderSummary ticket={ticket} />
           <p className="text-xs mt-1" style={{ color: 'var(--text-tertiary)' }}>
             Reported by {ticket.createdBy?.name} · {formatRelativeTime(ticket.createdAt)}
@@ -1445,7 +1445,7 @@ export default function TicketDetailPage() {
         {canToggleBlock && !ticket.isBlocked && !isDone && (
           <button
             onClick={() => { setBlockReason(''); setShowBlockModal(true); }}
-            className="p-2 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+            className="p-2 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
             title="Block ticket"
           >
             <Ban size={16} />
@@ -1463,7 +1463,7 @@ export default function TicketDetailPage() {
               });
               setEditing(true);
             }}
-            className="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
+            className="p-2 text-slate-500 hover:text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"
             title="Edit ticket"
           >
             <Edit2 size={16} />
@@ -1472,7 +1472,7 @@ export default function TicketDetailPage() {
         {canDelete && (
           <button
             onClick={() => { if (confirm('Delete this ticket? This cannot be undone.')) deleteTicket.mutate(); }}
-            className="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+            className="p-2 text-slate-500 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
             title="Delete ticket"
           >
             <Trash2 size={16} />
@@ -1491,7 +1491,7 @@ export default function TicketDetailPage() {
                 {ticket.blockedReason && (
                   <p className="text-sm text-red-700 mt-1 whitespace-pre-wrap">{ticket.blockedReason}</p>
                 )}
-                <p className="text-xs text-red-500 mt-1.5">
+                <p className="text-xs text-red-600 mt-1.5">
                   {ticket.blockedById && <>Blocked by {resolveUserName(ticket.blockedById)}</>}
                   {ticket.blockedById && ticket.blockedAt && ' · '}
                   {ticket.blockedAt && <>{formatDate(ticket.blockedAt)}</>}
@@ -1529,7 +1529,7 @@ export default function TicketDetailPage() {
       {ticket.status === 'PENDING_APPROVAL' && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-3">
-            <Clock size={18} className="text-amber-600" />
+            <Clock size={18} className="text-amber-700" />
             <p className="text-sm font-semibold text-amber-800">
               This task requires approval before it can become active.
             </p>
@@ -1565,7 +1565,7 @@ export default function TicketDetailPage() {
                 <button
                   onClick={() => approveCreationMutation.mutate()}
                   disabled={approveCreationMutation.isPending}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-40 transition-colors"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-green-700 hover:bg-green-800 text-white text-sm font-medium rounded-lg disabled:opacity-40 transition-colors"
                 >
                   <CheckCircle size={14} /> Approve Task
                 </button>
@@ -1636,7 +1636,7 @@ export default function TicketDetailPage() {
                 disabled={!review.canStartReview || reviewActionPending}
                 title={review.disabledReason ?? undefined}
                 aria-busy={startReviewMutation.isPending}
-                className="text-xs font-medium px-3 py-1.5 rounded-lg bg-amber-600 text-white disabled:opacity-50"
+                className="text-xs font-medium px-3 py-1.5 rounded-lg bg-amber-700 text-white disabled:opacity-50"
               >
                 {startReviewMutation.isPending ? 'Starting…' : 'Start Review'}
               </button>
@@ -1689,7 +1689,7 @@ export default function TicketDetailPage() {
                     <label className="text-xs font-semibold text-slate-700 block mb-1">Task Efficiency</label>
                     <div className="flex gap-1">
                       {[1, 2, 3, 4, 5].map((s) => (
-                        <button key={s} onClick={() => setTaskEfficiencyRating(s)} className={s <= taskEfficiencyRating ? 'text-amber-500' : 'text-slate-300'}>
+                        <button key={s} onClick={() => setTaskEfficiencyRating(s)} className={s <= taskEfficiencyRating ? 'text-amber-700' : 'text-slate-500'}>
                           <Star size={20} fill={s <= taskEfficiencyRating ? 'currentColor' : 'none'} />
                         </button>
                       ))}
@@ -1699,7 +1699,7 @@ export default function TicketDetailPage() {
                     <label className="text-xs font-semibold text-slate-700 block mb-1">Employee Performance</label>
                     <div className="flex gap-1">
                       {[1, 2, 3, 4, 5].map((s) => (
-                        <button key={s} onClick={() => setEmployeePerformanceRating(s)} className={s <= employeePerformanceRating ? 'text-amber-500' : 'text-slate-300'}>
+                        <button key={s} onClick={() => setEmployeePerformanceRating(s)} className={s <= employeePerformanceRating ? 'text-amber-700' : 'text-slate-500'}>
                           <Star size={20} fill={s <= employeePerformanceRating ? 'currentColor' : 'none'} />
                         </button>
                       ))}
@@ -1709,7 +1709,7 @@ export default function TicketDetailPage() {
                     <label className="text-xs font-semibold text-slate-700 block mb-1">Employee Attitude</label>
                     <div className="flex gap-1">
                       {[1, 2, 3, 4, 5].map((s) => (
-                        <button key={s} onClick={() => setEmployeeAttitudeRating(s)} className={s <= employeeAttitudeRating ? 'text-amber-500' : 'text-slate-300'}>
+                        <button key={s} onClick={() => setEmployeeAttitudeRating(s)} className={s <= employeeAttitudeRating ? 'text-amber-700' : 'text-slate-500'}>
                           <Star size={20} fill={s <= employeeAttitudeRating ? 'currentColor' : 'none'} />
                         </button>
                       ))}
@@ -1733,7 +1733,7 @@ export default function TicketDetailPage() {
                   onClick={() => approveMutation.mutate()}
                   title={review.decisionBlockedReason ?? undefined}
                   disabled={reviewActionPending || !review.canDecide || (ratingsAllowed && (!taskEfficiencyRating || !employeePerformanceRating || !employeeAttitudeRating))}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-40 transition-colors"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-green-700 hover:bg-green-800 text-white text-sm font-medium rounded-lg disabled:opacity-40 transition-colors"
                 >
                   <CheckCircle size={14} /> {isSelfAssigned ? 'Approve & Complete' : 'Approve Task'}
                 </button>
@@ -1779,9 +1779,9 @@ export default function TicketDetailPage() {
                   )}
                   style={activeTab !== t.key ? { color: 'var(--text-secondary)' } : undefined}
                 >
-                  {t.key === 'history' && <History size={13} />}
-                  {t.key === 'reviews' && <CheckCircle size={13} />}
-                  {t.key === 'attachments' && <Paperclip size={13} />}
+                  {t.key === 'history' && <History size={14} />}
+                  {t.key === 'reviews' && <CheckCircle size={14} />}
+                  {t.key === 'attachments' && <Paperclip size={14} />}
                   {t.label}
                   {typeof t.count === 'number' && (
                     <span
@@ -1845,7 +1845,7 @@ export default function TicketDetailPage() {
                         disabled={!comment.trim() || addComment.isPending}
                         className="p-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors disabled:opacity-40"
                       >
-                        <Send size={15} />
+                        <Send size={16} />
                       </button>
                     </div>
                   </div>
@@ -1866,7 +1866,7 @@ export default function TicketDetailPage() {
                       className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5"
                       style={{ backgroundColor: 'var(--bg-tertiary)' }}
                     >
-                      <span className="text-[10px] font-bold" style={{ color: 'var(--text-secondary)' }}>{getInitials(h.changedBy?.name)}</span>
+                      <span className="text-caption font-bold" style={{ color: 'var(--text-secondary)' }}>{getInitials(h.changedBy?.name)}</span>
                     </div>
                     <div className="flex-1">
                       {formatHistoryItem(h)}
@@ -1907,9 +1907,9 @@ export default function TicketDetailPage() {
                     <div className="bg-slate-50 rounded-lg p-3 text-xs space-y-2">
                       {cycle.decision === 'APPROVED' && (
                         <div className="flex gap-4">
-                          <span className="flex items-center gap-1">Efficiency: <Star size={12} className="text-amber-500" fill="currentColor"/> {cycle.taskEfficiencyRating}</span>
-                          <span className="flex items-center gap-1">Performance: <Star size={12} className="text-amber-500" fill="currentColor"/> {cycle.employeePerformanceRating}</span>
-                          <span className="flex items-center gap-1">Attitude: <Star size={12} className="text-amber-500" fill="currentColor"/> {cycle.employeeAttitudeRating}</span>
+                          <span className="flex items-center gap-1">Efficiency: <Star size={12} className="text-amber-700" fill="currentColor"/> {cycle.taskEfficiencyRating}</span>
+                          <span className="flex items-center gap-1">Performance: <Star size={12} className="text-amber-700" fill="currentColor"/> {cycle.employeePerformanceRating}</span>
+                          <span className="flex items-center gap-1">Attitude: <Star size={12} className="text-amber-700" fill="currentColor"/> {cycle.employeeAttitudeRating}</span>
                         </div>
                       )}
                       {cycle.feedback && (
@@ -2091,7 +2091,7 @@ export default function TicketDetailPage() {
                         </span>
                         {STATUS_LABELS[s] ?? s}
                         {isNext && canEdit && !isClosed && (
-                          <span className="ml-auto text-[10px]" style={{ color: 'var(--text-tertiary)' }}>→ advance</span>
+                          <span className="ml-auto text-caption" style={{ color: 'var(--text-tertiary)' }}>→ advance</span>
                         )}
                       </button>
                     );
@@ -2138,7 +2138,7 @@ export default function TicketDetailPage() {
             {/* Assignee(s) */}
             <div>
               <p className="text-xs mb-1.5 flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
-                <Users size={11} /> {assigneeLabelFor(ticket.type)}
+                <Users size={12} /> {assigneeLabelFor(ticket.type)}
               </p>
               {canEdit ? (
                 <select
@@ -2160,11 +2160,11 @@ export default function TicketDetailPage() {
                 {ticket.assignedTo ? (
                   <div className="flex items-center gap-1.5">
                     <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0">
-                      <span className="text-white text-[10px] font-bold">{getInitials(ticket.assignedTo.name)}</span>
+                      <span className="text-white text-caption font-bold">{getInitials(ticket.assignedTo.name)}</span>
                     </div>
                     <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{ticket.assignedTo.name}</span>
                     <span
-                      className="text-[9px] px-1 py-0.5 rounded"
+                      className="text-caption px-1 py-0.5 rounded"
                       style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}
                     >Primary</span>
                     {canEdit && (
@@ -2175,7 +2175,7 @@ export default function TicketDetailPage() {
                         title="Unassign primary assignee"
                         className="ml-0.5 p-0.5 rounded hover:bg-red-500/10 transition-colors disabled:opacity-50"
                       >
-                        <UserMinus size={12} className="text-red-400" />
+                        <UserMinus size={12} className="text-red-600" />
                       </button>
                     )}
                   </div>
@@ -2188,7 +2188,7 @@ export default function TicketDetailPage() {
                   .map((a: any) => (
                     <div key={a.id} className="flex items-center gap-1.5">
                       <div className="w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center flex-shrink-0">
-                        <span className="text-white text-[10px] font-bold">{getInitials(a.user?.name)}</span>
+                        <span className="text-white text-caption font-bold">{getInitials(a.user?.name)}</span>
                       </div>
                       <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{a.user?.name}</span>
                       {canEdit && (
@@ -2199,7 +2199,7 @@ export default function TicketDetailPage() {
                           title="Remove from ticket"
                           className="p-0.5 rounded hover:bg-red-500/10 transition-colors disabled:opacity-50"
                         >
-                          <UserMinus size={12} className="text-red-400" />
+                          <UserMinus size={12} className="text-red-600" />
                         </button>
                       )}
                     </div>
@@ -2211,11 +2211,11 @@ export default function TicketDetailPage() {
             {ticket.createdBy && (
               <div>
                 <p className="text-xs mb-1.5 flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
-                  <User size={11} /> Assigned By
+                  <User size={12} /> Assigned By
                 </p>
                 <div className="flex items-center gap-2">
                   <div className="w-6 h-6 bg-slate-400 rounded-full flex items-center justify-center flex-shrink-0">
-                    <span className="text-white text-[10px] font-bold">{getInitials(ticket.createdBy.name)}</span>
+                    <span className="text-white text-caption font-bold">{getInitials(ticket.createdBy.name)}</span>
                   </div>
                   <span className="text-sm" style={{ color: 'var(--text-secondary)' }}>{ticket.createdBy.name}</span>
                 </div>
@@ -2232,7 +2232,7 @@ export default function TicketDetailPage() {
                     <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Requesting Department</span>
                   )}
                   <div className="flex items-center gap-2 mt-0.5">
-                    <Building2 size={13} style={{ color: 'var(--text-tertiary)' }} />
+                    <Building2 size={14} style={{ color: 'var(--text-tertiary)' }} />
                     <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{ticket.department.name}</span>
                   </div>
                 </div>
@@ -2243,14 +2243,14 @@ export default function TicketDetailPage() {
                     {ticket.type === 'HELP' ? 'Help From Department' : 'Target Department'}
                   </span>
                   <div className="flex items-center gap-2 mt-0.5">
-                    <Building2 size={13} style={{ color: 'var(--text-tertiary)' }} />
+                    <Building2 size={14} style={{ color: 'var(--text-tertiary)' }} />
                     <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>{targetDepartmentName}</span>
                   </div>
                 </div>
               )}
               {ticket.project && (
                 <div className="flex items-center gap-2">
-                  <Tag size={13} style={{ color: 'var(--text-tertiary)' }} />
+                  <Tag size={14} style={{ color: 'var(--text-tertiary)' }} />
                   <Link href={`/projects/${ticket.project.id}`} className="text-xs text-blue-600 hover:underline">
                     {ticket.project.projectId} — {ticket.project.name}
                   </Link>
@@ -2258,7 +2258,7 @@ export default function TicketDetailPage() {
               )}
               {ticket.estimatedTime && !ticket.estimatedMinutes && (
                 <div className="flex items-center gap-2">
-                  <Clock size={13} style={{ color: 'var(--text-tertiary)' }} />
+                  <Clock size={14} style={{ color: 'var(--text-tertiary)' }} />
                   <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Est. {ticket.estimatedTime}h</span>
                 </div>
               )}
@@ -2293,7 +2293,7 @@ export default function TicketDetailPage() {
               ) : null}
               {ticket.scheduledNote && (
                 <div className="flex items-start gap-2">
-                  <Clock size={13} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--text-tertiary)' }} />
+                  <Clock size={14} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--text-tertiary)' }} />
                   <span className="text-xs italic" style={{ color: 'var(--text-secondary)' }}>{ticket.scheduledNote}</span>
                 </div>
               )}
@@ -2353,7 +2353,7 @@ export default function TicketDetailPage() {
               {ticket?.actualCompletedAt && (
                 <div>
                   <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>Completed</p>
-                  <p className="text-sm font-medium text-green-600 mt-0.5">
+                  <p className="text-sm font-medium text-green-700 mt-0.5">
                     ✓ {new Date(ticket.actualCompletedAt).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
                   </p>
                 </div>
@@ -2369,16 +2369,16 @@ export default function TicketDetailPage() {
                   : `${mins}m`;
                 const vsEstimate = ticket.estimatedMinutes
                   ? totalMins <= ticket.estimatedMinutes
-                    ? { label: `${ticket.estimatedMinutes - totalMins}m under`, color: 'text-green-600' }
-                    : { label: `${totalMins - ticket.estimatedMinutes}m over`, color: 'text-orange-500' }
+                    ? { label: `${ticket.estimatedMinutes - totalMins}m under`, color: 'text-green-700' }
+                    : { label: `${totalMins - ticket.estimatedMinutes}m over`, color: 'text-orange-700' }
                   : null;
                 return (
                   <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-green-50 rounded-lg">
-                    <CheckCircle size={12} className="text-green-500 flex-shrink-0" />
+                    <CheckCircle size={12} className="text-green-700 flex-shrink-0" />
                     <div>
                       <span className="text-xs font-semibold text-green-700">Took {display}</span>
                       {vsEstimate && (
-                        <span className={`ml-1.5 text-[10px] font-medium ${vsEstimate.color}`}>
+                        <span className={`ml-1.5 text-caption font-medium ${vsEstimate.color}`}>
                           ({vsEstimate.label} estimate)
                         </span>
                       )}
@@ -2422,7 +2422,7 @@ export default function TicketDetailPage() {
                     <div>
                       <span className="text-xs font-semibold text-blue-700">Spent so far: {display}</span>
                       {cycleEstimate && (
-                        <span className={`ml-1.5 text-[10px] font-medium ${isOverEst ? 'text-orange-500' : 'text-slate-500'}`}>
+                        <span className={`ml-1.5 text-caption font-medium ${isOverEst ? 'text-orange-700' : 'text-slate-500'}`}>
                           ({budget?.cycle === 'REWORK' ? 'Rework est' : 'Est'}: {cycleEstimate}m)
                         </span>
                       )}
@@ -2431,12 +2431,12 @@ export default function TicketDetailPage() {
                 );
               })()}
               <div className="flex items-center gap-2">
-                <Calendar size={13} style={{ color: 'var(--text-tertiary)' }} />
+                <Calendar size={14} style={{ color: 'var(--text-tertiary)' }} />
                 <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Created {formatDate(ticket.createdAt)}</span>
               </div>
               {ticket.updatedAt && ticket.updatedAt !== ticket.createdAt && (
                 <div className="flex items-center gap-2">
-                  <Calendar size={13} style={{ color: 'var(--text-tertiary)' }} />
+                  <Calendar size={14} style={{ color: 'var(--text-tertiary)' }} />
                   <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Updated {formatRelativeTime(ticket.updatedAt)}</span>
                 </div>
               )}

@@ -201,7 +201,7 @@ export default function ProjectDetailPage() {
         : 'This project could not be loaded. Please try again.';
     return (
       <div className="text-center py-12 space-y-3">
-        <p className="text-sm text-red-500">{msg}</p>
+        <p className="text-sm text-red-600">{msg}</p>
         <Link href="/projects" className="apex-btn apex-btn-secondary inline-flex">Back to Projects</Link>
       </div>
     );
@@ -260,32 +260,32 @@ export default function ProjectDetailPage() {
         </Link>
         <div className="flex-1">
           <div className="flex items-center gap-2 mb-1">
-            <span className="text-slate-400 font-mono text-sm">{project.projectId}</span>
+            <span className="text-slate-500 font-mono text-sm">{project.projectId}</span>
             <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', PROJECT_STATUS_COLORS[project.status])}>{PROJECT_STATUS_LABELS[project.status] ?? project.status}</span>
             <span className={cn('text-xs px-2 py-0.5 rounded font-medium', PRIORITY_COLORS[project.priority])}>{PRIORITY_LABELS[project.priority] ?? project.priority}</span>
           </div>
-          <h2 className="text-xl font-bold text-slate-800">{project.name}</h2>
+          <h2 className="apex-page-title">{project.name}</h2>
           {project.description && <p className="text-sm text-slate-500 mt-1">{project.description}</p>}
         </div>
         <div className="flex gap-2 flex-wrap justify-end">
           {canEdit && (
             <button onClick={handleEditOpen} className="apex-btn-secondary flex items-center gap-1.5 text-sm">
-              <Edit3 size={13} /> Edit
+              <Edit3 size={14} /> Edit
             </button>
           )}
           {canArchive && project.status !== 'ARCHIVED' && (
             <button onClick={() => handleArchive(true)} disabled={archiveMutation.isPending} className="apex-btn-secondary flex items-center gap-1.5 text-sm">
-              <Archive size={13} /> Archive
+              <Archive size={14} /> Archive
             </button>
           )}
           {canArchive && project.status === 'ARCHIVED' && (
             <button onClick={() => handleArchive(false)} disabled={archiveMutation.isPending} className="apex-btn-secondary flex items-center gap-1.5 text-sm">
-              <RotateCcw size={13} /> Restore
+              <RotateCcw size={14} /> Restore
             </button>
           )}
           {canDelete && (
             <button onClick={handleDelete} disabled={deleteMutation.isPending} className="flex items-center gap-1.5 text-sm px-3 py-1.5 border border-red-200 rounded-lg hover:bg-red-50 text-red-600 disabled:opacity-50">
-              <Trash2 size={13} /> Delete
+              <Trash2 size={14} /> Delete
             </button>
           )}
         </div>
@@ -399,15 +399,15 @@ export default function ProjectDetailPage() {
               </div>
               <div className="grid grid-cols-3 gap-2 text-center pt-1">
                 <div className="bg-slate-50 dark:bg-slate-800/40 rounded-lg p-2">
-                  <div className="text-[10px] text-slate-400 font-medium">Active</div>
+                  <div className="text-caption text-slate-500 font-medium">Active</div>
                   <div className="text-sm font-bold text-slate-800 dark:text-gray-250">{activeCount}</div>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-800/40 rounded-lg p-2">
-                  <div className="text-[10px] text-slate-400 font-medium">In Review</div>
+                  <div className="text-caption text-slate-500 font-medium">In Review</div>
                   <div className="text-sm font-bold text-purple-650 dark:text-purple-400">{reviewCount}</div>
                 </div>
                 <div className="bg-slate-50 dark:bg-slate-800/40 rounded-lg p-2">
-                  <div className="text-[10px] text-slate-400 font-medium">Overdue</div>
+                  <div className="text-caption text-slate-500 font-medium">Overdue</div>
                   <div className={cn('text-sm font-bold', overdueCount > 0 ? 'text-red-650' : 'text-slate-800 dark:text-gray-250')}>{overdueCount}</div>
                 </div>
               </div>
@@ -423,7 +423,7 @@ export default function ProjectDetailPage() {
                   <div className="bg-blue-600 h-full rounded-full transition-all" style={{ width: `${progress}%` }} />
                 </div>
               </div>
-              <p className="text-xs text-slate-400 mt-2">
+              <p className="text-xs text-slate-500 mt-2">
                 {totalTickets === 0
                   ? "No linked tickets yet."
                   : `${project.ticketStats?.done ?? project.tickets?.filter((t: any) => t.status === 'DONE' || t.status === 'CLOSED').length ?? 0} of ${project.ticketStats?.total ?? project.tickets?.length ?? 0} tickets resolved`
@@ -436,7 +436,7 @@ export default function ProjectDetailPage() {
           <div className="apex-section-border bg-white rounded-xl border">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
               <h3 className="font-semibold text-slate-700 text-sm flex items-center gap-2">
-                <Ticket size={15} /> Tickets ({project.tickets?.length || 0})
+                <Ticket size={16} /> Tickets ({project.tickets?.length || 0})
               </h3>
               <CreateTicketLink href={`/tickets/new?projectId=${project.id}&projectName=${encodeURIComponent(project.name)}&from=${encodeURIComponent(`/projects/${project.id}`)}`} className="text-xs text-blue-600 hover:underline">Add ticket</CreateTicketLink>
             </div>
@@ -450,7 +450,7 @@ export default function ProjectDetailPage() {
                   />
                 ))
               ) : (
-                <div className="p-8 text-center text-slate-400 text-sm">No tickets in this project</div>
+                <div className="p-8 text-center text-slate-500 text-sm">No tickets in this project</div>
               )}
             </div>
           </div>
@@ -466,7 +466,7 @@ export default function ProjectDetailPage() {
               </h3>
               {canEdit && (
                 <button onClick={() => setShowAddMember(true)} className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                  <UserPlus size={13} /> Add
+                  <UserPlus size={14} /> Add
                 </button>
               )}
             </div>
@@ -492,11 +492,11 @@ export default function ProjectDetailPage() {
                   <button
                     onClick={() => selectedUserId && addMemberMutation.mutate({ userId: selectedUserId, role: memberRole })}
                     disabled={!selectedUserId || addMemberMutation.isPending}
-                    className="text-[11px] font-semibold bg-blue-600 text-white px-3 py-1 rounded disabled:opacity-50"
+                    className="text-caption font-semibold bg-blue-600 text-white px-3 py-1 rounded disabled:opacity-50"
                   >
                     Add
                   </button>
-                  <button onClick={() => { setShowAddMember(false); setMemberSearch(''); setSelectedUserId(''); }} className="text-[11px] text-slate-600 hover:bg-slate-200 px-3 py-1 rounded">Cancel</button>
+                  <button onClick={() => { setShowAddMember(false); setMemberSearch(''); setSelectedUserId(''); }} className="text-caption text-slate-600 hover:bg-slate-200 px-3 py-1 rounded">Cancel</button>
                 </div>
               </div>
             )}
@@ -521,7 +521,7 @@ export default function ProjectDetailPage() {
                           {(MEMBER_ROLES.includes(m.role) ? MEMBER_ROLES : [...MEMBER_ROLES, m.role]).map((r) => <option key={r} value={r}>{memberRoleLabel(r)}</option>)}
                         </select>
                       ) : (
-                        <p className="text-xs text-slate-400">{m.user?.role?.name} · {memberRoleLabel(m.role ?? '')}</p>
+                        <p className="text-xs text-slate-500">{m.user?.role?.name} · {memberRoleLabel(m.role ?? '')}</p>
                       )}
                     </div>
                   </div>
@@ -529,7 +529,7 @@ export default function ProjectDetailPage() {
                     <button
                       onClick={() => { if (confirm(`Remove ${m.user?.name ?? 'this member'} from the project?`)) removeMemberMutation.mutate(m.userId); }}
                       disabled={removeMemberMutation.isPending}
-                      className="p-1 text-slate-400 hover:text-red-500 focus-visible:text-red-500 transition-colors"
+                      className="p-1 text-slate-500 hover:text-red-500 focus-visible:text-red-500 transition-colors"
                       aria-label={`Remove ${m.user?.name ?? 'member'}`}
                       title="Remove member"
                     >
@@ -546,13 +546,13 @@ export default function ProjectDetailPage() {
             <h3 className="font-semibold text-slate-700 text-sm">Details</h3>
             {project.department && (
               <div>
-                <p className="text-xs text-slate-400">Department</p>
+                <p className="text-xs text-slate-500">Department</p>
                 <p className="text-sm font-medium text-slate-700 mt-0.5">{project.department.name}</p>
               </div>
             )}
             {(project.teamAssignments?.length > 0 || project.outputTargetMinutes) && (
               <div>
-                <p className="text-xs text-slate-400">Minutes of output per day</p>
+                <p className="text-xs text-slate-500">Minutes of output per day</p>
                 {project.teamAssignments?.length > 0 ? (
                   <div className="mt-1 space-y-1">
                     {project.teamAssignments.map((row: any) => (
@@ -569,13 +569,13 @@ export default function ProjectDetailPage() {
             )}
             {project.startDate && (
               <div>
-                <p className="text-xs text-slate-400">Start Date</p>
+                <p className="text-xs text-slate-500">Start Date</p>
                 <p className="text-sm font-medium text-slate-700 mt-0.5">{formatDate(project.startDate)}</p>
               </div>
             )}
             {project.endDate && (
               <div>
-                <p className="text-xs text-slate-400">End Date</p>
+                <p className="text-xs text-slate-500">End Date</p>
                 <p className={cn('text-sm font-medium mt-0.5', new Date(project.endDate) < new Date() ? 'text-red-650' : 'text-slate-700')}>
                   {formatDate(project.endDate)}
                 </p>
@@ -589,17 +589,17 @@ export default function ProjectDetailPage() {
               <Activity size={14} /> Project Activity
             </h3>
             {isEventsLoading ? (
-              <p className="text-xs text-slate-400 text-center py-4">Loading activity…</p>
+              <p className="text-xs text-slate-500 text-center py-4">Loading activity…</p>
             ) : isEventsError ? (
               <div className="text-center py-4">
-                <p className="text-xs text-red-500 mb-2 font-medium">Project activity unavailable</p>
-                <button onClick={() => refetchEvents()} className="text-[11px] text-blue-600 hover:underline font-semibold bg-transparent border-none cursor-pointer">Retry</button>
+                <p className="text-xs text-red-600 mb-2 font-medium">Project activity unavailable</p>
+                <button onClick={() => refetchEvents()} className="text-caption text-blue-600 hover:underline font-semibold bg-transparent border-none cursor-pointer">Retry</button>
               </div>
             ) : projectEvents.length > 0 ? (
               <div className="space-y-3.5 max-h-[350px] overflow-y-auto pr-1">
                 {projectEvents.slice(0, 15).map((ev: any, i: number) => (
                   <div key={ev.id ?? i} className="flex items-start gap-2.5 text-xs">
-                    <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: ev.actor?.avatar ?? 'var(--accent)', color: '#fff', fontSize: 10, fontWeight: 700 }}>
+                    <div className="w-6 h-6 bg-blue-600 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: ev.actor?.avatar ?? 'var(--accent)', color: '#fff', fontSize: 11, fontWeight: 700 }}>
                       {(ev.actor?.name ?? '?').charAt(0).toUpperCase()}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -612,13 +612,13 @@ export default function ProjectDetailPage() {
                           </Link>
                         )}
                       </p>
-                      <span className="text-[10px] text-slate-450 dark:text-gray-500">{formatRelativeTime(ev.timestamp)}</span>
+                      <span className="text-caption text-slate-450 dark:text-gray-500">{formatRelativeTime(ev.timestamp)}</span>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <p className="text-xs text-slate-400 text-center py-4">No recent activity on this project</p>
+              <p className="text-xs text-slate-500 text-center py-4">No recent activity on this project</p>
             )}
           </div>
         </div>

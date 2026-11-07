@@ -51,7 +51,7 @@ export function EndDayModal({ session, elapsedWorkMinutes, totalBreakMinutes, on
     >
       <div
         className="apex-scale-in w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden"
-        style={{ backgroundColor: 'white' }}
+        style={{ backgroundColor: 'var(--surface-elevated)' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Dark navy header */}
@@ -71,11 +71,11 @@ export function EndDayModal({ session, elapsedWorkMinutes, totalBreakMinutes, on
           </div>
           <div className="flex-1">
             <h2 className="text-base font-semibold text-white">End Your Day</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Confirm your session summary below</p>
+            <p className="text-xs text-slate-500 mt-0.5">Confirm your session summary below</p>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white transition-colors"
+            className="text-slate-500 hover:text-white transition-colors"
             aria-label="Close"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -92,7 +92,7 @@ export function EndDayModal({ session, elapsedWorkMinutes, totalBreakMinutes, on
           >
             <div className="px-4 py-3 flex items-center justify-between border-b border-slate-200">
               <div className="flex items-center gap-2">
-                <Clock size={14} className="text-slate-400" />
+                <Clock size={14} className="text-slate-500" />
                 <span className="text-sm text-slate-500">Work time</span>
               </div>
               <span className="text-sm font-bold font-mono text-slate-800">{fmt(elapsed)}</span>
@@ -109,7 +109,7 @@ export function EndDayModal({ session, elapsedWorkMinutes, totalBreakMinutes, on
             <div className="px-4 py-3 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="w-3.5 h-3.5 rounded bg-blue-100 flex items-center justify-center">
-                  <span className="text-[8px] font-bold text-blue-500">#</span>
+                  <span className="text-caption font-bold text-blue-500">#</span>
                 </span>
                 <span className="text-sm text-slate-500">Breaks taken</span>
               </div>

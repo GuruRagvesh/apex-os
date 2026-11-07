@@ -19,7 +19,7 @@ function Tile({
     <div className="apex-hero-kpi group" role="group" aria-label={label}>
       <div className="flex items-center justify-between gap-2">
         <span className="apex-hero-kpi-label">{label}</span>
-        <span className="apex-hero-kpi-icon" aria-hidden="true"><Icon size={15} /></span>
+        <span className="apex-hero-kpi-icon" aria-hidden="true"><Icon size={16} /></span>
       </div>
       <button type="button" onClick={onClick} className="mt-1.5 block text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80 rounded-md">
         <span className="apex-hero-kpi-value">{value}</span>

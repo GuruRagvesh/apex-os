@@ -38,11 +38,10 @@
   margin: 0 0 23px 4px;
 }
 .pageHeader h1 {
-  font-size: 30px;
+  font-size: 24px;
   line-height: 1.25;
-  font-weight: 700;
-  letter-spacing: -.8px;
-  color: #01266a;
+  font-weight: 600;
+  color: var(--ink-strong);
 }
 .pageHeader p {
   font-size: 14px;
@@ -93,7 +92,7 @@
   align-items: center;
 }
 .dateBlock h2 {
-  font-size: 26px;
+  font-size: 24px;
   line-height: 1.15;
   font-weight: 700;
   letter-spacing: -.5px;
@@ -126,7 +125,7 @@
   height: 23px;
 }
 .dateTile strong {
-  font-size: 27px;
+  font-size: 24px;
   line-height: 1.2;
 }
 .dateTile span {
@@ -142,7 +141,7 @@
   padding: 12px 17px;
 }
 .statusTile strong {
-  font-size: 19px;
+  font-size: 20px;
   line-height: 1.25;
   display: block;
 }
@@ -164,7 +163,7 @@
   transform: rotate(25deg);
 }
 .statusGlyph {
-  font-size: 23px;
+  font-size: 24px;
   line-height: 1;
   width: 24px;
   flex-shrink: 0;
@@ -187,7 +186,7 @@
   gap: 16px;
 }
 .progressRow>strong {
-  font-size: 18px;
+  font-size: 20px;
 }
 .track {
   height: 15px;
@@ -221,7 +220,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 21px;
+  font-size: 20px;
   font-weight: 700;
   white-space: nowrap;
   line-height: 1.5;
@@ -264,7 +263,7 @@
 }
 .contextBlock strong {
   display: block;
-  font-size: 18px;
+  font-size: 20px;
   margin-top: 2px;
 }
 .contextBlock b {
@@ -290,7 +289,7 @@
   align-items: center;
   gap: 12px;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
   white-space: nowrap;
   padding: 10px 14px;
 }
@@ -329,7 +328,7 @@
 }
 .banner strong {
   white-space: nowrap;
-  font-size: 15px;
+  font-size: 16px;
 }
 .banner p {
   padding-left: 23px;
@@ -351,7 +350,7 @@
   margin-bottom: 19px;
 }
 .calendarHeader h2 {
-  font-size: 25px;
+  font-size: 24px;
   font-weight: 700;
   letter-spacing: -.6px;
   white-space: nowrap;
@@ -362,7 +361,7 @@
   flex: 1;
   gap: 17px;
   flex-wrap: wrap;
-  font-size: 10px;
+  font-size: 11px;
   color: #526a9d;
 }
 .legend span {
@@ -507,7 +506,7 @@ button.day:hover {
 }
 .review,.cellModifier,.regularized {
   display: block;
-  font-size: 10px;
+  font-size: 11px;
   margin-top: 4px;
   line-height: 1.2;
 }
@@ -635,7 +634,7 @@ button.day:hover {
   border: 1px solid #d7e7fb;
   color: #496495;
   text-align: center;
-  font-size: 10px;
+  font-size: 11px;
 }
 .disclosureMeta>svg {
   width: 16px;
@@ -721,13 +720,13 @@ button.day:hover {
   color: #01266a;
 }
 .fact dt {
-  font-size: 10px;
+  font-size: 11px;
   color: #5d76a3;
   line-height: 1.2;
 }
 .fact dd {
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
   margin-top: 3px;
   line-height: 1.2;
 }
@@ -746,7 +745,7 @@ button.day:hover {
   font-size: 11px;
 }
 .evidenceCard :global(.text-xs) {
-  font-size: 10px;
+  font-size: 11px;
 }
 .evidenceCard img {
   width: 100%;
@@ -795,7 +794,7 @@ button.day:hover {
   margin-top: 3px;
   color: #45618f;
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 .sessionTime>svg {
@@ -807,8 +806,8 @@ button.day:hover {
   flex: 0 0 auto;
   padding: 3px 7px;
   border-radius: 999px;
-  font-size: 9px;
-  font-weight: 750;
+  font-size: 11px;
+  font-weight: 700;
 }
 .sessionStatus {
   color: #166534;
@@ -831,8 +830,8 @@ button.day:hover {
   display: block;
   margin-bottom: 3px;
   color: #557096;
-  font-size: 9px;
-  font-weight: 750;
+  font-size: 11px;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .05em;
 }
@@ -845,17 +844,17 @@ button.day:hover {
   grid-template-columns: minmax(0,1fr) auto;
   gap: 2px 9px;
   color: #58729f;
-  font-size: 9px;
+  font-size: 11px;
 }
 .workItemTitle,.breakType {
   color: #01266a;
-  font-size: 10px;
+  font-size: 11px;
   font-weight: 700;
 }
 .sessionNote {
   margin-top: 3px;
   color: #58729f;
-  font-size: 10px;
+  font-size: 11px;
 }
 .breakReason {
   grid-column: 1/-1;
@@ -867,7 +866,7 @@ button.day:hover {
   border-radius: 7px;
   background: #fff4e8;
   color: #9a3412;
-  font-size: 10px;
+  font-size: 11px;
 }
 .activityChanges {
   display: grid;
@@ -909,20 +908,20 @@ button.day:hover {
   gap: 9px;
 }
 .drawerFooter ul {
-  font-size: 10px;
+  font-size: 11px;
 }
 .drawerFooter li {
   gap: 8px;
   padding-top: 3px;
 }
 .drawerFooter :global(.text-sm) {
-  font-size: 10px;
+  font-size: 11px;
 }
 .drawerFooter :global(.text-xs) {
-  font-size: 10px;
+  font-size: 11px;
 }
 .drawerFooter :global(.text-\[11px\]) {
-  font-size: 9px;
+  font-size: 11px;
 }
 @media(min-width:1650px) {
   .page {
@@ -982,7 +981,7 @@ button.day:hover {
     justify-content: center;
   }
   .todayMetrics dd {
-    font-size: 19px;
+    font-size: 20px;
   }
   .contextBlock {
     padding-left: 20px;
@@ -1022,7 +1021,7 @@ button.day:hover {
     gap: 12px;
   }
   .pageHeader h1 {
-    font-size: 26px;
+    font-size: 24px;
   }
   .pageHeader p {
     font-size: 12px;
@@ -1059,7 +1058,7 @@ button.day:hover {
     font-size: 12px;
   }
   .calendarHeader h2 {
-    font-size: 22px;
+    font-size: 24px;
   }
   .monthControls {
     gap: 4px;
@@ -1072,10 +1071,10 @@ button.day:hover {
     gap: 10px;
   }
   .todayMetrics dt {
-    font-size: 10px;
+    font-size: 11px;
   }
   .todayMetrics dd {
-    font-size: 18px;
+    font-size: 20px;
     gap: 5px;
   }
   .todayMetrics>div+div {
@@ -1129,10 +1128,10 @@ button.day:hover {
   height: 17px;
 }
 .policyGrid .fact dd {
-  font-size: 10px;
+  font-size: 11px;
 }
 .policyGrid .fact dt {
-  font-size: 10px;
+  font-size: 11px;
 }
 @media(max-width:750px) {
   .policyGrid {
@@ -1177,7 +1176,7 @@ button.day:hover {
   line-height: 16px;
 }
 .evidenceCard :global(.text-xs) {
-  font-size: 10px;
+  font-size: 11px;
   line-height: 14px;
 }
 .evidenceCard>div:nth-child(2),.evidenceCard>div:nth-child(3) {
@@ -1209,17 +1208,17 @@ button.day:hover {
     gap: 12px;
   }
   .withDrawer .legend {
-    font-size: 9px;
+    font-size: 11px;
     gap: 8px;
   }
   .withDrawer .calendarHeader h2 {
-    font-size: 23px;
+    font-size: 24px;
   }
   .withDrawer .monthControls {
     gap: 5px;
   }
   .withDrawer .monthPicker {
-    font-size: 10px;
+    font-size: 11px;
     gap: 6px;
   }
   .withDrawer .monthControls>button {
@@ -1326,24 +1325,24 @@ button.day:hover {
     flex-wrap: wrap;
   }
   .pageHeader h1 {
-    font-size: 25px;
+    font-size: 24px;
   }
   .calendarHeader h2 {
-    font-size: 22px;
+    font-size: 24px;
   }
 }
 @container(min-width:1101px) {
   .pageHeader h1 {
-    font-size: 32px;
+    font-size: 24px;
   }
   .pageHeader {
     margin-bottom: 18px;
   }
   .dateBlock h2 {
-    font-size: 28px;
+    font-size: 30px;
   }
   .dateBlock>p {
-    font-size: 18px;
+    font-size: 20px;
     margin-bottom: 10px;
   }
   .dateTile {
@@ -1356,14 +1355,14 @@ button.day:hover {
     padding: 12px 14px;
   }
   .todayMetrics dd {
-    font-size: 23px;
+    font-size: 24px;
   }
   .primary,.outline {
     font-size: 14px;
     min-height: 52px;
   }
   .calendarHeader h2 {
-    font-size: 27px;
+    font-size: 24px;
   }
   .legend {
     font-size: 11px;
@@ -1444,12 +1443,12 @@ button.day:hover {
   gap:12px;
   margin-bottom:13px;
 }
-.todayHeading h2 {margin:1px 0 0;font-size:27px;}
+.todayHeading h2 {margin:1px 0 0;font-size:24px;}
 .todayEyebrow {
   display:block;
   color:#52709f;
-  font-size:10px;
-  font-weight:750;
+  font-size:11px;
+  font-weight:700;
   letter-spacing:.14em;
   text-transform:uppercase;
 }
@@ -1462,8 +1461,8 @@ button.day:hover {
   border-radius:999px;
   background:rgba(240,247,255,.9);
   color:#135cad;
-  font-size:10px;
-  font-weight:750;
+  font-size:11px;
+  font-weight:700;
   letter-spacing:.04em;
   text-transform:uppercase;
 }
@@ -1500,7 +1499,7 @@ button.day:hover {
 .progressHeading span {
   display:block;
   color:#6380aa;
-  font-size:10px;
+  font-size:11px;
   font-weight:700;
   letter-spacing:.08em;
   text-transform:uppercase;
@@ -1549,8 +1548,8 @@ button.day:hover {
   border-color:#bdd8fa;
   box-shadow:0 9px 20px rgba(1,38,106,.07);
 }
-.todayMetrics dt {font-size:10px;white-space:normal;}
-.todayMetrics dd {gap:7px;font-size:18px;margin-top:3px;}
+.todayMetrics dt {font-size:11px;white-space:normal;}
+.todayMetrics dd {gap:7px;font-size:20px;margin-top:3px;}
 .todayMetrics svg {width:18px;height:18px;color:#196ed0;}
 .contextBlock {gap:10px;}
 .punchCard {
@@ -1590,7 +1589,7 @@ button.day:hover {
   .punchCard {padding:8px;gap:8px;}
   .roundIcon {width:34px;height:34px;flex-basis:34px;}
   .roundIcon svg {width:18px;height:18px;}
-  .contextBlock strong {font-size:15px;}
+  .contextBlock strong {font-size:16px;}
   .actions {
     grid-column:2/3;
     grid-row:2;
@@ -1611,10 +1610,10 @@ button.day:hover {
   .contextBlock {gap:10px;}
 }
 @container(max-width:450px) {
-  .todayHeading h2 {font-size:25px;}
+  .todayHeading h2 {font-size:24px;}
   .dateRow {display:grid;grid-template-columns:88px minmax(0,1fr);}
   .statusTile {padding:10px;gap:9px;}
-  .statusTile strong {font-size:17px;}
+  .statusTile strong {font-size:16px;}
   .todayMetrics {grid-template-columns:1fr;}
   .todayMetrics>div,.todayMetrics>div+div {display:flex;align-items:center;justify-content:space-between;padding:10px 12px;}
   .todayMetrics dd {margin:0;}
@@ -1639,8 +1638,7 @@ button.day:hover {
   border-bottom: 1px solid rgba(169,195,228,.55);
 }
 .pageHeader h1 {
-  color: #001f58 !important;
-  text-shadow: 0 1px 0 #fff;
+  color: var(--ink-strong) !important;
 }
 .pageHeader p {color:#526d96;}
 .leaveMenu summary {
@@ -1703,3 +1701,151 @@ button.day:hover {
 @media(prefers-reduced-motion:reduce) {
   .leaveMenu summary,.legend button,.day {transition:none;}
 }
+/* Dark theme, hand-tuned: this page shadows the global tokens with light
+   values, so give them their dark values back. */
+:global(html[data-theme="john-wick-dark"]) .page,
+:global(html[data-theme="john-wick-dark"]) :global([role="dialog"]):has(.drawerBody) {
+  --text-primary: #fafafa;
+  --text-secondary: #c4c4cc;
+  --text-tertiary: #a1a1aa;
+  --border-primary: #242429;
+  --border-secondary: #2f2f35;
+  --bg-primary: #151518;
+  --bg-secondary: #0a0a0c;
+  --bg-tertiary: #1c1c20;
+  --accent: #60a5fa;
+  color: #fafafa;
+  color-scheme: dark;
+}
+:global(html[data-theme="john-wick-dark"]) .page { background: #0a0a0c; }
+
+/* ── Dark theme (generated from the light colours above, DESIGN.md palette) ── */
+:global(html[data-theme="john-wick-dark"]) .page,
+:global(html[data-theme="john-wick-dark"]) :global([role="dialog"]):has(.drawerBody) { color: #fafafa; }
+:global(html[data-theme="john-wick-dark"]) .page { background: linear-gradient(120deg,#1c1c20,#1c1c20); }
+:global(html[data-theme="john-wick-dark"]) .page button:focus-visible,
+:global(html[data-theme="john-wick-dark"]) .page input:focus-visible,
+:global(html[data-theme="john-wick-dark"]) :global([role="dialog"]):has(.drawerBody) button:focus-visible { outline: 3px solid #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .pageHeader p { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .leaveMenu summary { border: 1px solid #2f2f35; background: #151518; }
+:global(html[data-theme="john-wick-dark"]) .leaveMenu nav { background: #151518; border: 1px solid #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .leaveMenu a:hover { background: #1c1c20; }
+:global(html[data-theme="john-wick-dark"]) .today { background: #151518; box-shadow: 0 5px 24px #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .dateBlock>p { color: #60a5fa; }
+:global(html[data-theme="john-wick-dark"]) .dateTile { background: #1c1c20; }
+:global(html[data-theme="john-wick-dark"]) .dateTile svg { color: #60a5fa; }
+:global(html[data-theme="john-wick-dark"]) .dateTile span { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .statusTile small { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .workingRing { border: 3px solid #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .presenceBlock { border-left: 1px solid #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .track { background: #14203a; }
+:global(html[data-theme="john-wick-dark"]) .todayMetrics>div+div { border-left: 1px solid #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .todayMetrics dt { color: #60a5fa; }
+:global(html[data-theme="john-wick-dark"]) .contextBlock { border-left: 1px solid #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .roundIcon { border: 1px solid #2f2f35; background: radial-gradient(#151518,#1c1c20); }
+:global(html[data-theme="john-wick-dark"]) .contextBlock span:not(.roundIcon) { color: #60a5fa; }
+:global(html[data-theme="john-wick-dark"]) .contextBlock p { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .actions { border-left: 1px solid #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .outline { background: #151518; color: #60a5fa; border: 1px solid #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .banner { border: 1px solid #242429; }
+:global(html[data-theme="john-wick-dark"]) .banner p { border-left: 1px solid #2f2f35; color: #60a5fa; }
+:global(html[data-theme="john-wick-dark"]) .calendar { background: #151518; }
+:global(html[data-theme="john-wick-dark"]) .legend { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .monthControls>button { border: 1px solid #242429; }
+:global(html[data-theme="john-wick-dark"]) .monthPicker { border: 1px solid #242429; }
+:global(html[data-theme="john-wick-dark"]) .monthPicker>svg:first-child { color: #60a5fa; }
+:global(html[data-theme="john-wick-dark"]) .weekdays { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .day { border: 1px solid #242429; color: #fafafa; background: #151518; }
+:global(html[data-theme="john-wick-dark"]) button.day:hover { border-color: #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .neutralDay { background: linear-gradient(130deg,#1c1c20,#1c1c20); color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .dayStatus small { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .todayDay { box-shadow: 0 0 0 2px #242429; }
+:global(html[data-theme="john-wick-dark"]) .selectedDay { box-shadow: 0 0 0 2px #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .review { color: #fbbf24; }
+:global(html[data-theme="john-wick-dark"]) .regularized { color: #34d399; border: 1px solid #1d5c48; }
+:global(html[data-theme="john-wick-dark"]) .muted { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) :global([role="dialog"]):has(.drawerBody) { background: #151518; }
+:global(html[data-theme="john-wick-dark"]) :global([role="dialog"]):has(.drawerBody)>header p { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .drawerBody>section,
+:global(html[data-theme="john-wick-dark"]) .drawerFooter>section { border: 1px solid #242429; }
+:global(html[data-theme="john-wick-dark"]) .drawerDisclosure { border: 1px solid #242429; background: #151518; }
+:global(html[data-theme="john-wick-dark"]) .drawerDisclosure>summary { background: linear-gradient(90deg,#1c1c20,#1c1c20); color: #fafafa; }
+:global(html[data-theme="john-wick-dark"]) .drawerDisclosure>summary:focus-visible { outline: 3px solid #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .disclosureTitle>svg { color: #60a5fa; }
+:global(html[data-theme="john-wick-dark"]) .disclosureMeta>span { background: #151518; border: 1px solid #2f2f35; color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .drawerActionBar { border-top: 1px solid #2f2f35; background: rgba(21,21,24,.96); }
+:global(html[data-theme="john-wick-dark"]) .drawerBody :global(.apex-text) { color: #fafafa; }
+:global(html[data-theme="john-wick-dark"]) .drawerBody :global(.apex-text-muted) { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .drawerBody :global(.apex-text-subtle) { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .drawerBody :global(.apex-input) { background: #151518; color: #fafafa; border-color: #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .sectionTitle { background: linear-gradient(90deg,#1c1c20,#1c1c20); color: #fafafa; }
+:global(html[data-theme="john-wick-dark"]) .sectionTitle svg { color: #60a5fa; }
+:global(html[data-theme="john-wick-dark"]) .fact>svg { background: #1c1c20; color: #fafafa; }
+:global(html[data-theme="john-wick-dark"]) .fact dt { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .evidenceCard { border: 1px solid #242429; }
+:global(html[data-theme="john-wick-dark"]) .photoButton { background: #1c1c20; border: 1px solid #2f2f35; color: #60a5fa; }
+:global(html[data-theme="john-wick-dark"]) .sessionCard { border: 1px solid #2f2f35; background: #151518; }
+:global(html[data-theme="john-wick-dark"]) .sessionTime { color: #e4e4e7; }
+:global(html[data-theme="john-wick-dark"]) .sessionStatus { color: #34d399; background: #0f2a22; border: 1px solid #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .sessionAutoClosed { color: #fbbf24; background: #2e2410; border: 1px solid #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .sessionDetailRows { border-top: 1px solid #242429; }
+:global(html[data-theme="john-wick-dark"]) .sessionDetailLabel { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .workItemList>li,
+:global(html[data-theme="john-wick-dark"]) .sessionDetailRows ul>li { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .workItemTitle,
+:global(html[data-theme="john-wick-dark"]) .breakType { color: #fafafa; }
+:global(html[data-theme="john-wick-dark"]) .sessionNote { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .breakReason { color: #fbbf24; }
+:global(html[data-theme="john-wick-dark"]) .autoCloseReason { background: #2e2410; color: #fbbf24; }
+:global(html[data-theme="john-wick-dark"]) .activityChanges { border-top: 1px solid #242429; }
+:global(html[data-theme="john-wick-dark"]) .timeline li { border-left: 1px solid #2f2f35; }
+@media(max-width:1650px) { :global(html[data-theme="john-wick-dark"]) .actions { border-top: 1px solid #242429; } }
+@media(max-width:1150px) { :global(html[data-theme="john-wick-dark"]) .contextBlock { border-top: 1px solid #242429; } }
+@media(max-width:750px) { :global(html[data-theme="john-wick-dark"]) .presenceBlock { border-top: 1px solid #2f2f35; } }
+:global(html[data-theme="john-wick-dark"]) .drawerBody>.insight { background: #1c1c20; }
+@media(min-width:1200px) { :global(html[data-theme="john-wick-dark"]) .withDrawer .contextBlock { border-left: 1px solid #2f2f35; } }
+:global(html[data-theme="john-wick-dark"]) .legend button { color: #e4e4e7; }
+:global(html[data-theme="john-wick-dark"]) .legend button[aria-pressed="true"] { background: #1c1c20; color: #fafafa; }
+:global(html[data-theme="john-wick-dark"]) .today { border: 1px solid #2f2f35; background: radial-gradient(circle at 10% 0%,rgba(115,194,251,.18),transparent 34%),
+    linear-gradient(135deg,#151518 0%,#1c1c20 58%,#1c1c20 100%); }
+:global(html[data-theme="john-wick-dark"]) .today::after { background: linear-gradient(110deg,transparent 0%,rgba(21,21,24,.72) 42%,transparent 66%); }
+:global(html[data-theme="john-wick-dark"]) .todayActive { border-color: #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .todayEyebrow { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .livePill { border: 1px solid #2f2f35; color: #60a5fa; }
+:global(html[data-theme="john-wick-dark"]) .dateTile { background: linear-gradient(155deg,#1c1c20,#14203a); }
+:global(html[data-theme="john-wick-dark"]) .dateTile:hover { box-shadow: inset 0 1px 0 #242429,0 12px 24px rgba(38,102,196,.13); }
+:global(html[data-theme="john-wick-dark"]) .progressHeading span { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .progressValue { color: #60a5fa; }
+:global(html[data-theme="john-wick-dark"]) .track { border: 1px solid #2f2f35; background: #1c1c20; }
+:global(html[data-theme="john-wick-dark"]) .track>span::after { background: linear-gradient(100deg,transparent 20%,rgba(21,21,24,.42) 48%,transparent 76%); }
+:global(html[data-theme="john-wick-dark"]) .todayMetrics>div,
+:global(html[data-theme="john-wick-dark"]) .todayMetrics>div+div { border: 1px solid #242429; background: rgba(21,21,24,.76); }
+:global(html[data-theme="john-wick-dark"]) .todayMetrics>div:hover { border-color: #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .todayMetrics svg { color: #60a5fa; }
+:global(html[data-theme="john-wick-dark"]) .punchCard { border: 1px solid #242429; background: rgba(21,21,24,.68); }
+:global(html[data-theme="john-wick-dark"]) .punchCard:hover { border-color: #2f2f35; background: #151518; }
+:global(html[data-theme="john-wick-dark"]) .roundIcon { background: linear-gradient(145deg,#151518,#1c1c20); }
+:global(html[data-theme="john-wick-dark"]) .roundIcon svg { color: #60a5fa; }
+:global(html[data-theme="john-wick-dark"]) .actions .outline:hover { background: #1c1c20; }
+:global(html[data-theme="john-wick-dark"]) .page { background: radial-gradient(circle at 92% 2%,rgba(115,194,251,.16),transparent 24%),
+    linear-gradient(180deg,#1c1c20 0%,#1c1c20 45%,#1c1c20 100%); border: 1px solid #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .pageHeader p { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .leaveMenu nav { border-color: #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .today { border-color: #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .banner { border-color: #6b5216; background: linear-gradient(90deg,#2e2410,#2e2410) !important; box-shadow: 0 8px 22px rgba(126,82,8,.07),inset 4px 0 0 #6b5216; }
+:global(html[data-theme="john-wick-dark"]) .calendar { border: 1px solid #2f2f35; background: linear-gradient(180deg,#151518 0%,#1c1c20 100%); }
+:global(html[data-theme="john-wick-dark"]) .calendarHeader { border-bottom: 1px solid #242429; }
+:global(html[data-theme="john-wick-dark"]) .calendarHeader h2 { color: #fafafa; }
+:global(html[data-theme="john-wick-dark"]) .legend button { background: #1c1c20; border-color: #242429; }
+:global(html[data-theme="john-wick-dark"]) .legend button:hover { background: #1c1c20; border-color: #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .monthControls>button,
+:global(html[data-theme="john-wick-dark"]) .monthPicker { border-color: #2f2f35; background: #151518; box-shadow: 0 5px 13px rgba(1,38,106,.07),inset 0 1px 0 #242429; }
+:global(html[data-theme="john-wick-dark"]) .monthControls>button:hover:not(:disabled),
+:global(html[data-theme="john-wick-dark"]) .monthPicker:hover { border-color: #2f2f35; background: #1c1c20; }
+:global(html[data-theme="john-wick-dark"]) .weekdays { color: #e4e4e7; }
+:global(html[data-theme="john-wick-dark"]) .day { border-color: #2f2f35; background: linear-gradient(145deg,#151518,#1c1c20); }
+:global(html[data-theme="john-wick-dark"]) button.day:hover { border-color: #2f2f35; box-shadow: 0 10px 20px rgba(1,38,106,.1),inset 0 1px 0 #242429; }
+:global(html[data-theme="john-wick-dark"]) .neutralDay { background: #1a1a1e; box-shadow: inset 0 1px 0 #242429; color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .todayDay { box-shadow: 0 0 0 3px #242429,0 10px 22px rgba(20,121,238,.14); }
+:global(html[data-theme="john-wick-dark"]) .selectedDay { box-shadow: 0 0 0 3px #2f2f35,0 10px 22px rgba(1,38,106,.14); }
+/* ── end dark theme ── */

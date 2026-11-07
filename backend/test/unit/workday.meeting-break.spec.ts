@@ -14,6 +14,7 @@ describe('WorkdayService — Phase A1 (MEETING excluded from break totals)', () 
   let prisma: any;
   let attendanceAuthority: any;
   let ticketLedger: any;
+  let eventLogger: any;
 
   beforeEach(() => {
     prisma = {
@@ -70,10 +71,12 @@ describe('WorkdayService — Phase A1 (MEETING excluded from break totals)', () 
       resumeAfterWorkdayStart: jest.fn().mockResolvedValue(undefined),
     };
 
+    eventLogger = { log: jest.fn().mockResolvedValue({}) };
+
     service = new WorkdayService(
       prisma,
       {} as any,
-      { log: jest.fn().mockResolvedValue({}) } as any,
+      eventLogger,
       ticketLedger,
       { sendNotification: jest.fn().mockResolvedValue({}) } as any,
       attendanceAuthority,
@@ -137,11 +140,46 @@ describe('WorkdayService — Phase A1 (MEETING excluded from break totals)', () 
     it('TEA: breakLog is closed AND totalBreakMinutes IS incremented', async () => {
       setupBreakSession('TEA', 15);
 
-      await service.endBreak('u1');
+      await service.endBreak('u1', {
+        origin: 'USER_RESUME',
+        ipAddress: '203.0.113.7',
+        userAgent: 'Apex regression test',
+        actorContext: 'BREAK_END_ENDPOINT',
+      });
 
       const wsUpdate = attendanceAuthority.updateWorkSession.mock.calls[0][1];
       expect(wsUpdate.status).toBe('WORKING');
       expect(wsUpdate.totalBreakMinutes).toBe(15); // 0 + 15
+      expect(prisma.attendanceEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          eventType: 'BREAK_END',
+          source: 'manual',
+          metadata: expect.objectContaining({ origin: 'USER_RESUME', breakLogId: 'bl1', breakType: 'TEA' }),
+          ipAddress: '203.0.113.7',
+          deviceMetadata: { userAgent: 'Apex regression test' },
+        }),
+      });
+      expect(eventLogger.log).toHaveBeenCalledWith(expect.objectContaining({
+        actorContext: 'BREAK_END_ENDPOINT',
+        ip: '203.0.113.7',
+        device: 'Apex regression test',
+      }));
+    });
+
+    it('records when meeting logic, rather than Resume Work, ended the break', async () => {
+      setupBreakSession('TEA', 15);
+
+      await service.endBreak('u1', 'MEETING_JOIN');
+
+      expect(prisma.attendanceEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          eventType: 'BREAK_END',
+          metadata: expect.objectContaining({ origin: 'MEETING_JOIN' }),
+        }),
+      });
+      expect(eventLogger.log).toHaveBeenCalledWith(expect.objectContaining({
+        metadata: expect.objectContaining({ origin: 'MEETING_JOIN' }),
+      }));
     });
 
     it('LUNCH: totalBreakMinutes IS incremented (regression guard)', async () => {

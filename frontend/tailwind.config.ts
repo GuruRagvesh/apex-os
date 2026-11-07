@@ -1,4 +1,47 @@
 import type { Config } from "tailwindcss";
+import tailwindColors from "tailwindcss/colors";
+
+// DESIGN.md → Colors: the UI uses six colour families. Near-duplicate Tailwind
+// families render as their official family, so older classes (bg-green-100,
+// text-rose-600, border-gray-200) follow the rules without touching every page.
+// slate-500 is a touch darker than stock (#64748b → #52617a) so grey labels pass
+// 4.5:1 on tinted table headers as well as on white.
+const slate = { ...tailwindColors.slate, 500: '#52617a' };
+// red-600 likewise (#dc2626 → #c81e1e): red words such as "Overdue" and "Reject" sit
+// on red-50 tints, where stock red-600 is 4.4:1.
+const red = { ...tailwindColors.red, 600: '#c81e1e' };
+
+const paletteFamilies = {
+  slate,
+  gray: slate,
+  zinc: slate,
+  neutral: slate,
+  stone: slate,
+  blue: tailwindColors.blue,
+  sky: tailwindColors.blue,
+  cyan: tailwindColors.blue,
+  emerald: tailwindColors.emerald,
+  green: tailwindColors.emerald,
+  teal: tailwindColors.emerald,
+  lime: tailwindColors.emerald,
+  amber: tailwindColors.amber,
+  yellow: tailwindColors.amber,
+  orange: tailwindColors.amber,
+  red: red,
+  rose: red,
+  pink: red,
+  fuchsia: red,
+  violet: tailwindColors.violet,
+  purple: tailwindColors.violet,
+  indigo: tailwindColors.violet,
+};
+
+// Meaning colours from DESIGN.md: -text for words, -fill for dots/bars, -bg for badges.
+const meaning = (name: string) => ({
+  text: `var(--${name}-text)`,
+  fill: `var(--${name}-fill)`,
+  bg: `var(--${name}-bg)`,
+});
 
 const config: Config = {
   darkMode: ["class", '[data-theme="john-wick-dark"]'],
@@ -27,7 +70,9 @@ const config: Config = {
         mono: ['JetBrains Mono', 'Fira Code', 'Cascadia Code', 'monospace'],
       },
       fontSize: {
-        '2xs': ['0.625rem', { lineHeight: '1.4' }],
+        // 11px is the smallest text allowed (DESIGN.md → Typography).
+        caption: ['0.6875rem', { lineHeight: '1.35' }],
+        '2xs': ['0.6875rem', { lineHeight: '1.35' }],
         xs: ['0.75rem', { lineHeight: '1.4' }],
         sm: ['0.8125rem', { lineHeight: '1.45' }],
         base: ['0.875rem', { lineHeight: '1.45' }],
@@ -40,7 +85,24 @@ const config: Config = {
         '5xl': ['3rem', { lineHeight: '1.05' }],
         '6xl': ['3.75rem', { lineHeight: '1' }],
       },
+      // Weights are 400 / 500 / 600 / 700; heavier classes render as 700.
+      fontWeight: {
+        extrabold: '700',
+        black: '700',
+      },
       colors: {
+        ...paletteFamilies,
+        success: meaning('success'),
+        warning: meaning('warning'),
+        danger: meaning('danger'),
+        info: meaning('info'),
+        neutral: { ...paletteFamilies.neutral, ...meaning('neutral') },
+        review: meaning('review'),
+        ink: { strong: 'var(--ink-strong)', muted: 'var(--ink-muted)' },
+        chart: {
+          1: 'var(--chart-1)', 2: 'var(--chart-2)', 3: 'var(--chart-3)',
+          4: 'var(--chart-4)', 5: 'var(--chart-5)', 6: 'var(--chart-6)',
+        },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
@@ -67,6 +129,10 @@ const config: Config = {
         xl: '16px',
         '2xl': '24px',
         md: "calc(var(--radius) - 2px)",
+        // Role names (DESIGN.md → Shapes). New code uses these, not lg/xl.
+        control: 'var(--radius-control)',
+        card: 'var(--radius-card)',
+        panel: 'var(--radius-panel)',
       },
       keyframes: {
         "accordion-down": { from: { height: "0" }, to: { height: "var(--radix-accordion-content-height)" } },

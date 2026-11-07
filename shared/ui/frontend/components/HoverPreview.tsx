@@ -37,24 +37,24 @@ export default function HoverPreview({ items, visible, severity = 'blue' }: Hove
           {/* Glowing bottom indicator */}
           <div className="absolute left-1/2 -translate-x-1/2 -bottom-[5px] w-2.5 h-2.5 bg-[#0B1220] border-r border-b border-blue-900/50 rotate-45" />
 
-          <p className="text-[9.5px] font-black font-mono text-blue-400 uppercase tracking-widest border-b border-blue-950/50 pb-1.5 leading-none">
+          <p className="text-caption font-black font-mono text-blue-400 uppercase tracking-widest border-b border-blue-950/50 pb-1.5 leading-none">
             📡 TELEMETRY PEEK
           </p>
 
           <div className="mt-2 space-y-1.5 select-text">
             {items.slice(0, 2).map((item, idx) => (
-              <div key={idx} className="flex items-start gap-2 text-[10.5px] text-slate-300 font-mono truncate">
+              <div key={idx} className="flex items-start gap-2 text-caption text-slate-500 font-mono truncate">
                 <span className={`w-1.5 h-1.5 rounded-full shrink-0 mt-1 ${getBulletColor()}`} />
                 <span className="truncate leading-none">{item}</span>
               </div>
             ))}
 
             {items.length === 0 && (
-              <p className="text-[10px] text-slate-500 font-semibold italic">No direct items to reveal.</p>
+              <p className="text-caption text-slate-500 font-semibold italic">No direct items to reveal.</p>
             )}
 
             {items.length > 2 && (
-              <div className="text-[9.5px] text-blue-400 font-bold pl-3.5 leading-none">
+              <div className="text-caption text-blue-400 font-bold pl-3.5 leading-none">
                 + {items.length - 2} more elements. Click to explore
               </div>
             )}

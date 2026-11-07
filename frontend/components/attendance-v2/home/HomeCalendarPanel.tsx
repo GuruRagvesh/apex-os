@@ -8,6 +8,7 @@ import { useQueries, useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
 import { dashboardApi } from '@apex/intelligence-dashboard/api';
 import { workdayApi } from '@/lib/api';
+import { formatCompanyDate } from '@/lib/company-date';
 import { shouldRetryTransientQuery, transientQueryRetryDelay, pollWhileHealthy } from '@apex/shared-auth';
 import {
   ArrowRight, CalendarCheck, CalendarDays, Check, ChevronDown,
@@ -22,8 +23,7 @@ import { CorrectionDialog } from '../CorrectionDialog';
 import { TinyPunchPhoto } from './TinyPunchPhoto';
 import {
   addDays, attendanceWeek, clockLabel, datesBetween, hoursLabel, monthOf,
-  pickWeek, shiftMonth,
-  type WeekWindow,
+  shiftMonth,
 } from './home-week';
 import s from './home-calendar.module.css';
 import { ProductivityTimelinePanel } from './ProductivityTimelinePanel';
@@ -52,8 +52,9 @@ type PersonAttendanceDay = {
   isWorkingDay: boolean;
   punchInAt: string | null;
   punchOutAt: string | null;
+  presenceMinutes: number | null;
   workingMinutes: number | null;
-  productiveMinutes: number;
+  productiveMinutes: number | null;
   meetingMinutes: number;
   meetingCount: number;
   breakCount: number;
@@ -73,9 +74,35 @@ type PersonAttendanceInsight = {
   };
 };
 
+type WorkdayBreak = {
+  breakType?: string | null;
+  startAt?: string | null;
+  endAt?: string | null;
+};
+
+type WorkdayTodayProjection = {
+  session?: {
+    status?: string | null;
+    startWorkAt?: string | null;
+    logoutAt?: string | null;
+    breakLogs?: WorkdayBreak[];
+  } | null;
+  allSessions?: Array<{
+    startWorkAt?: string | null;
+    logoutAt?: string | null;
+    breakLogs?: WorkdayBreak[];
+  }>;
+  elapsedWorkMinutes?: number;
+  meetingMinutes?: number;
+  meetingCount?: number;
+  breakCount?: number;
+  totalBreakMinutes?: number;
+  firstStartTime?: string | null;
+  onLeaveToday?: boolean;
+};
+
 function localToday(): string {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return formatCompanyDate(new Date(), 'yyyy-MM-dd');
 }
 
 function monthBounds(month: string): { start: string; end: string } {
@@ -132,7 +159,7 @@ function personDayToCalendarDay(day: PersonAttendanceDay): MyAttendanceDayV2 {
     isToday: day.date === localToday(),
     isFuture,
     isInProgress: day.date === localToday() && !!day.punchInAt && !day.punchOutAt,
-    presenceMinutes: day.workingMinutes,
+    presenceMinutes: day.presenceMinutes ?? day.workingMinutes,
     requiredMinutes: null,
     workedMinutes: day.workingMinutes,
     breakMinutes: day.breakMinutes,
@@ -205,6 +232,18 @@ export function HomeCalendarPanel() {
   const correctionAllowed = attendance.find((q) => q.data)?.data?.today.correctionAllowed ?? false;
   const monthQuery = attendance[months.indexOf(month)];
 
+  // This is the same authoritative live projection used by the hero workday
+  // bar. Sharing its query key avoids a second request when both are mounted.
+  const ownTodayQuery = useQuery({
+    queryKey: ['workday-today'],
+    queryFn: () => workdayApi.getToday() as Promise<WorkdayTodayProjection>,
+    enabled: !!userId,
+    staleTime: 5_000,
+    refetchInterval: pollWhileHealthy(15_000),
+    retry: shouldRetryTransientQuery,
+    retryDelay: transientQueryRetryDelay,
+  });
+
   const selectedPersonQuery = useQuery({
     queryKey: ['home-team-insights', 'attendance-person-calendar-v10', selectedPersonId, month],
     queryFn: () => dashboardApi.getTeamInsights({
@@ -223,18 +262,65 @@ export function HomeCalendarPanel() {
   const selectedPersonByDate = useMemo(() => new Map(selectedPersonDays.map((day) => [day.date, day])), [selectedPersonDays]);
   const selectedPersonMetricsByDate = useMemo(() => new Map((selectedPersonQuery.data?.workday.attendanceCalendar ?? []).map((day) => [day.date, day])), [selectedPersonQuery.data]);
   const viewingAnotherPerson = !!selectedPersonId && selectedPersonId !== userId;
+  const ownTodayMetrics = useMemo<PersonAttendanceDay | undefined>(() => {
+    const live = ownTodayQuery.data;
+    if (!live) return undefined;
+    const sessions = live.allSessions ?? [];
+    const breaks = sessions.flatMap((session) => session.breakLogs ?? []);
+    const openBreak = [...breaks].reverse().find((item) => !item.endAt);
+    const hasOpenSession = !!live.session && !live.session.logoutAt;
+    const hasAnySession = sessions.length > 0 || !!live.session;
+    const currentStatus = live.onLeaveToday && !hasOpenSession
+      ? 'ON_LEAVE'
+      : openBreak?.breakType === 'MEETING'
+        ? 'IN_MEETING'
+        : openBreak
+          ? 'ON_BREAK'
+          : hasOpenSession
+            ? 'WORKING'
+            : hasAnySession
+              ? 'DAY_COMPLETED'
+              : 'NOT_STARTED';
+    const breakCount = typeof live.breakCount === 'number'
+      ? live.breakCount
+      : breaks.filter((item) => item.breakType !== 'MEETING').length;
+
+    return {
+      date: today,
+      status: 'IN_PROGRESS',
+      outcome: null,
+      modifiers: [],
+      isPresent: hasAnySession,
+      holidayName: null,
+      isWorkingDay: true,
+      punchInAt: live.firstStartTime ?? live.session?.startWorkAt ?? null,
+      punchOutAt: hasOpenSession ? null : live.session?.logoutAt ?? null,
+      presenceMinutes: live.elapsedWorkMinutes == null
+        ? null
+        : live.elapsedWorkMinutes + (live.totalBreakMinutes ?? 0),
+      workingMinutes: live.elapsedWorkMinutes ?? null,
+      productiveMinutes: null,
+      meetingMinutes: live.meetingMinutes ?? 0,
+      meetingCount: live.meetingCount ?? 0,
+      breakCount,
+      breakMinutes: live.totalBreakMinutes ?? 0,
+      lateMinutes: 0,
+      currentStatus,
+      leaveType: null,
+    };
+  }, [ownTodayQuery.data, today]);
   const activeAttendanceByDate = viewingAnotherPerson ? selectedPersonByDate : attendanceByDate;
   const activeMonthDays = viewingAnotherPerson ? selectedPersonDays : monthQuery?.data?.month.days ?? [];
   const activeMonthLoading = viewingAnotherPerson ? selectedPersonQuery.isLoading : !!monthQuery?.isLoading;
   const activeMonthError = viewingAnotherPerson ? selectedPersonQuery.isError : !!monthQuery?.isError;
-  const selectedWorkedDays = selectedPersonDays.filter((day) => day.punchInAt && day.workedMinutes != null);
+  const selectedWorkedDays = selectedPersonDays.filter((day) => day.punchInAt && !day.isInProgress && day.presenceMinutes != null);
   const selectedAverageWorkingMinutes = selectedWorkedDays.length
-    ? selectedWorkedDays.reduce((sum, day) => sum + (day.workedMinutes ?? 0), 0) / selectedWorkedDays.length
+    ? selectedWorkedDays.reduce((sum, day) => sum + (day.presenceMinutes ?? 0), 0) / selectedWorkedDays.length
     : null;
   const selectedAverageBreakMinutes = selectedWorkedDays.length
     ? selectedWorkedDays.reduce((sum, day) => sum + (day.breakMinutes ?? 0), 0) / selectedWorkedDays.length
     : null;
-  const ownWorkedDaysForBreak = (monthQuery?.data?.month.days ?? []).filter((day) => !!day.punchInAt && !day.isFuture);
+  const ownWorkedDaysForBreak = (monthQuery?.data?.month.days ?? []).filter((day) => !!day.punchInAt && !day.isFuture && !day.isInProgress);
   const ownAverageBreakMinutes = ownWorkedDaysForBreak.length
     ? ownWorkedDaysForBreak.reduce((sum, day) => sum + (day.breakMinutes ?? 0), 0) / ownWorkedDaysForBreak.length
     : null;
@@ -247,8 +333,6 @@ export function HomeCalendarPanel() {
     retryDelay: transientQueryRetryDelay,
   });
   const punches = useMemo(() => evidenceByDate(evidence.data), [evidence.data]);
-
-  const week: WeekWindow = useMemo(() => pickWeek(today, attendanceByDate), [today, attendanceByDate]);
 
   const latestCalendarMonth = shiftMonth(monthOf(today), 12);
   const canGoNext = month < latestCalendarMonth;
@@ -282,7 +366,7 @@ export function HomeCalendarPanel() {
             onClick={() => setLeaveAnalysisOpen(true)}
             aria-label={`Open leave analysis for ${viewingAnotherPerson ? selectedPersonQuery.data?.identity?.name ?? 'selected employee' : userName}`}
           >
-            <CalendarDays size={15} aria-hidden="true" />
+            <CalendarDays size={16} aria-hidden="true" />
             <span>Leave Analysis</span>
           </button>
           {canViewTeamAttendance && <AttendancePersonFilter
@@ -340,19 +424,18 @@ export function HomeCalendarPanel() {
       </div>
 
       <AttendanceSide
-        week={week}
         monthLabel={monthLabel(y, m)}
         monthDays={activeMonthDays}
         monthLoading={activeMonthLoading}
         monthFailed={activeMonthError}
         byDate={activeAttendanceByDate}
         metricsOverride={viewingAnotherPerson && selectedPersonQuery.data ? {
-          daysWorked: selectedPersonDays.filter((day) => !!day.punchInAt).length,
+          daysWorked: selectedWorkedDays.length,
           avgWorkMinutes: selectedAverageWorkingMinutes,
-          totalWorkMinutes: selectedPersonDays.reduce((sum, day) => sum + (day.workedMinutes ?? 0), 0),
+          totalWorkMinutes: selectedWorkedDays.reduce((sum, day) => sum + (day.presenceMinutes ?? 0), 0),
           avgPunchInMinutes: selectedPersonQuery.data.workday.punchInMinute,
           avgPunchOutMinutes: selectedPersonQuery.data.workday.punchOutMinute,
-          totalBreakMinutes: selectedPersonDays.reduce((sum, day) => sum + (day.breakMinutes ?? 0), 0),
+          totalBreakMinutes: selectedWorkedDays.reduce((sum, day) => sum + (day.breakMinutes ?? 0), 0),
           onTimeFullDays: 0,
         } : undefined}
         averageBreakMinutes={viewingAnotherPerson ? selectedAverageBreakMinutes : ownAverageBreakMinutes}
@@ -377,7 +460,9 @@ export function HomeCalendarPanel() {
           anchor={popup.anchor}
           day={activeAttendanceByDate.get(popup.date)}
           punch={viewingAnotherPerson ? undefined : punches.get(popup.date)}
-          personMetrics={viewingAnotherPerson ? selectedPersonMetricsByDate.get(popup.date) : undefined}
+          personMetrics={viewingAnotherPerson
+            ? selectedPersonMetricsByDate.get(popup.date)
+            : popup.date === today ? ownTodayMetrics : undefined}
           personName={viewingAnotherPerson ? selectedPersonQuery.data?.identity?.name ?? 'Selected employee' : userName}
           showPunchPhotos={!viewingAnotherPerson}
           canUsePersonalActions={!viewingAnotherPerson}
@@ -493,7 +578,7 @@ function AttendancePersonFilter({ currentUser, selectedId, today, onSelect }: {
       >
         <span className={s.personFilterAvatar}>{initials(selected?.name ?? currentUser.name)}</span>
         <span><small>{selected?.role ?? 'Employee'}</small><strong>{selected?.name ?? currentUser.name}</strong></span>
-        <ChevronDown size={15} aria-hidden="true" />
+        <ChevronDown size={16} aria-hidden="true" />
       </button>
       {open && <div className={s.personFilterPopover}>
         <label className={s.personFilterSearch}>
@@ -513,7 +598,7 @@ function AttendancePersonFilter({ currentUser, selectedId, today, onSelect }: {
             >
               <span className={s.personFilterAvatar}>{person.photo ? <img src={person.photo} alt="" /> : initials(person.name)}</span>
               <span><strong>{person.name}</strong><small>{[person.role, person.department].filter(Boolean).join(' · ')}</small></span>
-              {person.id === selectedId && <Check size={15} aria-hidden="true" />}
+              {person.id === selectedId && <Check size={16} aria-hidden="true" />}
             </button>
           ))}
           {!peopleQuery.isLoading && !peopleQuery.isError && !people.length && <div className={s.personFilterState}>No matching people.</div>}
@@ -570,9 +655,9 @@ function MonthPickerControl({ selected, today, maxMonth, onSelect }: { selected:
       </button>
       {open && <div className={s.monthPickerPopover} role="dialog" aria-label="Choose month">
         <div className={s.monthPickerPopoverHead}>
-          <button type="button" onClick={() => setVisibleYear((year) => year - 1)} aria-label="Previous year"><ChevronLeft size={15} /></button>
+          <button type="button" onClick={() => setVisibleYear((year) => year - 1)} aria-label="Previous year"><ChevronLeft size={16} /></button>
           <strong>{visibleYear}</strong>
-          <button type="button" onClick={() => setVisibleYear((year) => year + 1)} disabled={visibleYear >= maxYear} aria-label="Next year"><ChevronRight size={15} /></button>
+          <button type="button" onClick={() => setVisibleYear((year) => year + 1)} disabled={visibleYear >= maxYear} aria-label="Next year"><ChevronRight size={16} /></button>
         </div>
         <div className={s.monthPickerGrid}>
           {monthNames.map((name, index) => {
@@ -669,11 +754,11 @@ function CalendarGrid({
               {day?.punchInAt ? (
                 <>
                   <span className={s.punchRow}>
-                    {showPunchPhotos ? <TinyPunchPhoto evidenceId={photoId(punch?.in)} label={`Punch in ${formatTime(day.punchInAt)}`} /> : <LogIn size={13} aria-hidden="true" />}
+                    {showPunchPhotos ? <TinyPunchPhoto evidenceId={photoId(punch?.in)} label={`Punch in ${formatTime(day.punchInAt)}`} /> : <LogIn size={14} aria-hidden="true" />}
                     <span className={s.punchTime}>{formatTime(day.punchInAt)}</span>
                   </span>
                   <span className={s.punchRow}>
-                    {showPunchPhotos ? <TinyPunchPhoto evidenceId={photoId(punch?.out)} label={day.punchOutAt ? `Punch out ${formatTime(day.punchOutAt)}` : 'Not punched out'} /> : <LogOut size={13} aria-hidden="true" />}
+                    {showPunchPhotos ? <TinyPunchPhoto evidenceId={photoId(punch?.out)} label={day.punchOutAt ? `Punch out ${formatTime(day.punchOutAt)}` : 'Not punched out'} /> : <LogOut size={14} aria-hidden="true" />}
                     <span className={s.punchTime}>{day.punchOutAt ? formatTime(day.punchOutAt) : (day.isInProgress ? 'Working' : '—')}</span>
                   </span>
                 </>
@@ -847,13 +932,13 @@ function PersonalLeaveUsageModal({ userId, personName, today, isIntern, isOwn, o
               <article><span>Allocated days</span><strong>{allocated}<small> days</small></strong><p>Total leave assigned for this leave year.</p></article>
               <article data-tone="remaining"><span>Used days</span><strong>{used}<small> days</small></strong><p>Approved leave charged against allocation.</p></article>
               <button type="button" data-tone="used" aria-expanded={expanded === 'taken'} aria-controls="leave-analysis-records" onClick={() => setExpanded((value) => value === 'taken' ? null : 'taken')}>
-                <span>Leaves taken</span><strong>{approvedRecords.length}<small> request{approvedRecords.length === 1 ? '' : 's'}</small></strong><p>Approved leave types and exact dates.</p><em>{expanded === 'taken' ? 'Hide details' : 'View details'} <ChevronDown size={15} /></em>
+                <span>Leaves taken</span><strong>{approvedRecords.length}<small> request{approvedRecords.length === 1 ? '' : 's'}</small></strong><p>Approved leave types and exact dates.</p><em>{expanded === 'taken' ? 'Hide details' : 'View details'} <ChevronDown size={16} /></em>
               </button>
             </div>
             <div className={s.leaveAnalysisRequestSummary}>
               <button type="button" data-tone="pending" aria-expanded={expanded === 'pending'} aria-controls="leave-analysis-records" onClick={() => setExpanded((value) => value === 'pending' ? null : 'pending')}>
                 <span><strong>Leave requests</strong><small>{pendingRecords.length} awaiting approval · {pending} pending day{pending === 1 ? '' : 's'}</small></span>
-                <em>{expanded === 'pending' ? 'Hide requests' : 'View requests'} <ChevronDown size={15} /></em>
+                <em>{expanded === 'pending' ? 'Hide requests' : 'View requests'} <ChevronDown size={16} /></em>
               </button>
             </div>
             {expanded && <div id="leave-analysis-records" className={s.leaveAnalysisRecords}>
@@ -876,10 +961,6 @@ function PersonalLeaveUsageModal({ userId, personName, today, isIntern, isOwn, o
 }
 
 // ── Side KPIs ────────────────────────────────────────────────────────────────
-
-function weekName(week: WeekWindow) {
-  return week.kind === 'this' ? 'This week' : 'Last week';
-}
 
 function KpiScoreMetric({ label, value, icon, detail, full = false, onClick, selected = false }: {
   label: string;
@@ -938,20 +1019,19 @@ function AttendanceKpiScore({ current, averageBreakMinutes, monthLabel: selected
         <span className={s.kpiIcon} aria-hidden="true"><Gauge size={16} /></span>
       </header>
       <div className={s.kpiScoreGrid}>
-        <KpiScoreMetric label="Avg working hours" value={hoursLabel(current.avgWorkMinutes)} icon={<Timer size={15} />} detail="Daily average" />
-        <KpiScoreMetric label="Avg punch in" value={clockLabel(current.avgPunchInMinutes)} icon={<LogIn size={15} />} detail="Working days" />
-        <KpiScoreMetric label="Avg punch out" value={clockLabel(current.avgPunchOutMinutes)} icon={<LogOut size={15} />} detail="Completed days" />
-        <KpiScoreMetric label="Avg break time" value={hoursLabel(averageBreakMinutes)} icon={<Timer size={15} />} detail="Average daily break duration" />
-        <KpiScoreMetric label="Total late marks" value={attendanceValue(lateMarks)} icon={<LogIn size={15} />} detail={`${selectedMonthLabel} · Click to view days`} onClick={() => onSelectMetric('Total late marks')} selected={selectedMetric === 'Total late marks'} />
-        <KpiScoreMetric label="Total present days" value={attendanceValue(presentDays)} icon={<CalendarCheck size={15} />} detail={`${selectedMonthLabel} · Click to view days`} onClick={() => onSelectMetric('Total present days')} selected={selectedMetric === 'Total present days'} />
-        <KpiScoreMetric label="Less working hours" value={attendanceValue(shortDays)} icon={<Timer size={15} />} detail={`Below required hours · ${selectedMonthLabel}`} onClick={() => onSelectMetric('Less working hours')} selected={selectedMetric === 'Less working hours'} />
+        <KpiScoreMetric label="Avg working hours" value={hoursLabel(current.avgWorkMinutes)} icon={<Timer size={16} />} detail="Daily average" />
+        <KpiScoreMetric label="Avg punch in" value={clockLabel(current.avgPunchInMinutes)} icon={<LogIn size={16} />} detail="Working days" />
+        <KpiScoreMetric label="Avg punch out" value={clockLabel(current.avgPunchOutMinutes)} icon={<LogOut size={16} />} detail="Completed days" />
+        <KpiScoreMetric label="Avg break time" value={hoursLabel(averageBreakMinutes)} icon={<Timer size={16} />} detail="Average daily break duration" />
+        <KpiScoreMetric label="Total late marks" value={attendanceValue(lateMarks)} icon={<LogIn size={16} />} detail={`${selectedMonthLabel} · Click to view days`} onClick={() => onSelectMetric('Total late marks')} selected={selectedMetric === 'Total late marks'} />
+        <KpiScoreMetric label="Total present days" value={attendanceValue(presentDays)} icon={<CalendarCheck size={16} />} detail={`${selectedMonthLabel} · Click to view days`} onClick={() => onSelectMetric('Total present days')} selected={selectedMetric === 'Total present days'} />
+        <KpiScoreMetric label="Less working hours" value={attendanceValue(shortDays)} icon={<Timer size={16} />} detail={`Below required hours · ${selectedMonthLabel}`} onClick={() => onSelectMetric('Less working hours')} selected={selectedMetric === 'Less working hours'} />
       </div>
     </section>
   );
 }
 
-function AttendanceSide({ week, monthLabel: selectedMonthLabel, monthDays, monthLoading, monthFailed, byDate, metricsOverride, averageBreakMinutes, selectedMetric, onSelectMetric }: {
-  week: WeekWindow;
+function AttendanceSide({ monthLabel: selectedMonthLabel, monthDays, monthLoading, monthFailed, byDate, metricsOverride, averageBreakMinutes, selectedMetric, onSelectMetric }: {
   monthLabel: string;
   monthDays: MyAttendanceDayV2[];
   monthLoading: boolean;
@@ -962,10 +1042,17 @@ function AttendanceSide({ week, monthLabel: selectedMonthLabel, monthDays, month
   selectedMetric: AttendanceFilter | null;
   onSelectMetric: (filter: AttendanceKpiFilter) => void;
 }) {
-  const current = metricsOverride ?? attendanceWeek(week.start, week.end, byDate);
+  // The Trailer belongs to the selected calendar month. Previously the owner
+  // saw a weekly average while a selected colleague saw a monthly average,
+  // even though both were looking at the same month-labelled card.
+  const firstDate = monthDays[0]?.date;
+  const lastDate = monthDays[monthDays.length - 1]?.date;
+  const current = metricsOverride ?? (firstDate && lastDate
+    ? attendanceWeek(firstDate, lastDate, byDate)
+    : attendanceWeek('9999-12-31', '0000-01-01', byDate));
 
   return (
-    <aside className={s.side} aria-label={`${weekName(week)} attendance`}>
+    <aside className={s.side} aria-label={`${selectedMonthLabel} attendance`}>
       <AttendanceKpiScore
         current={current}
         averageBreakMinutes={averageBreakMinutes}
@@ -1060,6 +1147,13 @@ function DayPopup({
   const plannedStatus = day?.calendar?.status;
   const plannedOff = plannedStatus === 'HOLIDAY' || plannedStatus === 'WEEKLY_OFF';
   const activeLeaveRange = leaveRange && date >= leaveRange.startDate && date <= leaveRange.endDate ? leaveRange : null;
+  const liveStatus = personMetrics?.currentStatus ?? null;
+  const liveStatusLabel = liveStatus
+    ? liveStatus.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (character) => character.toUpperCase())
+    : null;
+  const punchInAt = personMetrics?.punchInAt ?? day?.punchInAt ?? null;
+  const punchOutAt = personMetrics?.punchOutAt ?? day?.punchOutAt ?? null;
+  const liveWorkOpen = ['WORKING', 'ON_BREAK', 'IN_MEETING'].includes(liveStatus ?? '');
 
   if (typeof document === 'undefined') return null;
 
@@ -1079,7 +1173,7 @@ function DayPopup({
           <div className={s.popupTitle}>{title}</div>
           <div className={s.popupPerson}>{personName}</div>
           {status && <div className={s.popupStatus} style={{ color: status.color, background: `color-mix(in srgb, ${status.color} 10%, #FFFFFF)` }}><i style={{ background: status.color }} />{status.label}</div>}
-          {date === localToday() && personMetrics?.currentStatus && <div className={s.liveDayStatus}><i />{personMetrics.currentStatus.replaceAll('_', ' ').toLowerCase().replace(/\b\w/g, (character) => character.toUpperCase())}</div>}
+          {date === localToday() && liveStatusLabel && <div className={s.liveDayStatus} data-status={liveStatus}><i />{liveStatusLabel}</div>}
         </div>
         <button type="button" className={s.popupClose} onClick={onClose} aria-label="Close"><X size={16} /></button>
       </div>
@@ -1092,16 +1186,16 @@ function DayPopup({
           </div>}
           {!future && <div className={s.punchPair}>
             <div className={s.punchCard}>
-              {showPunchPhotos ? <TinyPunchPhoto large evidenceId={photoId(punch?.in)} label={`Punch in ${formatTime(day?.punchInAt ?? null)}`} /> : <span className={s.popupMetricIcon}><LogIn size={17} /></span>}
-              <div><span className={s.punchLabel}>Punch in</span><strong>{formatTime(day?.punchInAt ?? null)}</strong></div>
+              {showPunchPhotos ? <TinyPunchPhoto large evidenceId={photoId(punch?.in)} label={`Punch in ${formatTime(punchInAt)}`} /> : <span className={s.popupMetricIcon}><LogIn size={16} /></span>}
+              <div><span className={s.punchLabel}>Punch in</span><strong>{formatTime(punchInAt)}</strong></div>
             </div>
             <div className={s.punchCard}>
-              {showPunchPhotos ? <TinyPunchPhoto large evidenceId={photoId(punch?.out)} label={`Punch out ${formatTime(day?.punchOutAt ?? null)}`} /> : <span className={s.popupMetricIcon}><LogOut size={17} /></span>}
-              <div><span className={s.punchLabel}>Punch out</span><strong>{day?.punchOutAt ? formatTime(day.punchOutAt) : day?.isInProgress ? 'Working' : '—'}</strong></div>
+              {showPunchPhotos ? <TinyPunchPhoto large evidenceId={photoId(punch?.out)} label={`Punch out ${liveWorkOpen ? liveStatusLabel : formatTime(punchOutAt)}`} /> : <span className={s.popupMetricIcon}><LogOut size={16} /></span>}
+              <div><span className={s.punchLabel}>Punch out</span><strong>{liveWorkOpen ? liveStatusLabel : punchOutAt ? formatTime(punchOutAt) : day?.isInProgress ? 'Working' : '—'}</strong></div>
             </div>
           </div>}
           {!future && <div className={s.stats}>
-            <div className={s.stat}><span>Working hours</span><strong>{hoursLabel(personMetrics?.workingMinutes ?? day?.workedMinutes ?? day?.presenceMinutes)}</strong></div>
+            <div className={s.stat}><span>Working hours</span><strong>{hoursLabel(personMetrics?.presenceMinutes ?? day?.presenceMinutes ?? personMetrics?.workingMinutes ?? day?.workedMinutes)}</strong></div>
             <div className={s.stat}><span>Productive hours</span><strong>{personMetrics ? hoursLabel(personMetrics.productiveMinutes) : '—'}</strong></div>
             <div className={s.stat}><span>Breaks taken</span><strong>{personMetrics?.breakCount ?? '—'}</strong></div>
             <div className={s.stat}><span>Total break time</span><strong>{hoursLabel(personMetrics?.breakMinutes ?? day?.breakMinutes)}</strong></div>
@@ -1109,9 +1203,9 @@ function DayPopup({
             <div className={s.stat}><span>Meeting time</span><strong>{personMetrics ? hoursLabel(personMetrics.meetingMinutes) : '—'}</strong></div>
           </div>}
           <div className={s.actions}>
-            {!future && canUsePersonalActions && <Link href="/attendance" className={s.primaryAction}>Open full day <ArrowRight size={13} aria-hidden="true" /></Link>}
+            {!future && canUsePersonalActions && <Link href="/attendance" className={s.primaryAction}>Open full day <ArrowRight size={14} aria-hidden="true" /></Link>}
             {!future && canUsePersonalActions && correctionAllowed && (
-              <button type="button" className={s.secondaryAction} onClick={onCorrection}><PencilLine size={13} aria-hidden="true" />Request correction</button>
+              <button type="button" className={s.secondaryAction} onClick={onCorrection}><PencilLine size={14} aria-hidden="true" />Request correction</button>
             )}
             {future && canUsePersonalActions && !plannedOff && <button type="button" className={s.primaryAction} onClick={() => onApplyLeave()}>Apply leave</button>}
             {future && canUsePersonalActions && !plannedOff && availableCompOff > 0 && <button type="button" className={s.secondaryAction} onClick={() => onApplyLeave('COMP_OFF')}>Use comp-off ({availableCompOff})</button>}

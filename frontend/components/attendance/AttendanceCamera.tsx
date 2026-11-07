@@ -84,7 +84,7 @@ export function AttendanceCamera({
             <button
               type="button"
               onClick={() => void handleUse()}
-              className="flex-1 rounded-lg bg-green-600 py-2.5 text-sm font-medium text-white hover:bg-green-700"
+              className="flex-1 rounded-lg bg-green-700 py-2.5 text-sm font-medium text-white hover:bg-green-800"
             >
               Use this photo
             </button>
@@ -95,7 +95,7 @@ export function AttendanceCamera({
           <button
             type="button"
             disabled
-            className="flex-1 rounded-lg bg-green-600/60 py-2.5 text-sm font-medium text-white"
+            className="flex-1 rounded-lg bg-green-700/60 py-2.5 text-sm font-medium text-white"
           >
             Uploading…
           </button>

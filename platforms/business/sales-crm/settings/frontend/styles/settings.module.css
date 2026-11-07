@@ -635,7 +635,7 @@
   background: var(--color-primary-50);
   color: var(--color-primary);
   border-radius: var(--radius-full);
-  font-size: 0.68rem;
+  font-size: 0.6875rem;
   font-weight: 600;
 }
 

@@ -21,7 +21,7 @@ export function ActivityItem({ item }: { item: any }) {
           <span className="font-medium">{item.entityType.toLowerCase()}</span>
           {item.details?.ticketId && <span className="text-blue-600"> #{item.details.ticketId}</span>}
         </p>
-        <p className="text-xs text-slate-400 mt-0.5">{formatRelativeTime(item.createdAt)}</p>
+        <p className="text-xs text-slate-500 mt-0.5">{formatRelativeTime(item.createdAt)}</p>
       </div>
     </div>
   );

@@ -49,8 +49,8 @@ function MetricCard({
   icon?: React.ReactNode; loading?: boolean; color?: 'blue' | 'green' | 'amber' | 'red' | 'purple' | 'slate';
 }) {
   const colorMap: Record<string, string> = {
-    blue: 'bg-blue-50 text-blue-600', green: 'bg-green-50 text-green-600',
-    amber: 'bg-amber-50 text-amber-600', red: 'bg-red-50 text-red-600',
+    blue: 'bg-blue-50 text-blue-600', green: 'bg-green-50 text-green-700',
+    amber: 'bg-amber-50 text-amber-700', red: 'bg-red-50 text-red-600',
     purple: 'bg-purple-50 text-purple-600', slate: 'bg-slate-100 text-slate-500',
   };
   return (
@@ -78,7 +78,7 @@ function MetricCard({
 function SectionError({ message, onRetry }: { message?: string; onRetry?: () => void }) {
   return (
     <div className="apex-card p-6 flex items-center gap-3 border-l-4 border-red-400">
-      <AlertTriangle size={18} className="text-red-500 flex-shrink-0" />
+      <AlertTriangle size={18} className="text-red-600 flex-shrink-0" />
       <div className="flex-1">
         <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Failed to load</p>
         <p className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
@@ -95,7 +95,7 @@ function SectionError({ message, onRetry }: { message?: string; onRetry?: () => 
 function SectionRestricted({ message }: { message?: string }) {
   return (
     <div className="apex-card p-8 text-center space-y-3">
-      <ShieldAlert size={32} className="mx-auto" style={{ color: 'var(--accent)' }} />
+      <ShieldAlert size={32} className="mx-auto" style={{ color: 'var(--accent-text)' }} />
       <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>
         {message ?? 'You do not have permission to view this section.'}
       </p>
@@ -304,7 +304,7 @@ export default function AnalyticsScreen() {
       <div className="max-w-xl mx-auto apex-card p-8 text-center space-y-4">
         <div className="mx-auto w-12 h-12 rounded-full flex items-center justify-center"
           style={{ backgroundColor: 'var(--accent-subtle)' }}>
-          <ShieldAlert size={24} style={{ color: 'var(--accent)' }} />
+          <ShieldAlert size={24} style={{ color: 'var(--accent-text)' }} />
         </div>
         <div>
           <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>
@@ -327,7 +327,7 @@ export default function AnalyticsScreen() {
 
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
-        <h1 className="apex-page-title text-2xl" style={{ color: 'var(--text-primary)' }}>Analytics</h1>
+        <h1 className="apex-page-title">Analytics</h1>
         {isAdminPlus && (
           <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-purple-100 text-purple-700">
             Global view — {roleName.replace('_', ' ')}
@@ -343,7 +343,7 @@ export default function AnalyticsScreen() {
             onClick={() => setTab(key)}
             className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-medium transition-all whitespace-nowrap flex-shrink-0"
             style={tab === key
-              ? { backgroundColor: 'var(--surface-card)', boxShadow: 'var(--shadow-sm)', color: 'var(--accent)' }
+              ? { backgroundColor: 'var(--surface-card)', boxShadow: 'var(--shadow-sm)', color: 'var(--accent-text)' }
               : { color: 'var(--text-secondary)' }
             }
           >
@@ -362,7 +362,7 @@ export default function AnalyticsScreen() {
                 <button key={r} onClick={() => setRange(r)}
                   className="px-3 py-1.5 rounded-lg text-sm font-medium border transition-all"
                   style={range === r
-                    ? { borderColor: 'var(--accent)', backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }
+                    ? { borderColor: 'var(--accent)', backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)' }
                     : { borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }
                   }>
                   {r}
@@ -388,7 +388,7 @@ export default function AnalyticsScreen() {
             </div>
           )}
           {(createdTrend !== undefined || resolvedTrend !== undefined) && (
-            <p className="text-[11px] -mt-3" style={{ color: 'var(--text-tertiary)' }}>
+            <p className="text-caption -mt-3" style={{ color: 'var(--text-tertiary)' }}>
               Arrows compare the second half of the selected {days} days with the first half.
             </p>
           )}
@@ -430,7 +430,7 @@ export default function AnalyticsScreen() {
                             <div className="apex-progress-fill" style={{ width: `${Math.round((tot / maxAssigned) * 100)}%` }} />
                           </div>
                           <div className="flex items-center gap-1.5 flex-shrink-0">
-                            {urgent > 0 && <span className="text-[10px] font-bold px-1 rounded bg-red-100 text-red-600">{urgent}U</span>}
+                            {urgent > 0 && <span className="text-caption font-bold px-1 rounded bg-red-100 text-red-600">{urgent}U</span>}
                             <span className="text-xs w-6 text-right font-semibold"
                               style={{ color: tot > 5 ? 'var(--color-danger)' : 'var(--text-secondary)' }}>{tot}</span>
                           </div>
@@ -491,7 +491,7 @@ export default function AnalyticsScreen() {
               <button key={p} onClick={() => setPeriod(p)}
                 className="px-3 py-1.5 rounded-lg text-sm font-medium border transition-all capitalize"
                 style={period === p
-                  ? { borderColor: 'var(--accent)', backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }
+                  ? { borderColor: 'var(--accent)', backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)' }
                   : { borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }
                 }>
                 {p === 'today' ? 'Today' : p === 'week' ? 'Last 7 days' : 'Last 30 days'}
@@ -984,11 +984,11 @@ export default function AnalyticsScreen() {
                     Rework Health
                   </p>
                   {(reworkAnalytics as any).reworkCount === 0 ? (
-                    <p className="text-sm font-medium text-green-600">No reworks recorded</p>
+                    <p className="text-sm font-medium text-green-700">No reworks recorded</p>
                   ) : (reworkAnalytics as any).reworkRate <= 10 ? (
-                    <p className="text-sm font-medium text-green-600">Healthy — below 10%</p>
+                    <p className="text-sm font-medium text-green-700">Healthy — below 10%</p>
                   ) : (reworkAnalytics as any).reworkRate <= 25 ? (
-                    <p className="text-sm font-medium text-amber-600">Moderate — review quality may need attention</p>
+                    <p className="text-sm font-medium text-amber-700">Moderate — review quality may need attention</p>
                   ) : (
                     <p className="text-sm font-medium text-red-600">High — frequent rework detected</p>
                   )}
@@ -1007,7 +1007,7 @@ export default function AnalyticsScreen() {
                       {(reworkAnalytics as any).mostReworkedEmployees.map((e: any, i: number) => (
                         <div key={e.userId ?? i} className="flex justify-between text-sm">
                           <span style={{ color: 'var(--text-primary)' }}>{e.name ?? e.userId}</span>
-                          <span className="font-semibold text-amber-600">{e.count} rework{e.count === 1 ? '' : 's'}</span>
+                          <span className="font-semibold text-amber-700">{e.count} rework{e.count === 1 ? '' : 's'}</span>
                         </div>
                       ))}
                     </div>
@@ -1026,7 +1026,7 @@ export default function AnalyticsScreen() {
                       {(reworkAnalytics as any).mostReworkedTicketTypes.map((t: any, i: number) => (
                         <div key={t.typeId ?? i} className="flex justify-between text-sm">
                           <span style={{ color: 'var(--text-primary)' }}>{t.name ?? t.typeId}</span>
-                          <span className="font-semibold text-amber-600">{t.count} rework{t.count === 1 ? '' : 's'}</span>
+                          <span className="font-semibold text-amber-700">{t.count} rework{t.count === 1 ? '' : 's'}</span>
                         </div>
                       ))}
                     </div>

@@ -207,7 +207,7 @@ export function CommandModal({
               <button
                 onClick={onClose}
                 aria-label="Close modal"
-                className="p-1 px-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-lg cursor-pointer transition-colors focus:outline-none focus:ring-1 focus:ring-blue-500"
+                className="p-1 px-2 text-slate-500 hover:text-white hover:bg-white/10 rounded-lg cursor-pointer transition-colors focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <X className="w-4 h-4" />
               </button>

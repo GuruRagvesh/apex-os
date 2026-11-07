@@ -170,7 +170,7 @@ export default function MobilePunchPage({
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md flex-col gap-4 p-5">
       <header className="apex-card">
-        <p className="apex-text-subtle text-[10px] font-semibold uppercase tracking-widest">
+        <p className="apex-text-subtle text-caption font-semibold uppercase tracking-widest">
           Apex OS Attendance
         </p>
         <h1 className="apex-text mt-0.5 text-xl font-semibold">{title}</h1>
@@ -178,7 +178,7 @@ export default function MobilePunchPage({
           <p className="apex-text mt-1 text-sm font-medium">{handoff.employeeName}</p>
         )}
         <div className="apex-text-muted mt-2 flex items-center gap-1.5 text-xs">
-          <Clock size={13} className="apex-text-subtle" />
+          <Clock size={14} className="apex-text-subtle" />
           <span>{dateLabel}</span>
           <span aria-hidden="true">·</span>
           {/* Live, so the employee can see the system agrees with their watch
@@ -191,7 +191,7 @@ export default function MobilePunchPage({
 
       {phase === 'invalid' && (
         <div className="apex-card text-center">
-          <ShieldAlert size={20} className="mx-auto mb-2 text-amber-500" />
+          <ShieldAlert size={20} className="mx-auto mb-2 text-amber-700" />
           <p className="apex-text text-sm font-medium">{error}</p>
           <p className="apex-text-muted mt-1 text-xs">
             Start the punch again from your computer, or ask your manager or HR to record it.
@@ -250,7 +250,7 @@ export default function MobilePunchPage({
 
       {phase === 'done' && (
         <div className="apex-card text-center">
-          <CheckCircle2 size={22} className="mx-auto mb-2 text-emerald-500" />
+          <CheckCircle2 size={22} className="mx-auto mb-2 text-emerald-700" />
           <p className="apex-text text-sm font-medium">Punch recorded</p>
           <p className="apex-text-muted mt-1 text-xs">
             You can close this page. Your computer has been updated.
@@ -265,7 +265,7 @@ export default function MobilePunchPage({
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="apex-text-subtle text-[10px] uppercase tracking-wide">{label}</dt>
+      <dt className="apex-text-subtle text-caption uppercase tracking-wide">{label}</dt>
       <dd className="apex-text mt-0.5 text-sm font-medium tabular-nums">{value}</dd>
     </div>
   );

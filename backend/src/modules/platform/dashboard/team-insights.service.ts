@@ -169,6 +169,24 @@ export function netSessionMinutes(session: Interval, breaks: Interval[]) {
   return Math.max(0, grossMinutes - unionMinutes(clippedBreaks));
 }
 
+export function liveAttendanceStatus(input: {
+  isToday: boolean;
+  hasApprovedLeave: boolean;
+  hasPunchIn: boolean;
+  openBreakType?: string | null;
+  hasOpenSession: boolean;
+  hasPunchOut: boolean;
+}): string | null {
+  if (!input.isToday) return null;
+  // Starting work cancels leave for that date, so a real punch-in wins over
+  // an otherwise approved leave record.
+  if (input.hasApprovedLeave && !input.hasPunchIn) return 'ON_LEAVE';
+  if (input.openBreakType === 'MEETING') return 'IN_MEETING';
+  if (input.openBreakType) return 'ON_BREAK';
+  if (input.hasOpenSession) return 'WORKING';
+  return input.hasPunchOut ? 'DAY_COMPLETED' : 'NOT_STARTED';
+}
+
 export function canonicalTeamCalendarStatus(
   day: Pick<MyAttendanceDayV2, 'isFuture' | 'outcome' | 'modifiers'> | null | undefined,
   fallback: string,
@@ -723,6 +741,7 @@ export class TeamInsightsService {
       const sessionIntervals = daySessions
         .map((session) => clippedInterval(session.startWorkAt, session.logoutAt, dayRange, now))
         .filter((item): item is Interval => !!item);
+      const derivedPresenceMinutes = unionMinutes(sessionIntervals);
       const derivedWorkingMinutes = sessionIntervals.reduce((sum, interval) => sum + netSessionMinutes(interval, breakIntervals), 0);
       const ticketIntervals = ticketLogs
         .map((log) => clippedInterval(log.startedAt, log.endedAt, dayRange, now))
@@ -747,10 +766,14 @@ export class TeamInsightsService {
       );
       const openSession = day.businessDate === today ? daySessions.find((session) => !session.logoutAt) : null;
       const openBreak = day.businessDate === today ? dayBreakRows.find((item) => !item.endAt) : null;
-      const currentStatus = day.businessDate !== today ? null
-        : openBreak?.breakType === 'MEETING' ? 'IN_MEETING'
-          : openBreak ? 'ON_BREAK'
-            : openSession?.status ?? (punchOutAt ? 'DAY_COMPLETED' : 'NOT_STARTED');
+      const currentStatus = liveAttendanceStatus({
+        isToday: day.businessDate === today,
+        hasApprovedLeave: !!approvedLeave,
+        hasPunchIn: !!punchInAt,
+        openBreakType: openBreak?.breakType,
+        hasOpenSession: !!openSession,
+        hasPunchOut: !!punchOutAt,
+      });
       const isShortHours = row?.calculationReason === 'REFINED_SHORT_DAY' || row?.exceptionFlags?.some((flag) =>
         flag === 'INSUFFICIENT_PRESENCE_SPAN' || flag === 'INSUFFICIENT_EFFECTIVE_WORK',
       );
@@ -802,6 +825,10 @@ export class TeamInsightsService {
         isWorkingDay: canonical?.calendar?.isWorkingDay ?? day.isWorkingDay,
         punchInAt: canonical?.punchInAt ?? punchInAt?.toISOString() ?? null,
         punchOutAt: canonical?.punchOutAt ?? punchOutAt?.toISOString() ?? null,
+        // Presence is the full punch/session span. Keep it separate from
+        // break-excluded worked minutes so calendar averages do not silently
+        // change meaning between the owner and a manager viewing that person.
+        presenceMinutes: canonical?.presenceMinutes ?? (sessionIntervals.length ? derivedPresenceMinutes : null),
         workingMinutes: canonical?.workedMinutes ?? (sessionIntervals.length ? derivedWorkingMinutes : row?.workedMinutes ?? null),
         productiveMinutes: unionMinutes([...ticketIntervals, ...meetingIntervals]),
         meetingMinutes: unionMinutes(meetingIntervals),

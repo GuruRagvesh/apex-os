@@ -21,7 +21,7 @@ export function HomeHeader({ summary }: { summary: any }) {
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', padding: '24px 0 16px' }}>
       <div>
-        <h1 style={{ fontSize: 22, fontWeight: 500, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.3px' }}>
+        <h1 style={{ fontSize: 24, fontWeight: 500, color: 'var(--text-primary)', margin: 0, letterSpacing: '-0.3px' }}>
           {getGreeting()}, {user?.name?.split(' ')[0]}
         </h1>
         <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginTop: 4, margin: '4px 0 0' }}>{subtitle}</p>

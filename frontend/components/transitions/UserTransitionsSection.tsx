@@ -45,7 +45,7 @@ export function UserTransitionsSection() {
       <div role="tablist" aria-label="Transfers and exit" className="flex gap-2 border-b" style={{ borderColor: 'var(--border-subtle)' }}>
         {([['transfers', 'Transfers'], ['exit', 'Exit']] as const).map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} id={`tx-tab-${k}`} aria-controls={`tx-panel-${k}`} onClick={() => setTab(k)}
-            className="px-3 pb-2 text-sm font-medium" style={{ borderBottom: tab === k ? '2px solid var(--accent)' : '2px solid transparent', color: tab === k ? 'var(--accent)' : 'var(--text-secondary)' }}>
+            className="px-3 pb-2 text-sm font-medium" style={{ borderBottom: tab === k ? '2px solid var(--accent)' : '2px solid transparent', color: tab === k ? 'var(--accent-text)' : 'var(--text-secondary)' }}>
             {label}
           </button>
         ))}

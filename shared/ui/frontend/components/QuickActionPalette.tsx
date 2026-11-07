@@ -214,12 +214,12 @@ export function QuickActionPalette({
           >
             {/* Header / Config Bar */}
             <div className="p-4 bg-[#090e1a] border-b border-blue-950 flex items-center justify-between">
-              <span className="text-[10px] font-mono font-black text-blue-400 tracking-widest uppercase">
+              <span className="text-caption font-mono font-black text-blue-400 tracking-widest uppercase">
                 Quick Actions — Operations Directory
               </span>
               <button
                 onClick={onClose}
-                className="text-slate-400 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
+                className="text-slate-500 hover:text-white p-1 rounded-lg transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -227,7 +227,7 @@ export function QuickActionPalette({
 
             {/* Search Bar */}
             <div className="p-4 bg-slate-900/30 relative flex items-center border-b border-blue-950/30">
-              <Search className="w-4 h-4 text-slate-400 absolute left-8 pointer-events-none" />
+              <Search className="w-4 h-4 text-slate-500 absolute left-8 pointer-events-none" />
               <input
                 ref={inputRef}
                 type="text"
@@ -272,7 +272,7 @@ export function QuickActionPalette({
                           <h4 className={`text-xs font-bold leading-none ${isFocused ? 'text-white' : 'text-slate-100'}`}>
                             {action.title}
                           </h4>
-                          <p className={`text-[10px] mt-1 font-semibold leading-normal truncate ${isFocused ? 'text-white/60' : 'text-slate-400'}`}>
+                          <p className={`text-caption mt-1 font-semibold leading-normal truncate ${isFocused ? 'text-white/60' : 'text-slate-500'}`}>
                             {action.desc}
                           </p>
                         </div>
@@ -280,7 +280,7 @@ export function QuickActionPalette({
 
                       {/* Arrow indicator */}
                       <div className="flex items-center gap-2 pr-1 shrink-0 select-none font-mono">
-                        <ArrowRight className={`w-3.5 h-3.5 transition-transform ${isFocused ? 'text-white translate-x-0.5' : 'text-slate-400'}`} />
+                        <ArrowRight className={`w-3.5 h-3.5 transition-transform ${isFocused ? 'text-white translate-x-0.5' : 'text-slate-500'}`} />
                       </div>
                     </button>
                   );
@@ -289,7 +289,7 @@ export function QuickActionPalette({
             </div>
 
             {/* Footer instructions */}
-            <div className="p-3 bg-slate-950/80 border-t border-slate-800 text-[10px] font-mono text-slate-500 flex items-center justify-between select-none">
+            <div className="p-3 bg-slate-950/80 border-t border-slate-800 text-caption font-mono text-slate-500 flex items-center justify-between select-none">
               <span>Use ↑↓ arrows to navigate. Enter to execute bounds</span>
               <span>ESC to exit</span>
             </div>

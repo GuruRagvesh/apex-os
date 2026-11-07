@@ -106,8 +106,8 @@ export const QuickTicketTags = forwardRef<QuickTicketTagsHandle, Props>(function
                 aria-label={`Apply Default Ticket ${template.name}`}>
                 {template.isPinned && <Pin size={12} />}
                 <span>{template.name}</span>
-                <span className="text-[10px] opacity-75">{template.code}</span>
-                {template.validation.status === 'NEEDS_UPDATE' && <AlertTriangle size={13} aria-label="Needs update" />}
+                <span className="text-caption opacity-75">{template.code}</span>
+                {template.validation.status === 'NEEDS_UPDATE' && <AlertTriangle size={14} aria-label="Needs update" />}
               </button>
             ))}
             {showManagementActions && (
@@ -116,7 +116,7 @@ export const QuickTicketTags = forwardRef<QuickTicketTagsHandle, Props>(function
                   View All
                 </button>
                 <button type="button" onClick={() => setManagerOpen(true)} className="shrink-0 border px-3 py-2 rounded-lg text-xs font-medium flex items-center gap-1" style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}>
-                  <Settings2 size={13} /> Customize
+                  <Settings2 size={14} /> Customize
                 </button>
               </>
             )}
@@ -272,7 +272,7 @@ function ManagerModal({ templates, visibleCount, search, setSearch, busy, onClos
   return (
     <Modal title="Manage Default Tickets" onClose={onClose} wide>
       <div className="flex flex-wrap gap-3 items-center mb-4">
-        <div className="relative flex-1 min-w-52"><label htmlFor="default-ticket-manager-search" className="sr-only">Search Default Tickets</label><Search size={15} aria-hidden="true" className="absolute left-3 top-3" /><input id="default-ticket-manager-search" name="defaultTicketSearch" type="search" className="apex-input pl-9" placeholder="Search name or code" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
+        <div className="relative flex-1 min-w-52"><label htmlFor="default-ticket-manager-search" className="sr-only">Search Default Tickets</label><Search size={16} aria-hidden="true" className="absolute left-3 top-3" /><input id="default-ticket-manager-search" name="defaultTicketSearch" type="search" className="apex-input pl-9" placeholder="Search name or code" value={search} onChange={(e) => setSearch(e.target.value)} /></div>
         <label htmlFor="default-ticket-visible-count" className="text-sm flex items-center gap-2">Visible tickets <select id="default-ticket-visible-count" name="visibleCount" className="apex-input w-20" value={visibleCount} onChange={(e) => onVisibleCount(Number(e.target.value))}>{Array.from({ length: 20 }, (_, i) => i + 1).map((count) => <option key={count}>{count}</option>)}</select></label>
         <button type="button" onClick={onCreate} className="apex-btn-primary px-3 py-2 rounded-lg text-sm flex items-center gap-1"><Plus size={14} /> Create</button>
       </div>
@@ -281,13 +281,13 @@ function ManagerModal({ templates, visibleCount, search, setSearch, busy, onClos
           <div key={template.id} className="border rounded-lg p-3 flex items-center gap-3" style={{ borderColor: 'var(--border-subtle)' }}>
             <div className="min-w-0 flex-1"><p className="font-semibold truncate" style={{ color: 'var(--text-primary)' }}>{template.name} <span className="text-xs font-normal" style={{ color: 'var(--text-tertiary)' }}>{template.code}</span></p><p className="text-xs truncate" style={{ color: template.validation.status === 'READY' ? 'var(--text-secondary)' : 'var(--color-warning)' }}>{template.validation.status === 'READY' ? template.title : `Needs Update — ${template.validation.messages.join('; ')}`}</p></div>
             <div className="flex items-center gap-1">
-              <IconButton label="Move up" onClick={() => onMove(template.id, -1)}><ChevronUp size={15} /></IconButton>
-              <IconButton label="Move down" onClick={() => onMove(template.id, 1)}><ChevronDown size={15} /></IconButton>
-              <IconButton label={template.isPinned ? 'Unpin' : 'Pin'} onClick={() => onPin(template)}>{template.isPinned ? <PinOff size={15} /> : <Pin size={15} />}</IconButton>
-              <IconButton label={template.isVisible ? 'Hide' : 'Show'} onClick={() => onVisible(template)}>{template.isVisible ? <Eye size={15} /> : <EyeOff size={15} />}</IconButton>
-              <IconButton label="Edit" onClick={() => onEdit(template)}><Pencil size={15} /></IconButton>
-              <IconButton label="Duplicate" onClick={() => onDuplicate(template.id)}><Copy size={15} /></IconButton>
-              <IconButton label="Delete" onClick={() => onDelete(template.id)} danger><Trash2 size={15} /></IconButton>
+              <IconButton label="Move up" onClick={() => onMove(template.id, -1)}><ChevronUp size={16} /></IconButton>
+              <IconButton label="Move down" onClick={() => onMove(template.id, 1)}><ChevronDown size={16} /></IconButton>
+              <IconButton label={template.isPinned ? 'Unpin' : 'Pin'} onClick={() => onPin(template)}>{template.isPinned ? <PinOff size={16} /> : <Pin size={16} />}</IconButton>
+              <IconButton label={template.isVisible ? 'Hide' : 'Show'} onClick={() => onVisible(template)}>{template.isVisible ? <Eye size={16} /> : <EyeOff size={16} />}</IconButton>
+              <IconButton label="Edit" onClick={() => onEdit(template)}><Pencil size={16} /></IconButton>
+              <IconButton label="Duplicate" onClick={() => onDuplicate(template.id)}><Copy size={16} /></IconButton>
+              <IconButton label="Delete" onClick={() => onDelete(template.id)} danger><Trash2 size={16} /></IconButton>
             </div>
           </div>
         ))}
@@ -306,4 +306,4 @@ function Modal({ title, onClose, wide, children }: { title: string; onClose: () 
 function Field({ label, htmlFor, children }: { label: string; htmlFor?: string; children: React.ReactNode }) {
   return <div className="block">{htmlFor ? <label htmlFor={htmlFor} className="apex-label block">{label}</label> : <span className="apex-label block">{label}</span>}{children}</div>;
 }
-function IconButton({ label, onClick, danger, children }: { label: string; onClick: () => void; danger?: boolean; children: React.ReactNode }) { return <button type="button" title={label} aria-label={label} onClick={onClick} className={`p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 ${danger ? 'text-red-500' : ''}`} style={danger ? undefined : { color: 'var(--text-secondary)' }}>{children}</button>; }
+function IconButton({ label, onClick, danger, children }: { label: string; onClick: () => void; danger?: boolean; children: React.ReactNode }) { return <button type="button" title={label} aria-label={label} onClick={onClick} className={`p-2 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 ${danger ? 'text-red-600' : ''}`} style={danger ? undefined : { color: 'var(--text-secondary)' }}>{children}</button>; }

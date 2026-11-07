@@ -219,7 +219,7 @@ function HRMSPageInner() {
             </div>
             <div>
               <p className="font-bold text-white text-base leading-none">HRMS</p>
-              <p className="text-[10px] text-slate-500 mt-0.5 font-mono uppercase tracking-widest">Human Resources</p>
+              <p className="text-caption text-slate-500 mt-0.5 font-mono uppercase tracking-widest">Human Resources</p>
             </div>
           </div>
         </div>
@@ -233,7 +233,7 @@ function HRMSPageInner() {
                 onClick={() => router.push(item.key === 'overview' ? '/hrms' : `/hrms?section=${item.key}`)}
                 className={cn(
                   'w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-left text-sm font-medium transition-colors',
-                  active ? 'bg-blue-600/15 text-blue-400' : 'text-slate-400 hover:bg-slate-800/60 hover:text-slate-200',
+                  active ? 'bg-blue-600/15 text-blue-400' : 'text-slate-500 hover:bg-slate-800/60 hover:text-slate-200',
                 )}
               >
                 <item.icon size={16} className="flex-shrink-0" style={{ color: active ? '#60a5fa' : '#64748b' }} />
@@ -254,7 +254,7 @@ function HRMSPageInner() {
           <div className="flex items-center gap-2 min-w-0">
             <span className="text-sm font-semibold text-white truncate">{currentLabel}</span>
             <span
-              className="text-[9px] font-mono uppercase tracking-widest px-2 py-0.5 rounded-full flex-shrink-0"
+              className="text-caption font-mono uppercase tracking-widest px-2 py-0.5 rounded-full flex-shrink-0"
               style={{ background: 'rgba(37,99,235,0.12)', color: '#60a5fa' }}
             >
               HRMS Workspace
@@ -262,7 +262,7 @@ function HRMSPageInner() {
           </div>
           <div className="flex items-center gap-2 flex-shrink-0">
             <span
-              className="text-[10px] px-2 py-1 rounded font-mono uppercase tracking-wide"
+              className="text-caption px-2 py-1 rounded font-mono uppercase tracking-wide"
               style={{ backgroundColor: roleBadge.bg, color: roleBadge.text }}
             >
               {isHR ? 'HR' : role}
@@ -346,12 +346,12 @@ function OverviewSection({ onOpen }: { onOpen: (key: SectionKey) => void }) {
         style={{ background: 'linear-gradient(135deg, #0f766e 0%, #0891b2 55%, #2563eb 100%)', padding: '36px 40px' }}
       >
         <div className="flex items-center gap-2 mb-3">
-          <Users size={13} style={{ color: 'rgba(255,255,255,0.65)' }} />
+          <Users size={14} style={{ color: 'rgba(255,255,255,0.65)' }} />
           <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.65)', textTransform: 'uppercase', letterSpacing: '0.12em' }}>
             Apex OS · Workspace
           </span>
         </div>
-        <h1 style={{ fontSize: 30, fontWeight: 900, color: '#fff', letterSpacing: '-0.4px', marginBottom: 8 }}>HRMS</h1>
+        <h1 style={{ fontSize: 30, fontWeight: 700, color: '#fff', letterSpacing: '-0.4px', marginBottom: 8 }}>HRMS</h1>
         <p style={{ color: 'rgba(255,255,255,0.75)', fontSize: 13, maxWidth: 660 }}>
           HRMS is for HR department management work — employee records, leave management, attendance review, and
           HR approvals. Apex OS Home stays the place for everyday personal work like applying leave, tickets, and
@@ -385,7 +385,7 @@ function OverviewCardTile({ card, index, onOpen }: { card: OverviewCard; index: 
           <Icon size={16} style={{ color: '#60a5fa' }} />
         </div>
         <span
-          className="text-[9px] font-mono uppercase tracking-widest px-2 py-1 rounded-full"
+          className="text-caption font-mono uppercase tracking-widest px-2 py-1 rounded-full"
           style={{
             background: card.badge === 'Live' ? 'rgba(16,185,129,0.12)' : 'rgba(148,163,184,0.12)',
             color: card.badge === 'Live' ? '#34d399' : '#94a3b8',
@@ -397,7 +397,7 @@ function OverviewCardTile({ card, index, onOpen }: { card: OverviewCard; index: 
       <h3 className="text-sm font-bold mb-1.5" style={{ color: '#e2e8f0' }}>{card.title}</h3>
       <p className="text-xs mb-3 flex-1" style={{ color: '#8892a4' }}>{card.desc}</p>
       <div className="flex items-center justify-between pt-3" style={{ borderTop: '1px solid #1E293B' }}>
-        <p className="text-[10px] font-mono" style={{ color: '#475569' }}>{card.note}</p>
+        <p className="text-caption font-mono" style={{ color: '#475569' }}>{card.note}</p>
         <ArrowRight size={12} style={{ color: '#475569', flexShrink: 0, marginLeft: 8 }} />
       </div>
     </motion.div>
@@ -427,7 +427,7 @@ function SecondaryLink({ href, label }: { href: string; label: string }) {
       style={{ color: '#94a3b8', border: '1px solid #1E293B', backgroundColor: 'rgba(148,163,184,0.06)' }}
     >
       {label}
-      <ExternalLink size={11} />
+      <ExternalLink size={12} />
     </Link>
   );
 }
@@ -435,7 +435,7 @@ function SecondaryLink({ href, label }: { href: string; label: string }) {
 function SectionBadge({ badge }: { badge: 'Live' | 'Planned' }) {
   return (
     <span
-      className="text-[9px] font-mono uppercase tracking-widest px-2 py-1 rounded-full"
+      className="text-caption font-mono uppercase tracking-widest px-2 py-1 rounded-full"
       style={{
         background: badge === 'Live' ? 'rgba(16,185,129,0.12)' : 'rgba(148,163,184,0.12)',
         color: badge === 'Live' ? '#34d399' : '#94a3b8',
@@ -546,14 +546,14 @@ function EmployeesPanel({ isAdmin, onBack }: { isAdmin: boolean; onBack: () => v
                   <p className="text-xs truncate" style={{ color: '#64748b' }}>{u.email}</p>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <span className="text-[10px] px-2 py-0.5 rounded font-mono uppercase" style={{ backgroundColor: 'rgba(100,116,139,0.15)', color: '#94a3b8' }}>
+                  <span className="text-caption px-2 py-0.5 rounded font-mono uppercase" style={{ backgroundColor: 'rgba(100,116,139,0.15)', color: '#94a3b8' }}>
                     {u.department?.name ?? '—'}
                   </span>
-                  <span className="text-[10px] px-2 py-0.5 rounded font-mono uppercase" style={{ backgroundColor: 'rgba(37,99,235,0.12)', color: '#60a5fa' }}>
+                  <span className="text-caption px-2 py-0.5 rounded font-mono uppercase" style={{ backgroundColor: 'rgba(37,99,235,0.12)', color: '#60a5fa' }}>
                     {u.role?.name ?? '—'}
                   </span>
                   {!u.isActive && (
-                    <span className="text-[10px] px-2 py-0.5 rounded font-mono uppercase" style={{ backgroundColor: 'rgba(239,68,68,0.12)', color: '#f87171' }}>
+                    <span className="text-caption px-2 py-0.5 rounded font-mono uppercase" style={{ backgroundColor: 'rgba(239,68,68,0.12)', color: '#f87171' }}>
                       Inactive
                     </span>
                   )}
@@ -563,7 +563,7 @@ function EmployeesPanel({ isAdmin, onBack }: { isAdmin: boolean; onBack: () => v
           </div>
         )}
       </div>
-      <p className="text-[10px] font-mono mt-3" style={{ color: '#475569' }}>
+      <p className="text-caption font-mono mt-3" style={{ color: '#475569' }}>
         Showing {employees.length} of {total} employees. Editing, deactivation, and account creation remain in Admin User Management.
       </p>
     </PanelShell>
@@ -605,7 +605,7 @@ function LeaveManagementPanel({ onBack }: { onBack: () => void }) {
         ].map((stat) => (
           <div key={stat.label} className="rounded-xl p-3 text-center" style={{ backgroundColor: 'rgba(148,163,184,0.06)', border: '1px solid #1E293B' }}>
             <p className="text-lg font-bold font-mono" style={{ color: '#e2e8f0' }}>{stat.value ?? '—'}</p>
-            <p className="text-[10px] uppercase tracking-wide" style={{ color: '#64748b' }}>{stat.label}</p>
+            <p className="text-caption uppercase tracking-wide" style={{ color: '#64748b' }}>{stat.label}</p>
           </div>
         ))}
       </div>
@@ -626,7 +626,7 @@ function LeaveManagementPanel({ onBack }: { onBack: () => void }) {
                   </p>
                 </div>
                 <span
-                  className="text-[10px] px-2 py-0.5 rounded font-mono uppercase flex-shrink-0"
+                  className="text-caption px-2 py-0.5 rounded font-mono uppercase flex-shrink-0"
                   style={{
                     backgroundColor: it.status === 'PENDING' ? 'rgba(245,158,11,0.12)' : it.status === 'APPROVED' ? 'rgba(16,185,129,0.12)' : 'rgba(239,68,68,0.12)',
                     color: it.status === 'PENDING' ? '#fbbf24' : it.status === 'APPROVED' ? '#34d399' : '#f87171',
@@ -639,7 +639,7 @@ function LeaveManagementPanel({ onBack }: { onBack: () => void }) {
           </div>
         )}
       </div>
-      <p className="text-[10px] font-mono mt-3" style={{ color: '#475569' }}>
+      <p className="text-caption font-mono mt-3" style={{ color: '#475569' }}>
         To approve or reject a request, use the existing action in Apex OS Leave.
       </p>
     </PanelShell>
@@ -679,7 +679,7 @@ function HRApprovalsPanel({ onBack }: { onBack: () => void }) {
                     {String(it.requestType ?? '').replace(/_/g, ' ')} · requested by {it.requestedBy?.name ?? 'Unknown'}
                   </p>
                 </div>
-                <span className="text-[10px] font-mono flex-shrink-0" style={{ color: '#475569' }}>
+                <span className="text-caption font-mono flex-shrink-0" style={{ color: '#475569' }}>
                   {it.createdAt ? formatRelativeTime(it.createdAt) : ''}
                 </span>
               </div>

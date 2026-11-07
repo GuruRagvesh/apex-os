@@ -263,7 +263,7 @@ export function ManualRecoveryForm({
 function EvidenceAbsence() {
   return (
     <div className="mt-3 rounded-lg bg-[var(--bg-secondary)] p-2.5">
-      <p className="apex-text-subtle mb-1 text-[11px] font-semibold uppercase tracking-wide">
+      <p className="apex-text-subtle mb-1 text-caption font-semibold uppercase tracking-wide">
         Evidence
       </p>
       <p className="apex-text-muted flex items-center gap-1.5 text-xs">
@@ -289,7 +289,7 @@ function Field({
     <div className="mb-3">
       <label className="apex-text mb-1 block text-xs font-medium">{label}</label>
       {children}
-      {error && <p className="mt-1 text-[11px] text-red-600 dark:text-red-400">{error}</p>}
+      {error && <p className="mt-1 text-caption text-red-600 dark:text-red-400">{error}</p>}
     </div>
   );
 }
@@ -297,7 +297,7 @@ function Field({
 function Fact({ label, value }: { label: string; value: string }) {
   return (
     <div>
-      <dt className="apex-text-subtle text-[11px] uppercase tracking-wide">{label}</dt>
+      <dt className="apex-text-subtle text-caption uppercase tracking-wide">{label}</dt>
       <dd className="apex-text mt-0.5 text-sm font-medium">{value}</dd>
     </div>
   );

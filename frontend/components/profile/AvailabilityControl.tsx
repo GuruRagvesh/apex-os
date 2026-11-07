@@ -78,9 +78,9 @@ export function AvailabilityControl({ compact = false, align = 'right' }: { comp
       className={`inline-flex max-w-full items-center gap-2 rounded-xl border px-3 py-2 text-sm font-medium transition-colors hover:opacity-80 ${compact ? 'border-transparent px-2' : ''}`}
       style={{ borderColor: compact ? 'transparent' : 'var(--border-primary)', color: 'var(--text-primary)', backgroundColor: compact ? 'transparent' : 'var(--surface-card)' }}
     >
-      <span className="grid h-4 w-4 flex-shrink-0 place-items-center rounded-full text-[10px] font-bold text-white" style={{ backgroundColor: current.color }}>{current.symbol}</span>
+      <span className="grid h-4 w-4 flex-shrink-0 place-items-center rounded-full text-caption font-bold text-white" style={{ backgroundColor: current.color }}>{current.symbol}</span>
       <span className={compact ? 'hidden sm:inline' : ''}>{isLoading ? 'Loading…' : current.label}</span>
-      <ChevronDown size={13} aria-hidden="true" />
+      <ChevronDown size={14} aria-hidden="true" />
     </button>
     {open && <div
       role="dialog"
@@ -92,7 +92,7 @@ export function AvailabilityControl({ compact = false, align = 'right' }: { comp
         <p className="text-sm font-semibold">Set availability</p>
         <p className="mt-0.5 text-xs" style={{ color: 'var(--text-tertiary)' }}>Shown to teammates. Attendance and notification delivery do not change.</p>
       </div>
-      {isError && <button type="button" onClick={() => refetch()} className="w-full rounded-lg px-2 py-2 text-left text-xs" style={{ color: 'var(--color-danger)' }}>Could not load availability. Retry</button>}
+      {isError && <button type="button" onClick={() => refetch()} className="w-full rounded-lg px-2 py-2 text-left text-xs" style={{ color: 'var(--danger-text)' }}>Could not load availability. Retry</button>}
       {OPTIONS.map((option) => <button
         key={option.value}
         type="button"
@@ -103,7 +103,7 @@ export function AvailabilityControl({ compact = false, align = 'right' }: { comp
       >
         <span className="grid h-5 w-5 place-items-center rounded-full text-xs font-bold text-white" style={{ backgroundColor: option.color }}>{option.symbol}</span>
         <span className="flex-1">{option.label}</span>
-        {selected === option.value && <Check size={15} aria-hidden="true" style={{ color: 'var(--accent)' }} />}
+        {selected === option.value && <Check size={16} aria-hidden="true" style={{ color: 'var(--accent-text)' }} />}
       </button>)}
       <div className="mt-1 border-t px-2 pt-3" style={{ borderColor: 'var(--border-subtle)' }}>
         <label htmlFor={`availability-duration-${compact ? 'top' : 'profile'}`} className="mb-1.5 flex items-center gap-2 text-xs font-medium"><Clock3 size={14} /> Reset after</label>
@@ -123,7 +123,7 @@ export function AvailabilityControl({ compact = false, align = 'right' }: { comp
           <button type="button" disabled={update.isPending} onClick={() => update.mutate({ status: selected, duration: durationMinutes })} className="mt-2 rounded-lg px-2 py-1.5 text-xs font-semibold disabled:opacity-50" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)' }}>Apply duration</button>
         </>}
       </div>
-      <button type="button" disabled={update.isPending} onClick={() => update.mutate({ status: 'AUTO', duration: null })} className="mt-2 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-[var(--bg-tertiary)] disabled:opacity-50"><RotateCcw size={15} /> Reset to workday status</button>
+      <button type="button" disabled={update.isPending} onClick={() => update.mutate({ status: 'AUTO', duration: null })} className="mt-2 flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-sm hover:bg-[var(--bg-tertiary)] disabled:opacity-50"><RotateCcw size={16} /> Reset to workday status</button>
     </div>}
   </div>;
 }

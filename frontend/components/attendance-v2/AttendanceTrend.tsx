@@ -42,7 +42,7 @@ export function AttendanceTrend({ days, partial, onSelect }: {
   return (
     <section className={s.trend} aria-label="Personal attendance trend">
       <div className={s.panelHeading}>
-        <div><h3><TrendingUp size={17} />Your time, over time</h3><p>Recorded values. No estimated punches.</p></div>
+        <div><h3><TrendingUp size={16} />Your time, over time</h3><p>Recorded values. No estimated punches.</p></div>
         <div className={s.smallTabs} aria-label="Trend measure">
           <button aria-pressed={measure === 'punch'} onClick={() => { setMeasure('punch'); setActiveDate(null); }}>Punch-in</button>
           <button aria-pressed={measure === 'worked'} onClick={() => { setMeasure('worked'); setActiveDate(null); }}>Worked time</button>

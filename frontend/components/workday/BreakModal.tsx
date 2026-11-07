@@ -79,7 +79,7 @@ export function BreakModal({ onClose, onBreakStarted, initialBreakType = '' }: P
     >
       <div
         className="apex-scale-in w-full max-w-sm rounded-3xl shadow-2xl overflow-hidden"
-        style={{ backgroundColor: 'white' }}
+        style={{ backgroundColor: 'var(--surface-elevated)' }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Dark navy header */}
@@ -97,11 +97,11 @@ export function BreakModal({ onClose, onBreakStarted, initialBreakType = '' }: P
           </div>
           <div className="flex-1">
             <h2 className="text-base font-semibold text-white">Start a Break</h2>
-            <p className="text-xs text-slate-400 mt-0.5">Choose break type and duration</p>
+            <p className="text-xs text-slate-500 mt-0.5">Choose break type and duration</p>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white transition-colors"
+            className="text-slate-500 hover:text-white transition-colors"
             aria-label="Close"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
@@ -137,7 +137,7 @@ export function BreakModal({ onClose, onBreakStarted, initialBreakType = '' }: P
           {/* Duration chips */}
           {breakType && (
             <div className="mb-2">
-              <p className="text-xs text-slate-400 mb-2 font-mono uppercase tracking-wider">Estimated duration (optional)</p>
+              <p className="text-xs text-slate-500 mb-2 font-mono uppercase tracking-wider">Estimated duration (optional)</p>
               <div className="flex gap-2 flex-wrap">
                 {DURATIONS.map((d) => (
                   <button
@@ -185,7 +185,7 @@ export function BreakModal({ onClose, onBreakStarted, initialBreakType = '' }: P
                     autoFocus
                     className="w-28 px-3 py-2 text-sm border border-slate-200 rounded-xl bg-slate-50 text-slate-800 focus:outline-none focus:ring-2 focus:ring-orange-400/30 focus:border-orange-400"
                   />
-                  <span className="text-xs text-slate-400">min</span>
+                  <span className="text-xs text-slate-500">min</span>
                 </div>
               )}
               {effectiveDuration && (
@@ -200,7 +200,7 @@ export function BreakModal({ onClose, onBreakStarted, initialBreakType = '' }: P
                       <button
                         type="button"
                         onClick={enableReminder}
-                        className="flex-shrink-0 rounded-lg border border-orange-300 bg-white px-3 py-1.5 text-xs font-semibold text-orange-600 hover:bg-orange-50"
+                        className="flex-shrink-0 rounded-lg border border-orange-300 bg-white px-3 py-1.5 text-xs font-semibold text-orange-700 hover:bg-orange-50"
                       >
                         Enable reminder
                       </button>

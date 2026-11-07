@@ -33,15 +33,17 @@ type TimelineDay = {
 };
 type TimelineData = {
   identity: { id: string; name: string; role: string; department: { id: string; name: string } | null };
-  month: string; timezone: string; rangePages: { from: number; to: number }[]; days: TimelineDay[];
+  month: string; timezone: string;
+  timelineWindow: { startMinute: number; endMinute: number; durationMinutes: number; startLabel: string; endLabel: string; suggestedViewportStartMinute: number };
+  rangePages: { from: number; to: number }[]; days: TimelineDay[];
   ledger: { productiveSeconds: number; meetingSeconds: number; breakSeconds: number; undefinedSeconds: number; sessionCount: number; ticketsTouched: number; ticketsCompleted: number; executionOverdueTickets: number; reviewOverdueTickets: number; overlappingTickets: number; blockedTickets: number };
   ticketAnalysis: { ticketDbId: string; ticketId: string; title: string; seconds: number; benchmarkMinutes: number | null; actualMinutes: number; varianceMinutes: number | null; comparison: string }[];
 };
 
 const FILTERS: { type: SegmentType; label: string; color: string }[] = [
-  { type: 'OPEN', label: 'Open · not started', color: '#9aaac0' },
+  { type: 'OPEN', label: 'Open', color: '#9aaac0' },
   { type: 'TICKET', label: 'In progress', color: '#1677c8' },
-  { type: 'REVIEW_WAIT', label: 'Waiting for review', color: '#f1b62b' },
+  { type: 'REVIEW_WAIT', label: 'Under Review', color: '#f1b62b' },
   { type: 'REWORK', label: 'Rework in progress', color: '#d45aa6' },
   { type: 'COMPLETED', label: 'Completed', color: '#22a06b' },
   { type: 'MEETING', label: 'Meeting', color: '#7857d8' },
@@ -53,6 +55,14 @@ const OVERDUE_FILTERS: { type: SegmentType; label: string; color: string }[] = [
   { type: 'OVERDUE_EXECUTION', label: 'User overdue', color: '#df3d55' },
 ];
 const TICKET_COLORS = ['#1677c8', '#079c91', '#5b66d6', '#2a9c54', '#0d89b7'];
+const DEFAULT_TIMELINE_WINDOW = {
+  startMinute: 0,
+  endMinute: 1440,
+  durationMinutes: 1440,
+  startLabel: '12:00 AM',
+  endLabel: '12:00 AM',
+  suggestedViewportStartMinute: 9 * 60,
+};
 const SEGMENT_HEIGHT = 25;
 const SEGMENT_LANE_STEP = 31;
 const SEGMENT_TOP = 11;
@@ -81,10 +91,10 @@ function opensTicket(segment: TimelineSegment) {
 }
 function stageLabel(type: SegmentType) {
   const labels: Record<SegmentType, string> = {
-    OPEN: 'Open · not started',
+    OPEN: 'Open',
     TICKET: 'In progress',
     REWORK: 'Rework in progress',
-    REVIEW_WAIT: 'Awaiting review',
+    REVIEW_WAIT: 'Under Review',
     COMPLETED: 'Completed',
     OVERDUE_EXECUTION: 'User overdue',
     OVERDUE_REVIEW: 'Review overdue',
@@ -103,6 +113,29 @@ function visibleSegments(segments: TimelineSegment[], activeFilter: SegmentType 
 }
 function isDimmed(segment: TimelineSegment, activeFilter: SegmentType | null) {
   return !!activeFilter && !isOverdueType(activeFilter) && segment.type !== activeFilter;
+}
+function timelinePercent(minute: number, startMinute: number, endMinute: number) {
+  const duration = Math.max(1, endMinute - startMinute);
+  return (Math.min(endMinute, Math.max(startMinute, minute)) - startMinute) / duration * 100;
+}
+function axisMinutes(startMinute: number, endMinute: number) {
+  const result = [startMinute];
+  let minute = Math.ceil(startMinute / 180) * 180;
+  if (minute === startMinute) minute += 180;
+  while (minute < endMinute) {
+    result.push(minute);
+    minute += 180;
+  }
+  if (result.at(-1) !== endMinute) result.push(endMinute);
+  return result;
+}
+function axisLabel(minute: number) {
+  if (minute === 0 || minute === 1440) return '12 AM';
+  const hour = Math.floor(minute / 60);
+  const minutePart = minute % 60;
+  const suffix = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour % 12 || 12;
+  return `${displayHour}${minutePart ? `:${String(minutePart).padStart(2, '0')}` : ''} ${suffix}`;
 }
 function segmentColor(type: SegmentType) {
   return [...FILTERS, ...OVERDUE_FILTERS].find((filter) => filter.type === type)?.color ?? '#98a2b3';
@@ -221,10 +254,20 @@ export function ProductivityTimelinePanel() {
     staleTime: 30_000,
   });
   const data = timelineQuery.data;
+  const timelineWindow = data?.timelineWindow ?? DEFAULT_TIMELINE_WINDOW;
   const page = data?.rangePages[pageIndex];
   const days = page ? data?.days.filter((day) => day.dayNumber >= page.from && day.dayNumber <= page.to) ?? [] : [];
   const selectedPerson = people.find((person) => person.id === personId);
   const shownPeople = people.filter((person) => `${person.name} ${person.role.name} ${person.department?.name ?? ''}`.toLowerCase().includes(search.toLowerCase()));
+  const viewportStartMinute = useMemo(() => {
+    const relevantSegments = days.flatMap((day) => visibleSegments(day.segments, activeFilter))
+      .filter((segment) => segment.endMinute > segment.startMinute);
+    if (!relevantSegments.length) return timelineWindow.suggestedViewportStartMinute;
+    const earliest = Math.min(...relevantSegments.map((segment) => segment.startMinute));
+    return Math.floor(earliest / 30) * 30;
+  }, [activeFilter, days, timelineWindow.suggestedViewportStartMinute]);
+
+  const timelineTrackWidth = Math.max(900, Math.ceil((timelineWindow.endMinute - viewportStartMinute) / 60 * 70));
 
   if (!visible) return null;
 
@@ -244,7 +287,7 @@ export function ProductivityTimelinePanel() {
             <button type="button" className={s.personButton} onClick={() => setPersonOpen((open) => !open)} aria-expanded={personOpen}>
               <span className={s.avatar}>{selectedPerson?.photoUrl ? <img src={selectedPerson.photoUrl} alt="" /> : initials(selectedPerson?.name ?? 'Select')}</span>
               <span><small>{selectedPerson?.role.name.replaceAll('_', ' ') ?? 'Employee'}</small><strong>{selectedPerson?.name ?? 'Select a person'}</strong></span>
-              <ChevronDown size={15} />
+              <ChevronDown size={16} />
             </button>
             {personOpen && <div className={s.personPopover}>
               <label><Search size={14} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search people…" autoFocus /></label>
@@ -254,7 +297,7 @@ export function ProductivityTimelinePanel() {
               </button>)}</div>
             </div>}
           </div>
-          <label className={s.monthPicker}><CalendarDays size={15} /><span>Month</span><input type="month" value={month} max={currentMonth()} onChange={(event) => setMonth(event.target.value)} /></label>
+          <label className={s.monthPicker}><CalendarDays size={16} /><span>Month</span><input type="month" value={month} max={currentMonth()} onChange={(event) => setMonth(event.target.value)} /></label>
         </div>
       </header>
 
@@ -278,7 +321,7 @@ export function ProductivityTimelinePanel() {
           </button>)}
           <div className={s.overdueFilter}>
             <button type="button" className={s.overdueFilterButton} aria-haspopup="menu" aria-expanded={overdueOpen} aria-pressed={OVERDUE_FILTERS.some((filter) => filter.type === activeFilter)} onClick={() => setOverdueOpen((open) => !open)}>
-              <i style={{ background: '#cf2945' }} />Overdue<ChevronDown size={13} />
+              <i style={{ background: '#cf2945' }} />Overdue<ChevronDown size={14} />
             </button>
             {overdueOpen && <div className={s.overdueMenu} role="menu">
               {OVERDUE_FILTERS.map((filter) => <button type="button" role="menuitemcheckbox" aria-checked={activeFilter === filter.type} key={filter.type} onClick={() => { setActiveFilter(activeFilter === filter.type ? null : filter.type); setOverdueOpen(false); }}>
@@ -297,9 +340,9 @@ export function ProductivityTimelinePanel() {
         </div>
 
         <div className={s.timelineScroll}>
-          <div className={s.timelineTable}>
-            <div className={s.axisRow}><div>Date</div><TimeAxis /></div>
-            {days.map((day) => <DayRow key={day.date} day={day} activeFilter={activeFilter} onOpen={() => setSelectedDay(day)} onTicket={openTicket} />)}
+          <div className={s.timelineTable} style={{ '--timeline-track-width': `${timelineTrackWidth}px` } as CSSProperties}>
+            <div className={s.axisRow}><div>Date</div><TimeAxis startMinute={viewportStartMinute} endMinute={timelineWindow.endMinute} /></div>
+            {days.map((day) => <DayRow key={day.date} day={day} activeFilter={activeFilter} windowStartMinute={viewportStartMinute} windowEndMinute={timelineWindow.endMinute} onOpen={() => setSelectedDay(day)} onTicket={openTicket} />)}
           </div>
         </div>
       </>}
@@ -313,29 +356,31 @@ function Ledger({ icon, label, value, detail, tone }: { icon: React.ReactNode; l
   return <div className={`${s.ledgerItem} ${s[`ledger_${tone}`]}`}><span>{icon}</span><div><small>{label}</small><strong>{value}</strong><em>{detail}</em></div></div>;
 }
 
-function TimeAxis() {
-  return <div className={s.axis}>{[0, 3, 6, 9, 12, 15, 18, 21, 24].map((hour) => <span key={hour} style={{ left: `${hour / 24 * 100}%` }}>{hour === 0 || hour === 24 ? '12 AM' : hour === 12 ? '12 PM' : hour > 12 ? `${hour - 12} PM` : `${hour} AM`}</span>)}</div>;
+function TimeAxis({ startMinute = 0, endMinute = 1440 }: { startMinute?: number; endMinute?: number }) {
+  return <div className={s.axis}>{axisMinutes(startMinute, endMinute).map((minute) => <span key={minute} style={{ left: `${timelinePercent(minute, startMinute, endMinute)}%` }}>{axisLabel(minute)}</span>)}</div>;
 }
 
-function DayRow({ day, activeFilter, onOpen, onTicket }: { day: TimelineDay; activeFilter: SegmentType | null; onOpen: () => void; onTicket: (event: React.MouseEvent, id?: string) => void }) {
-  const shownSegments = visibleSegments(day.segments, activeFilter);
+function DayRow({ day, activeFilter, windowStartMinute, windowEndMinute, onOpen, onTicket }: { day: TimelineDay; activeFilter: SegmentType | null; windowStartMinute: number; windowEndMinute: number; onOpen: () => void; onTicket: (event: React.MouseEvent, id?: string) => void }) {
+  const shownSegments = visibleSegments(day.segments, activeFilter)
+    .filter((segment) => segment.endMinute > windowStartMinute && segment.startMinute < windowEndMinute);
   const layout = segmentLayout(shownSegments);
+  const ticks = axisMinutes(windowStartMinute, windowEndMinute);
   const rowHeight = Math.max(104, 28 + (layout.maxLane + 1) * SEGMENT_LANE_STEP);
   const specialDay = day.attendanceStatus === 'HOLIDAY'
-    ? { label: 'HOLIDAY', className: s.holidayRow }
+    ? { label: 'Holiday', className: s.holidayRow }
     : day.attendanceStatus === 'WEEKLY_OFF'
-      ? { label: 'WEEKLY OFF', className: s.weeklyOffRow }
+      ? { label: 'Weekly off', className: s.weeklyOffRow }
       : null;
   return <div className={`${s.dayRow} ${specialDay?.className ?? ''}`} style={{ minHeight: rowHeight }} onClick={onOpen} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') onOpen(); }} role="button" tabIndex={0} aria-label={`Open ${dayTitle(day.date)} details`}>
     <div className={s.dayMeta}><strong>{day.dayNumber}</strong><span>{day.weekday}</span></div>
     <div className={s.track}>
-      <div className={s.gridLines}>{Array.from({ length: 9 }, (_, index) => <i key={index} style={{ left: `${index / 8 * 100}%` }} />)}</div>
+      <div className={s.gridLines}>{ticks.map((minute) => <i key={minute} style={{ left: `${timelinePercent(minute, windowStartMinute, windowEndMinute)}%` }} />)}</div>
       {specialDay && <span className={s.specialDayLabel}>{specialDay.label}</span>}
       {!specialDay && !layout.items.length && <span className={s.noRecord}>No recorded activity</span>}
       {layout.items.map(({ segment, lane, color }) => <button
         type="button" key={segment.id}
         className={`${s.segment} ${s[`type_${segment.type}`]} ${isDimmed(segment, activeFilter) ? s.dimmed : ''}`}
-        style={{ left: `${segment.startMinute / 1440 * 100}%`, width: `${Math.max(.65, (segment.endMinute - segment.startMinute) / 1440 * 100)}%`, top: `${SEGMENT_TOP + lane * SEGMENT_LANE_STEP}px`, background: color }}
+        style={{ left: `${timelinePercent(segment.startMinute, windowStartMinute, windowEndMinute)}%`, width: `${Math.max(.65, timelinePercent(segment.endMinute, windowStartMinute, windowEndMinute) - timelinePercent(segment.startMinute, windowStartMinute, windowEndMinute))}%`, top: `${SEGMENT_TOP + lane * SEGMENT_LANE_STEP}px`, background: color }}
         aria-label={`${segment.label} · ${clock(segment.startAt)}–${clock(segment.endAt)} · ${duration(segment.durationSeconds)}`}
         onClick={(event) => opensTicket(segment) ? onTicket(event, segment.ticketDbId) : event.stopPropagation()}
       >{segment.continuesBefore && <b>‹</b>}<SegmentContents segment={segment} />{segment.continuesAfter && <b>›</b>}</button>)}

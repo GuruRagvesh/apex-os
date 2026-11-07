@@ -62,6 +62,17 @@
 
 <!-- Required for UI changes. Before and after. -->
 
+## UI rules (DESIGN.md)
+
+<!-- Required for UI changes; delete for backend-only PRs. -->
+
+- [ ] Built from `shared/ui` pieces and `.apex-*` classes; new pages start with `PageHeader`
+- [ ] Colours from tokens only; colour used only in the zones DESIGN.md → Colour policy allows
+- [ ] Type, spacing, radius, icon and button sizes from the scales; nothing below 11px
+- [ ] Checked in **light and dark**, at desktop and 375px phone width
+- [ ] Loading, empty and error states designed
+- [ ] `npm run frontend:verify-design-rules` run; new warnings fixed or explained
+
 ## Confirmation
 
 - [ ] This PR contains **no unrelated changes**

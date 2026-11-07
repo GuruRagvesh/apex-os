@@ -24,6 +24,7 @@ import { TeamLeadershipSection } from './TeamLeadershipSection';
 import { AvailabilityControl } from '@/components/profile/AvailabilityControl';
 import { OrganizationHierarchySection } from './OrganizationHierarchySection';
 import { ComplianceSettings } from '@/components/transitions/ComplianceSettings';
+import { BreakSoundPicker, DEFAULT_BREAK_SOUND, isBreakSoundId } from '@/components/notifications/BreakSoundPicker';
 
 // ── Shared CSS-variable-aware styles ──────────────────────────────────────────
 const inputCls  = 'apex-input';
@@ -212,7 +213,7 @@ function ProfileSection({ user }: { user: any }) {
             <div className="relative px-5 pb-6">
               <div className="-mt-10 mb-3 flex items-end justify-between gap-2">
                 <UserAvatar name={name} avatar={color} photoUrl={user?.photoUrl} size="lg" className="!h-20 !w-20 !text-2xl ring-4 ring-[var(--surface-card)]" />
-                <span className="pb-1 text-[11px] font-medium uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Live preview</span>
+                <span className="pb-1 text-caption font-medium uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Live preview</span>
               </div>
               <h3 className="break-words text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>{name.trim() || 'Your name'}</h3>
               <p className="mt-0.5 text-sm" style={{ color: 'var(--text-secondary)' }}>{title || 'Team member'}{deptName ? ` · ${deptName}` : ''}</p>
@@ -239,7 +240,7 @@ function ProfileSection({ user }: { user: any }) {
                     <input type="file" accept="image/jpeg,image/png" className="sr-only" onChange={handlePhotoUpload} disabled={photoSaving} aria-label="Upload profile photo" />
                     {photoSaving ? 'Uploading…' : 'Change photo'}
                   </label>
-                  {user?.photoUrl && <button type="button" onClick={handleRemovePhoto} className="px-2 py-2 text-sm" style={{ color: 'var(--color-danger)' }}>Remove</button>}
+                  {user?.photoUrl && <button type="button" onClick={handleRemovePhoto} className="px-2 py-2 text-sm" style={{ color: 'var(--danger-text)' }}>Remove</button>}
                 </div>
               </div>
               <p className="mb-2 mt-4 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>Fallback avatar colour</p>
@@ -301,7 +302,7 @@ function SecuritySection({ user }: { user: any }) {
   const strength = newP.length === 0 ? 0 : newP.length < 8 ? 1 : newP.length < 12 || !/[^a-zA-Z0-9]/.test(newP) ? 2 : 3;
   const strengthLabel = ['', 'Weak', 'Medium', 'Strong'];
   const strengthColor = ['', 'bg-red-400', 'bg-amber-400', 'bg-green-500'];
-  const strengthText  = ['', 'text-red-500', 'text-amber-500', 'text-green-600'];
+  const strengthText  = ['', 'text-red-600', 'text-amber-700', 'text-green-700'];
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -417,6 +418,7 @@ const NOTIF_DEFAULTS = {
   quietHoursEnabled: true,
   quietFrom:      '22:00',
   quietTo:        '08:00',
+  breakWarningSound: DEFAULT_BREAK_SOUND,
 };
 
 // Per-event channels (spec §4, §11.4). Notification Center always keeps every
@@ -598,7 +600,7 @@ function NotificationsSection({ isManager }: { isManager: boolean }) {
         <p className="mt-1 text-sm" style={{ color: 'var(--text-secondary)' }} data-testid="notification-center-note">
           Choose which events interrupt you. The bell keeps the full notification history even when popup or push alerts are off.
         </p>
-        {loadState === 'offline' && <p className="mt-2 text-xs" role="status" style={{ color: 'var(--color-warning)' }}>Server unavailable. Showing this account’s saved browser copy; changes cannot be saved until the connection returns.</p>}
+        {loadState === 'offline' && <p className="mt-2 text-xs" role="status" style={{ color: 'var(--warning-text)' }}>Server unavailable. Showing this account’s saved browser copy; changes cannot be saved until the connection returns.</p>}
       </div>
       {(['Tickets', 'Leave', 'Workday & attendance', 'Projects'] as const).map((group) => (
         <div key={group} className="apex-card overflow-hidden p-0" data-testid={`notif-matrix-${group.toLowerCase().replace(/[^a-z]+/g, '-')}`}>
@@ -628,6 +630,18 @@ function NotificationsSection({ isManager }: { isManager: boolean }) {
       ))}
 
       <div className={cardCls}>
+        <div>
+          <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Break warning sound</h3>
+          <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>Preview each sound, then choose the alarm Apex OS plays for break reminders while the app is open. Browser push uses your device’s system sound.</p>
+        </div>
+        <BreakSoundPicker
+          value={isBreakSoundId(prefs.breakWarningSound) ? prefs.breakWarningSound : DEFAULT_BREAK_SOUND}
+          onChange={(breakWarningSound) => setPrefs((current) => ({ ...current, breakWarningSound }))}
+          constrained
+        />
+      </div>
+
+      <div className={cardCls}>
         <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Delivery</h3>
         <ToggleRow label="Popup alerts" desc="Show a brief on-screen alert for selected events. The bell history remains available." checked={prefs.inApp} onChange={() => toggle('inApp')} />
         <ToggleRow label="System push alerts" desc="Send selected alerts to registered devices, including when Apex OS is in the background." checked={prefs.pushEnabled} onChange={() => toggle('pushEnabled')} />
@@ -635,11 +649,11 @@ function NotificationsSection({ isManager }: { isManager: boolean }) {
           <div className="rounded-lg border p-3" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--surface-sunken)' }}>
             <p className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>This device</p>
             <p className="mt-1 text-xs" role="status" style={{ color: 'var(--text-secondary)' }}>
-              {deviceStatus === 'enabled' ? 'Registered for push alerts.' : deviceStatus === 'blocked' ? 'Notifications are blocked in this browser. Allow them in browser settings.' : deviceStatus === 'unsupported' ? 'Push alerts are not supported in this browser.' : deviceStatus === 'checking' ? 'Checking browser permission…' : 'Not registered for push alerts.'}
+              {deviceStatus === 'enabled' ? 'Registered for background system alerts on this device.' : deviceStatus === 'blocked' ? 'Notifications are blocked in this browser. Allow them in browser settings.' : deviceStatus === 'unsupported' ? 'Push alerts are not available in this browser. On iPhone or iPad, add Apex OS to the Home Screen first, then enable notifications from the installed web app.' : deviceStatus === 'checking' ? 'Checking browser permission…' : 'Not registered. Enable this device to receive break alarms even when the Apex tab is closed.'}
             </p>
             {deviceStatus === 'not-enabled' && <button type="button" onClick={enableThisDevice} disabled={enablingDevice || dirty}
               className="apex-btn apex-btn-secondary mt-2 text-sm disabled:opacity-50">
-              {enablingDevice ? 'Enabling…' : 'Enable on this device'}
+              {enablingDevice ? 'Enabling…' : 'Enable system notifications'}
             </button>}
             {deviceStatus === 'not-enabled' && dirty && <p className="mt-1 text-xs" style={{ color: 'var(--text-secondary)' }}>Save your changes first, then enable this device.</p>}
           </div>
@@ -750,9 +764,9 @@ function CompanySection() {
               <p className="text-xs font-semibold uppercase tracking-[0.14em]" style={{ color: '#2666C4' }}>Organization identity</p>
               <h3 className="mt-1 text-xl font-semibold" style={{ color: 'var(--text-primary)' }}>{form.companyName}</h3>
               <div className="mt-3 flex flex-wrap gap-2 text-xs">
-                <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ backgroundColor: '#F0F7FF', color: '#01266A' }}><MapPin size={13} />{form.country}</span>
-                <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ backgroundColor: '#F0F7FF', color: '#01266A' }}><IndianRupee size={13} />{form.currency}</span>
-                <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ backgroundColor: '#F0F7FF', color: '#01266A' }}><Clock3 size={13} />{form.timezone === 'Asia/Kolkata' ? 'IST' : form.timezone}</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ backgroundColor: '#F0F7FF', color: '#01266A' }}><MapPin size={14} />{form.country}</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ backgroundColor: '#F0F7FF', color: '#01266A' }}><IndianRupee size={14} />{form.currency}</span>
+                <span className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5" style={{ backgroundColor: '#F0F7FF', color: '#01266A' }}><Clock3 size={14} />{form.timezone === 'Asia/Kolkata' ? 'IST' : form.timezone}</span>
               </div>
             </div>
           </div>
@@ -768,7 +782,7 @@ function CompanySection() {
             <div><label className={labelCls}><Mail size={14} />Contact email</label><input required type="email" autoComplete="email" className={inputCls} value={form.contactEmail} onChange={(e) => setForm((f) => ({ ...f, contactEmail: e.target.value }))} /></div>
             <div><label className={labelCls}><Globe2 size={14} />Website</label><input required type="url" autoComplete="url" className={inputCls} value={form.website} onChange={(e) => setForm((f) => ({ ...f, website: e.target.value }))} /></div>
           </div>
-          <a href={form.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--accent)' }}>
+          <a href={form.website} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 text-sm font-medium" style={{ color: 'var(--accent-text)' }}>
             Visit organization website <ExternalLink size={14} aria-hidden="true" />
           </a>
         </section>
@@ -983,7 +997,7 @@ function SlaSection({ canEdit = true }: { canEdit?: boolean }) {
   });
 
   const priorityColor: Record<string, string> = {
-    URGENT: 'text-red-600', HIGH: 'text-orange-600', MEDIUM: 'text-blue-600', LOW: 'text-slate-500',
+    URGENT: 'text-red-600', HIGH: 'text-orange-700', MEDIUM: 'text-blue-600', LOW: 'text-slate-500',
   };
 
   const handleSave = (e: React.FormEvent) => {
@@ -1360,7 +1374,7 @@ function TaskTypesSettings() {
                     className="w-full text-left px-3 py-1.5 rounded-lg text-sm transition-colors"
                     style={{
                       backgroundColor: isActive ? 'var(--accent-subtle)' : 'transparent',
-                      color: isActive ? 'var(--accent)' : 'var(--text-secondary)',
+                      color: isActive ? 'var(--accent-text)' : 'var(--text-secondary)',
                       fontWeight: isActive ? 500 : 400,
                     }}
                     onMouseEnter={(e) => { if (!isActive) e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
@@ -1403,18 +1417,18 @@ function TaskTypesSettings() {
                     </div>
                     <div className="flex items-center gap-2">
                       {editing?.kind === 'type' && editing.id === type.id
-                        ? <><button type="button" onClick={saveEdit} className="text-xs" style={{ color: 'var(--accent)' }}>Save</button><button type="button" onClick={() => setEditing(null)} className="text-xs">Cancel</button></>
-                        : <button type="button" onClick={() => setEditing({ kind: 'type', id: type.id, name: type.name })} className="text-xs" style={{ color: 'var(--accent)' }}>Edit</button>}
+                        ? <><button type="button" onClick={saveEdit} className="text-xs" style={{ color: 'var(--accent-text)' }}>Save</button><button type="button" onClick={() => setEditing(null)} className="text-xs">Cancel</button></>
+                        : <button type="button" onClick={() => setEditing({ kind: 'type', id: type.id, name: type.name })} className="text-xs" style={{ color: 'var(--accent-text)' }}>Edit</button>}
                       <button
                         onClick={() => { setAddingSubtypeFor(type.id); setNewSubtypeName(''); }}
                         className="text-xs hover:underline"
-                        style={{ color: 'var(--accent)' }}
+                        style={{ color: 'var(--accent-text)' }}
                       >
                         + Subtype
                       </button>
                       <button
                         onClick={() => handleDeleteType(type.id)}
-                        className="text-xs text-red-500 hover:text-red-700"
+                        className="text-xs text-red-600 hover:text-red-700"
                       >
                         Delete
                       </button>
@@ -1432,7 +1446,7 @@ function TaskTypesSettings() {
                         >
                           {editing?.kind === 'subtype' && editing.id === sub.id
                             ? <><input className="apex-input max-w-28 text-xs" value={editing.name} onChange={(event) => setEditing({ ...editing, name: event.target.value })} onKeyDown={(event) => { if (event.key === 'Enter') saveEdit(); if (event.key === 'Escape') setEditing(null); }} aria-label="Edit subtype name" /><button type="button" onClick={saveEdit} aria-label="Save subtype">✓</button></>
-                            : <><span>{sub.name}</span><button type="button" onClick={() => setEditing({ kind: 'subtype', id: sub.id, typeId: type.id, name: sub.name })} aria-label={`Edit ${sub.name}`} style={{ color: 'var(--accent)' }}>Edit</button></>}
+                            : <><span>{sub.name}</span><button type="button" onClick={() => setEditing({ kind: 'subtype', id: sub.id, typeId: type.id, name: sub.name })} aria-label={`Edit ${sub.name}`} style={{ color: 'var(--accent-text)' }}>Edit</button></>}
                           <button
                             onClick={() => handleDeleteSubtype(type.id, sub.id)}
                             className="ml-0.5 hover:text-red-500"
@@ -1654,7 +1668,7 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
               <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>{t.name}</p>
               <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{t.desc}</p>
               {!t.active && (
-                <span className="absolute top-2 right-2 text-[9px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}>Phase 2</span>
+                <span className="absolute top-2 right-2 text-caption font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-tertiary)' }}>Phase 2</span>
               )}
               {draft?.theme === t.id && (
                 <span className="absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center text-white text-xs" style={{ backgroundColor: 'var(--accent)' }}>&#10003;</span>
@@ -1700,33 +1714,33 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
           </div>
           <div role="img" aria-label={`Apex OS workspace preview with ${ACCENTS.find((item) => item.id === draft?.accent)?.name ?? 'Royal Blue'} accent`} className="flex min-h-[214px]">
             <div className="w-20 flex-shrink-0 space-y-2 border-r p-2 sm:w-28" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-secondary)' }}>
-              <div className="mb-4 flex items-center gap-1.5"><span className="h-5 w-5 rounded-md" style={{ backgroundColor: 'var(--accent)' }} /><span className="hidden text-[10px] font-bold sm:inline" style={{ color: 'var(--text-primary)' }}>APEX OS</span></div>
-              <div className="rounded-md px-2 py-1.5 text-[10px] font-semibold" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)', borderLeft: '3px solid var(--accent)' }}>Home</div>
-              <div className="px-2 py-1 text-[10px]" style={{ color: 'var(--text-secondary)' }}>Tickets</div>
-              <div className="px-2 py-1 text-[10px]" style={{ color: 'var(--text-secondary)' }}>My Team</div>
+              <div className="mb-4 flex items-center gap-1.5"><span className="h-5 w-5 rounded-md" style={{ backgroundColor: 'var(--accent)' }} /><span className="hidden text-caption font-bold sm:inline" style={{ color: 'var(--text-primary)' }}>APEX OS</span></div>
+              <div className="rounded-md px-2 py-1.5 text-caption font-semibold" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)', borderLeft: '3px solid var(--accent)' }}>Home</div>
+              <div className="px-2 py-1 text-caption" style={{ color: 'var(--text-secondary)' }}>Tickets</div>
+              <div className="px-2 py-1 text-caption" style={{ color: 'var(--text-secondary)' }}>My Team</div>
             </div>
             <div className="min-w-0 flex-1 p-3" style={{ backgroundColor: 'var(--bg-primary)' }}>
               <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-                <div><p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>Good morning, Alex</p><p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Your workspace</p></div>
-                <span className="rounded-md px-2 py-1 text-[10px] font-semibold text-white" style={{ backgroundColor: 'var(--accent)' }}>+ New ticket</span>
+                <div><p className="text-caption" style={{ color: 'var(--text-secondary)' }}>Good morning, Alex</p><p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>Your workspace</p></div>
+                <span className="rounded-md px-2 py-1 text-caption font-semibold text-white" style={{ backgroundColor: 'var(--accent)' }}>+ New ticket</span>
               </div>
-              <div className="mb-3 flex gap-3 border-b text-[10px] font-semibold" style={{ borderColor: 'var(--border-primary)' }}>
+              <div className="mb-3 flex gap-3 border-b text-caption font-semibold" style={{ borderColor: 'var(--border-primary)' }}>
                 <span className="border-b-2 pb-1" style={{ borderColor: 'var(--accent)', color: 'var(--accent-text)' }}>Overview</span>
                 <span style={{ color: 'var(--text-secondary)' }}>My work</span>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="rounded-lg border p-2" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
-                  <p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>Open tickets</p>
+                  <p className="text-caption" style={{ color: 'var(--text-secondary)' }}>Open tickets</p>
                   <p className="text-base font-bold" style={{ color: 'var(--text-primary)' }}>12</p>
                   <div className="mt-2 h-1.5 overflow-hidden rounded-full" style={{ backgroundColor: 'var(--bg-tertiary)' }}><div className="h-full w-2/3 rounded-full" style={{ backgroundColor: 'var(--accent)' }} /></div>
                 </div>
                 <div className="rounded-lg border p-2" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
-                  <p className="text-[10px]" style={{ color: 'var(--text-secondary)' }}>Team status</p>
-                  <p className="mt-1 text-[10px] font-semibold" style={{ color: 'var(--text-primary)' }}><span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: 'var(--color-success)' }} />Available</p>
-                  <p className="mt-1 text-[10px]" style={{ color: 'var(--text-secondary)' }}>Status colour stays distinct</p>
+                  <p className="text-caption" style={{ color: 'var(--text-secondary)' }}>Team status</p>
+                  <p className="mt-1 text-caption font-semibold" style={{ color: 'var(--text-primary)' }}><span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: 'var(--color-success)' }} />Available</p>
+                  <p className="mt-1 text-caption" style={{ color: 'var(--text-secondary)' }}>Status colour stays distinct</p>
                 </div>
               </div>
-              <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-[10px]" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
+              <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-caption" style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}>
                 <span className="truncate" style={{ color: 'var(--text-primary)' }}>Website update</span>
                 <span className="whitespace-nowrap rounded-full px-2 py-0.5 font-semibold" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)' }}>In progress</span>
               </div>
@@ -1754,7 +1768,7 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
               style={{
                 borderColor: draft?.fontSize === id ? 'var(--accent)' : 'var(--border-primary)',
                 backgroundColor: draft?.fontSize === id ? 'var(--accent-subtle)' : 'var(--surface-card)',
-                color: draft?.fontSize === id ? 'var(--accent)' : 'var(--text-secondary)',
+                color: draft?.fontSize === id ? 'var(--accent-text)' : 'var(--text-secondary)',
               }}
             >
               {label}
@@ -1848,7 +1862,7 @@ function AppearanceSettings({ mode }: { mode: 'personal' | 'company' }) {
                   <div className="w-1/3 h-full" style={{ backgroundColor: t.preview.sidebar }} />
                 </div>
                 <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>{t.name}</p>
-                {companyTheme === t.id && <span className="absolute top-2 right-2 w-4 h-4 rounded-full text-white text-[10px] flex items-center justify-center" style={{ backgroundColor: 'var(--accent)' }}>&#10003;</span>}
+                {companyTheme === t.id && <span className="absolute top-2 right-2 w-4 h-4 rounded-full text-white text-caption flex items-center justify-center" style={{ backgroundColor: 'var(--accent)' }}>&#10003;</span>}
               </button>
             ))}
           </div>
@@ -1908,7 +1922,7 @@ function PolicyCenter() {
     <nav aria-label="Policy sections" className="flex gap-2 overflow-x-auto border-b pb-px" style={{ borderColor: 'var(--border-subtle)' }}>
       {tabs.map((item) => <button key={item.id} type="button" onClick={() => setTab(item.id)} aria-current={tab === item.id ? 'page' : undefined}
         className="inline-flex flex-none items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium transition-colors"
-        style={{ borderColor: tab === item.id ? 'var(--accent)' : 'transparent', color: tab === item.id ? 'var(--accent)' : 'var(--text-secondary)' }}>
+        style={{ borderColor: tab === item.id ? 'var(--accent)' : 'transparent', color: tab === item.id ? 'var(--accent-text)' : 'var(--text-secondary)' }}>
         {item.icon}{item.label}
       </button>)}
     </nav>
@@ -1984,8 +1998,8 @@ export function SettingsCenter() {
   return (
     <div className="mx-auto w-full max-w-[1600px] space-y-5 px-4 sm:px-6">
       <header>
-        <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--accent)' }}>APEX OS</p>
-        <h1 className="text-2xl font-semibold" style={{ color: 'var(--text-primary)' }}>Settings</h1>
+        <p className="text-xs font-semibold uppercase tracking-widest" style={{ color: 'var(--accent-text)' }}>APEX OS</p>
+        <h1 className="apex-page-title">Settings</h1>
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Manage your account, preferences and authorized organization settings.</p>
       </header>
       <div className="flex flex-col gap-5 lg:flex-row lg:gap-7">
@@ -1998,7 +2012,7 @@ export function SettingsCenter() {
                 window.history.replaceState(null, '', `/settings?tab=${item.id}`);
               }} aria-current={active === item.id ? 'page' : undefined}
                 className="flex w-full items-center gap-2.5 rounded-lg px-3 py-2 text-left text-sm transition-colors"
-                style={{ backgroundColor: active === item.id ? 'var(--accent-subtle)' : 'transparent', color: active === item.id ? 'var(--accent)' : 'var(--text-secondary)', fontWeight: active === item.id ? 600 : 400 }}>
+                style={{ backgroundColor: active === item.id ? 'var(--accent-subtle)' : 'transparent', color: active === item.id ? 'var(--accent-text)' : 'var(--text-secondary)', fontWeight: active === item.id ? 600 : 400 }}>
                 {item.icon}<span>{item.label}</span>
               </button>)}
             </div>

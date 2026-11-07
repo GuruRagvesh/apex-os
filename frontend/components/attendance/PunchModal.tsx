@@ -164,7 +164,7 @@ export function PunchModal({
           <button
             onClick={onClose}
             disabled={phase === 'submitting'}
-            className="rounded-lg px-2 py-1 text-sm text-gray-400 hover:bg-gray-100 disabled:opacity-40 dark:hover:bg-gray-800"
+            className="rounded-lg px-2 py-1 text-sm text-slate-500 hover:bg-gray-100 disabled:opacity-40 dark:hover:bg-gray-800"
             aria-label="Close"
           >
             ✕
@@ -215,7 +215,7 @@ export function PunchModal({
                           Try again
                         </button>
                       )}
-                      <p className="apex-text-subtle mt-3 text-[11px]">
+                      <p className="apex-text-subtle mt-3 text-caption">
                         Or finish on your phone instead — it does not need this device&rsquo;s
                         location.
                       </p>
@@ -240,7 +240,7 @@ export function PunchModal({
 
             <div className="relative md:pl-5">
               {/* Reads as a choice, not as a consolation. */}
-              <span className="apex-text-subtle absolute -top-3 left-1/2 hidden -translate-x-1/2 bg-white px-2 text-[10px] font-semibold uppercase tracking-widest md:block dark:bg-gray-900">
+              <span className="apex-text-subtle absolute -top-3 left-1/2 hidden -translate-x-1/2 bg-white px-2 text-caption font-semibold uppercase tracking-widest md:block dark:bg-gray-900">
                 or
               </span>
               <PunchHandoffQr type={type} onCompleted={onClose} />
@@ -256,7 +256,7 @@ export function PunchModal({
 
         {phase === 'done' && result && (
           <div className="py-6 text-center">
-            <p className="text-sm font-semibold text-green-600 dark:text-green-400">
+            <p className="text-sm font-semibold text-green-700 dark:text-green-400">
               {type === 'PUNCH_IN' ? 'Punched in' : 'Punched out'}
             </p>
             {REVIEW_VERDICTS.includes(result.locationVerification) && (

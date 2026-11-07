@@ -133,11 +133,11 @@ export function QuickActionDock() {
                 onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = 'transparent'; }}
               >
                 <span style={{ fontSize: 20 }}>{a.emoji}</span>
-                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.2 }}>{a.label}</span>
+                <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-secondary)', textAlign: 'center', lineHeight: 1.2 }}>{a.label}</span>
               </button>
             ))}
           </div>
-          <p style={{ fontSize: 9, color: 'var(--text-tertiary)', textAlign: 'center', margin: '8px 0 0' }}>Alt + Q to toggle</p>
+          <p style={{ fontSize: 11, color: 'var(--text-tertiary)', textAlign: 'center', margin: '8px 0 0' }}>Alt + Q to toggle</p>
         </div>
       )}
 
@@ -146,7 +146,7 @@ export function QuickActionDock() {
         position: 'fixed', bottom: 24, right: 24, zIndex: 200,
         width: 44, height: 44, borderRadius: '50%', border: 'none', cursor: 'pointer',
         background: 'var(--accent)', color: '#fff',
-        fontSize: 22, fontWeight: 300, lineHeight: 1,
+        fontSize: 24, fontWeight: 300, lineHeight: 1,
         boxShadow: '0 4px 20px var(--accent-ring)',
         transition: 'transform 0.15s, box-shadow 0.15s',
         display: 'flex', alignItems: 'center', justifyContent: 'center',

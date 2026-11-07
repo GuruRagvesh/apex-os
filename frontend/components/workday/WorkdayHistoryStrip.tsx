@@ -47,7 +47,7 @@ export function WorkdayHistoryStrip() {
         }}
       >
         <span
-          className="text-[9px] font-black uppercase tracking-widest"
+          className="text-caption font-black uppercase tracking-widest"
           style={{ color: 'var(--text-tertiary)' }}
         >
           Recent Sessions
@@ -95,11 +95,11 @@ export function WorkdayHistoryStrip() {
           >
             {/* Day label */}
             <div style={{ width: 45, flexShrink: 0 }}>
-              <p className="text-[11px] font-bold leading-none" style={{ color: 'var(--text-primary)' }}>
+              <p className="text-caption font-bold leading-none" style={{ color: 'var(--text-primary)' }}>
                 {sShort}
               </p>
               {sDate && (
-                <p className="text-[10px] mt-0.5 leading-none" style={{ color: 'var(--text-tertiary)' }}>
+                <p className="text-caption mt-0.5 leading-none" style={{ color: 'var(--text-tertiary)' }}>
                   {sDate}
                 </p>
               )}
@@ -109,11 +109,11 @@ export function WorkdayHistoryStrip() {
             <div className="flex-1 flex flex-col justify-center min-w-0">
               <div className="flex items-center gap-3 flex-wrap">
                 {isImpossible ? (
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400" title="Session may not have been closed correctly">
+                  <span className="text-caption font-semibold px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400" title="Session may not have been closed correctly">
                     Needs review
                   </span>
                 ) : isNullDuration ? (
-                  <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400">
+                  <span className="text-caption font-semibold px-1.5 py-0.5 rounded bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400">
                     {summary.status === 'WORKING' || summary.status === 'ON_BREAK' ? 'In progress' : 'Not calculated'}
                   </span>
                 ) : (
@@ -130,7 +130,7 @@ export function WorkdayHistoryStrip() {
               </div>
               
               {summary.sessionCount > 1 && (
-                <p className="text-[9px] mt-0.5 font-medium" style={{ color: 'var(--text-tertiary)' }}>
+                <p className="text-caption mt-0.5 font-medium" style={{ color: 'var(--text-tertiary)' }}>
                   {summary.sessionCount} sessions
                 </p>
               )}
@@ -138,7 +138,7 @@ export function WorkdayHistoryStrip() {
 
             {/* Status badge */}
             <span
-              className="text-[10px] font-semibold px-2 py-0.5 rounded flex-shrink-0"
+              className="text-caption font-semibold px-2 py-0.5 rounded flex-shrink-0"
               style={{ backgroundColor: badgeBg, color: badgeColor }}
             >
               {badgeText}

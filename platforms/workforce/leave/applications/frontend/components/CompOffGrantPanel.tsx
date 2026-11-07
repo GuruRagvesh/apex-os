@@ -92,12 +92,12 @@ export function CompOffGrantPanel({ onClose }: { onClose?: () => void }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2">
-        <Gift size={16} style={{ color: 'var(--accent)' }} />
+        <Gift size={16} style={{ color: 'var(--accent-text)' }} />
         <h3 className="apex-text text-sm font-semibold">Grant comp off</h3>
       </div>
 
       <div className="flex items-start gap-2 rounded-lg border border-[var(--border-secondary)] px-3 py-2 text-xs">
-        <Info size={12} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--accent)' }} />
+        <Info size={12} className="mt-0.5 flex-shrink-0" style={{ color: 'var(--accent-text)' }} />
         <span style={{ color: 'var(--text-secondary)' }}>
           The source day must be a Sunday, a 2nd or 4th Saturday, or an official holiday.
           Credits expire 30 days after the source date, and the soonest to expire are used
@@ -156,7 +156,7 @@ export function CompOffGrantPanel({ onClose }: { onClose?: () => void }) {
           />
           {reason.length > 0 && reason.trim().length < 5 && (
             <p className="mt-1 flex items-center gap-1 text-xs text-red-600 dark:text-red-400">
-              <AlertTriangle size={11} /> A reason is required.
+              <AlertTriangle size={12} /> A reason is required.
             </p>
           )}
         </div>

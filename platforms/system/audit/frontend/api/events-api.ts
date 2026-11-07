@@ -11,11 +11,15 @@
 // per-request scoping through AccessPolicyService, and enriches rows at read
 // time. It IS the read model.
 //
-// System Audit therefore owns THIS ADAPTER ONLY. Event PRODUCTION stays with
+// System Audit therefore owns THIS READ ADAPTER ONLY. Event PRODUCTION stays with
 // the domains that emit it — tickets, projects, workday, leave, auth, settings,
 // users, comments and sales all write through EventLoggerService and keep
 // ownership of the events they emit. Nothing here may emit an event, and owning
 // the read adapter confers no claim over any producer.
+//
+// Inventory currently keeps its audit history in a dedicated asset read model.
+// The inventory activity method below only relocates that existing read into the
+// unified Activity Log screen; it does not move or duplicate inventory writes.
 //
 // Published as '@apex/system-audit/api', never through the component root
 // barrel, so a consumer that wants the activity feed never loads the
@@ -25,4 +29,5 @@ import { api, unwrap as r } from '@apex/shared-auth';
 
 export const eventsApi = {
   getAll: (params?: any) => r(api.get('/events', { params })),
+  getInventoryActivity: () => r(api.get('/assets', { params: { section: 'activity' } })),
 };

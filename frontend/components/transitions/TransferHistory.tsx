@@ -100,7 +100,7 @@ export function TransferReviewList({ isAdmin }: { isAdmin: boolean }) {
   return (
     <div className="mx-auto max-w-4xl space-y-4 px-4 py-4">
       <header>
-        <h1 className="text-xl font-semibold">Transfer review</h1>
+        <h1 className="apex-page-title">Transfer review</h1>
         <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Scheduled transfers, transfers that need a decision, and completed transfers with items still to review.</p>
       </header>
       <label className="block text-sm"><span className="mb-1 block font-medium">Show</span>

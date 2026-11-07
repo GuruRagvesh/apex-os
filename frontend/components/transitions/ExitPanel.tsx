@@ -356,7 +356,7 @@ export function MyResignation({ me }: { me: { id: string } }) {
   const open = cases.find((c) => ['NOTICE_RUNNING', 'CLEARANCE_IN_PROGRESS', 'CLEARED'].includes(c.state));
   return (
     <div className="mx-auto max-w-3xl space-y-6 px-4 py-4">
-      <header><h1 className="text-xl font-semibold">My resignation</h1><p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Your notice period, clearance and settlement. Only you and authorised reviewers can see this.</p></header>
+      <header><h1 className="apex-page-title">My resignation</h1><p className="text-sm" style={{ color: 'var(--text-secondary)' }}>Your notice period, clearance and settlement. Only you and authorised reviewers can see this.</p></header>
       {open ? <ExitTimelineView exit={open} mode="self" me={me} isHR={false} isAdmin={false} onChanged={refresh} />
         : <StartExit userId={me.id} isHR={false} self verified onChanged={refresh} />}
       {cases.filter((c) => c !== open).map((c) => <p key={c.id} className="text-sm">{fmt(c.resignedOn)}: {STATE_LABEL[c.state]}</p>)}

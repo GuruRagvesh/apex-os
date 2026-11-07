@@ -65,8 +65,8 @@ function ProjectCard({ project }: { project: any }) {
         <div className="flex flex-col items-end gap-1">
           <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', statusColor)}>{project.status}</span>
           <div className="flex gap-1 items-center">
-            <span className={cn('text-[10px] px-1.5 py-0.5 rounded font-medium border', healthColor)}>{healthLabel}</span>
-            <span className={cn('text-[10px] px-1.5 py-0.5 rounded font-medium', PRIORITY_COLORS[project.priority])}>{project.priority}</span>
+            <span className={cn('text-caption px-1.5 py-0.5 rounded font-medium border', healthColor)}>{healthLabel}</span>
+            <span className={cn('text-caption px-1.5 py-0.5 rounded font-medium', PRIORITY_COLORS[project.priority])}>{project.priority}</span>
           </div>
         </div>
       </div>
@@ -124,7 +124,7 @@ function ProjectCard({ project }: { project: any }) {
               style={{ backgroundColor: 'var(--accent)', borderColor: 'var(--surface-card)' }}
               title={m.user?.name}
             >
-              <span className="text-white text-[9px] font-bold">{getInitials(m.user?.name || '')}</span>
+              <span className="text-white text-caption font-bold">{getInitials(m.user?.name || '')}</span>
             </div>
           ))}
           {(project._count?.members || 0) > 4 && (
@@ -132,7 +132,7 @@ function ProjectCard({ project }: { project: any }) {
               className="w-6 h-6 rounded-full border-2 flex items-center justify-center"
               style={{ backgroundColor: 'var(--bg-tertiary)', borderColor: 'var(--surface-card)' }}
             >
-              <span className="text-[9px]" style={{ color: 'var(--text-secondary)' }}>+{project._count.members - 4}</span>
+              <span className="text-caption" style={{ color: 'var(--text-secondary)' }}>+{project._count.members - 4}</span>
             </div>
           )}
         </div>
@@ -143,7 +143,7 @@ function ProjectCard({ project }: { project: any }) {
           className="mt-3 pt-3 flex items-center gap-1 text-xs"
           style={{ borderTop: '1px solid var(--border-subtle)', color: 'var(--text-tertiary)' }}
         >
-          <Calendar size={11} />
+          <Calendar size={12} />
           Due {formatDate(project.endDate)}
         </div>
       )}
@@ -246,7 +246,7 @@ export default function ProjectsPage() {
     <div className="space-y-5 max-w-7xl mx-auto">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Projects</h2>
+          <h2 className="apex-page-title">Projects</h2>
         </div>
         {canCreate && (
           <button onClick={() => setShowNew(true)} className="apex-btn-new-ticket">
@@ -407,7 +407,7 @@ export default function ProjectsPage() {
         </div>
       ) : isError ? (
         <div className="flex flex-col items-center justify-center h-64 gap-3 apex-card">
-          <p className="text-sm" style={{ color: 'var(--color-danger)' }}>Failed to load projects.</p>
+          <p className="text-sm" style={{ color: 'var(--danger-text)' }}>Failed to load projects.</p>
           <button onClick={() => refetch()} className="apex-btn apex-btn-secondary text-xs">Retry</button>
         </div>
       ) : projectList.length > 0 ? (

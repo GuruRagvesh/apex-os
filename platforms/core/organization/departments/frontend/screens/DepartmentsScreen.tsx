@@ -91,7 +91,7 @@ export default function DepartmentsScreen() {
     return (
       <div className="max-w-xl mx-auto apex-card p-8 text-center space-y-4">
         <div className="mx-auto w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--accent-subtle)' }}>
-          <ShieldAlert size={24} style={{ color: 'var(--accent)' }} />
+          <ShieldAlert size={24} style={{ color: 'var(--accent-text)' }} />
         </div>
         <div>
           <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Departments is for admins, managers and HR</h1>
@@ -111,7 +111,7 @@ export default function DepartmentsScreen() {
       {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Departments</h2>
+          <h2 className="apex-page-title">Departments</h2>
           <p className="text-sm" style={{ color: 'var(--text-secondary)' }}>
             {Array.isArray(departments) ? departments.length : 0} departments
           </p>
@@ -172,7 +172,7 @@ export default function DepartmentsScreen() {
                         onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)')}
                         onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                       >
-                        <MoreVertical size={15} style={{ color: 'var(--text-tertiary)' }} />
+                        <MoreVertical size={16} style={{ color: 'var(--text-tertiary)' }} />
                       </button>
                     )}
                     {menuOpen === d.id && (
@@ -187,7 +187,7 @@ export default function DepartmentsScreen() {
                         <button
                           onClick={(e) => { e.stopPropagation(); setDeleteTarget({ id: d.id, name: d.name }); setMenuOpen(null); }}
                           className="flex items-center gap-2 w-full px-3 py-2 text-sm rounded-lg transition-colors"
-                          style={{ color: 'var(--color-danger)' }}
+                          style={{ color: 'var(--danger-text)' }}
                           onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = 'var(--color-danger-bg)')}
                           onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
                         >
@@ -201,7 +201,7 @@ export default function DepartmentsScreen() {
                 {/* Team lead */}
                 {d.teamLead && (
                   <div className="flex items-center gap-2 mb-3 text-xs" style={{ color: 'var(--text-secondary)' }}>
-                    <UserCircle2 size={13} style={{ color: 'var(--text-tertiary)' }} />
+                    <UserCircle2 size={14} style={{ color: 'var(--text-tertiary)' }} />
                     <span>Lead: <span className="font-medium" style={{ color: 'var(--text-primary)' }}>{d.teamLead.name}</span></span>
                   </div>
                 )}
@@ -215,7 +215,7 @@ export default function DepartmentsScreen() {
                   ].map(({ icon: Icon, val, label }) => (
                     <div key={label} className="rounded-lg p-2" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
                       <div className="flex items-center justify-center mb-1">
-                        <Icon size={13} style={{ color: 'var(--text-tertiary)' }} />
+                        <Icon size={14} style={{ color: 'var(--text-tertiary)' }} />
                       </div>
                       <p className="text-sm font-bold" style={{ color: 'var(--text-primary)' }}>{val}</p>
                       <p className="text-xs" style={{ color: 'var(--text-tertiary)' }}>{label}</p>
@@ -273,7 +273,7 @@ export default function DepartmentsScreen() {
           <div className="apex-modal w-full max-w-sm p-6 modal-enter">
             <div className="flex items-center gap-3 mb-4">
               <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--color-danger-bg)' }}>
-                <Trash2 size={18} style={{ color: 'var(--color-danger)' }} />
+                <Trash2 size={18} style={{ color: 'var(--danger-text)' }} />
               </div>
               <div>
                 <h3 className="font-bold" style={{ color: 'var(--text-primary)' }}>Delete Department</h3>

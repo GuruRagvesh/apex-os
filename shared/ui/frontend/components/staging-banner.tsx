@@ -24,7 +24,7 @@ export function StagingBanner() {
     <div
       role="banner"
       aria-label="Staging environment indicator"
-      className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-center gap-2 bg-amber-500 text-amber-950 text-[11px] font-black uppercase tracking-widest py-1.5 px-4 select-none shadow-md"
+      className="fixed top-0 left-0 right-0 z-[9999] flex items-center justify-center gap-2 bg-amber-500 text-amber-950 text-caption font-black uppercase tracking-widest py-1.5 px-4 select-none shadow-md"
     >
       <span className="flex items-center gap-1.5">
         {/* Pulsing dot */}

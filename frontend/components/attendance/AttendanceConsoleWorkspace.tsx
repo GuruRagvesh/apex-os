@@ -27,7 +27,7 @@ export function AttendanceConsoleWorkspace() {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
-        <h1 className="apex-page-title apex-text text-xl">Attendance Console</h1>
+        <h1 className="apex-page-title">Attendance Console</h1>
         <div role="tablist" aria-label="Attendance Console sections" className="flex gap-1 border-b border-[var(--border-primary)]">
           <button
             type="button"
@@ -37,7 +37,7 @@ export function AttendanceConsoleWorkspace() {
             onClick={() => selectTab('reviews')}
             className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
               tab === 'reviews'
-                ? 'border-[var(--accent)] text-[var(--accent)]'
+                ? 'border-[var(--accent)] text-[var(--accent-text)]'
                 : 'border-transparent apex-text-muted hover:text-[var(--text-primary)]'
             }`}
           >
@@ -51,7 +51,7 @@ export function AttendanceConsoleWorkspace() {
             onClick={() => selectTab('attendance')}
             className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
               tab === 'attendance'
-                ? 'border-[var(--accent)] text-[var(--accent)]'
+                ? 'border-[var(--accent)] text-[var(--accent-text)]'
                 : 'border-transparent apex-text-muted hover:text-[var(--text-primary)]'
             }`}
           >

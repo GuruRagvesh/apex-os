@@ -5,13 +5,13 @@ import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@apex/core-identity';
 import { usersApi } from '@apex/core-users/api';
 import { departmentsApi } from '@apex/core-organization-departments/api';
-import { useRouter } from 'next/navigation';
 import {
-  Activity, AlertTriangle, CalendarDays, ChevronLeft, ChevronRight, Download,
-  ExternalLink, Info, Layers3, RotateCcw, Search, ShieldAlert, Siren, Users, X,
+  Activity, AlertTriangle, ChevronDown, ChevronLeft, ChevronRight, Download,
+  Info, Package, RotateCcw, Search, Siren, X,
 } from 'lucide-react';
 import { eventsApi } from '../api';
 import { getCompanyNow, getCompanyStartOfDay, getCompanyTodayStart } from '@/lib/company-date';
+import { InventoryActivityPanel } from './InventoryActivityPanel';
 
 type DateRange = 'today' | 'last7' | 'last30' | 'all' | 'custom';
 type Severity = '' | 'info' | 'warning' | 'critical';
@@ -59,13 +59,12 @@ const EMPTY_RESPONSE: AuditResponse = {
 const CATEGORY_OPTIONS = [
   { value: '', label: 'All activity' },
   { value: 'tickets', label: 'Tickets' },
-  { value: 'attendance', label: 'Attendance' },
-  { value: 'leave', label: 'Leave' },
+  { value: 'attendance_leave', label: 'Attendance' },
   { value: 'projects', label: 'Projects' },
-  { value: 'people', label: 'People & access' },
+  { value: 'people', label: 'People' },
   { value: 'settings', label: 'Settings' },
-  { value: 'sales', label: 'Sales CRM' },
-  { value: 'system', label: 'System & exports' },
+  { value: 'sales', label: 'Sales' },
+  { value: 'system', label: 'System' },
 ];
 
 const ACTION_OPTIONS: Array<{ value: string; label: string; category: string }> = [
@@ -124,19 +123,27 @@ function exactTimestamp(iso: string): string {
   });
 }
 
-function shortTimestamp(iso: string): string {
-  const date = new Date(iso);
-  const today = getCompanyTodayStart();
-  const eventDay = getCompanyStartOfDay(date);
-  const time = date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-  if (eventDay.getTime() === today.getTime()) return `Today, ${time}`;
-  return `${date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}, ${time}`;
+function timeOnly(iso: string): string {
+  return new Date(iso).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
 }
 
-function safeJson(value: unknown): string {
-  if (value === null || value === undefined) return 'Not recorded';
-  if (typeof value === 'string') return value;
-  try { return JSON.stringify(value, null, 2); } catch { return String(value); }
+function groupLabel(iso: string): string {
+  const eventDay = getCompanyStartOfDay(new Date(iso));
+  const today = getCompanyTodayStart();
+  const yesterday = new Date(today);
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (eventDay.getTime() === today.getTime()) return 'Today';
+  if (eventDay.getTime() === yesterday.getTime()) return 'Yesterday';
+  return new Date(iso).toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+function groupActivityEvents(items: AuditEvent[]): Array<{ label: string; events: AuditEvent[] }> {
+  const groups = new Map<string, AuditEvent[]>();
+  items.forEach((event) => {
+    const label = groupLabel(event.timestamp);
+    groups.set(label, [...(groups.get(label) ?? []), event]);
+  });
+  return Array.from(groups, ([label, events]) => ({ label, events }));
 }
 
 function escapeCsv(value: unknown): string {
@@ -156,7 +163,6 @@ function severityMeta(severity?: string) {
 
 export default function ActivityLogScreen() {
   const user = useAuthStore((state) => state.user);
-  const router = useRouter();
   const role = (user?.role as any)?.name ?? user?.role ?? '';
   const isAdmin = ['SUPER_ADMIN', 'ADMIN'].includes(role);
   const isDeptLead = ['MANAGER', 'TEAM_LEAD'].includes(role);
@@ -173,7 +179,8 @@ export default function ActivityLogScreen() {
   const [departmentId, setDepartmentId] = useState('');
   const [personId, setPersonId] = useState('');
   const [page, setPage] = useState(1);
-  const [selectedEvent, setSelectedEvent] = useState<AuditEvent | null>(null);
+  const [logView, setLogView] = useState<'operations' | 'inventory'>('operations');
+  const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
 
   const { data: peopleData } = useQuery({
     queryKey: ['activity-log-people'],
@@ -226,11 +233,16 @@ export default function ActivityLogScreen() {
 
   useEffect(() => {
     setPage(1);
-    setSelectedEvent(null);
+    setExpandedEventId(null);
   }, [deferredQuery, category, eventType, severity, departmentId, personId, dateRange, customFrom, customTo]);
 
   useEffect(() => {
-    if (eventType && category && ACTION_OPTIONS.find((item) => item.value === eventType)?.category !== category) setEventType('');
+    if (!eventType || !category) return;
+    const actionCategory = ACTION_OPTIONS.find((item) => item.value === eventType)?.category;
+    const categoryMatches = category === 'attendance_leave'
+      ? actionCategory === 'attendance' || actionCategory === 'leave'
+      : actionCategory === category;
+    if (!categoryMatches) setEventType('');
   }, [category, eventType]);
 
   useEffect(() => {
@@ -247,9 +259,12 @@ export default function ActivityLogScreen() {
   });
 
   const items = data.items ?? [];
-  const scopeText = isAdmin ? 'Company scope' : isDeptLead ? 'Department scope' : 'Personal scope';
-  const filteredActions = category ? ACTION_OPTIONS.filter((item) => item.category === category) : ACTION_OPTIONS;
-  const attentionCount = (data.summary?.bySeverity?.warning ?? 0) + (data.summary?.bySeverity?.critical ?? 0);
+  const groupedItems = useMemo(() => groupActivityEvents(items), [items]);
+  const filteredActions = category
+    ? ACTION_OPTIONS.filter((item) => category === 'attendance_leave'
+      ? item.category === 'attendance' || item.category === 'leave'
+      : item.category === category)
+    : ACTION_OPTIONS;
   const activeFilters = [deferredQuery, category, eventType, severity, departmentId, personId, dateRange === 'custom' ? customFrom || customTo : ''].filter(Boolean).length;
 
   const resetFilters = () => {
@@ -279,31 +294,42 @@ export default function ActivityLogScreen() {
   return (
     <div id="apex-main-content" className="space-y-4 pb-8">
       <section className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <h1 className="apex-page-title !m-0 !text-[22px]">Activity Log</h1>
-            <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-300">{scopeText}</span>
-          </div>
-          <p className="mt-1 text-sm text-[var(--text-secondary)]">Review operational changes, approvals, access activity and exceptions in one place.</p>
-        </div>
-        <button type="button" onClick={exportPage} disabled={!items.length} className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--surface-card)] px-3 text-xs font-semibold text-[var(--text-secondary)] transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"><Download size={14} /> Export this page</button>
+        <h1 className="apex-page-title">Activity Log</h1>
+        {logView === 'operations' && <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={exportPage} disabled={!items.length} className="inline-flex h-10 items-center justify-center gap-2 rounded-lg border border-[var(--border-primary)] bg-[var(--surface-card)] px-3 text-xs font-semibold text-[var(--text-secondary)] transition hover:border-blue-300 hover:text-blue-700 disabled:cursor-not-allowed disabled:opacity-40"><Download size={14} /> Export</button>
+        </div>}
       </section>
 
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <SummaryCard icon={Activity} label="Matching events" value={data.total ?? 0} tone="blue" />
-        <SummaryCard icon={Users} label="People involved" value={data.summary?.uniqueActors ?? 0} tone="cyan" />
-        <SummaryCard icon={ShieldAlert} label="Needs attention" value={attentionCount} tone="amber" />
-        <SummaryCard icon={Layers3} label="Categories active" value={Object.keys(data.summary?.byCategory ?? {}).length} tone="violet" />
-      </section>
+      <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
+        <nav aria-label="Activity log sections" className="flex min-w-0 flex-nowrap gap-1 overflow-x-auto rounded-card border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-1 xl:w-fit xl:shrink-0">
+          {CATEGORY_OPTIONS.map((option) => {
+            const isActive = logView === 'operations' && category === option.value;
+            return <button
+              type="button"
+              key={option.value || 'all'}
+              aria-pressed={isActive}
+              onClick={() => { setLogView('operations'); setCategory(option.value); }}
+              className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-control px-2 text-xs font-semibold transition ${isActive ? 'bg-blue-600 text-white shadow-sm' : 'text-[var(--text-secondary)] hover:bg-[var(--surface-card)] hover:text-[var(--text-primary)]'}`}
+            >{option.value === '' && <Activity size={14} />}{option.label}</button>;
+          })}
+          {isAdmin && <button
+            type="button"
+            aria-pressed={logView === 'inventory'}
+            onClick={() => setLogView('inventory')}
+            className={`inline-flex h-8 shrink-0 items-center gap-1.5 rounded-control px-2 text-xs font-semibold transition ${logView === 'inventory' ? 'bg-blue-600 text-white shadow-sm' : 'text-[var(--text-secondary)] hover:bg-[var(--surface-card)] hover:text-[var(--text-primary)]'}`}
+          ><Package size={14} /> Inventory</button>}
+        </nav>
+        {logView === 'operations' && <label className="relative block min-w-0 flex-1 xl:w-72 xl:flex-none">
+          <Search size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search activity…" aria-label="Search activity" className="apex-input h-10 w-full pl-9 pr-9 text-xs" />
+          {query && <button type="button" aria-label="Clear search" onClick={() => setQuery('')} className="absolute right-2.5 top-1/2 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-control text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"><X size={14} /></button>}
+        </label>}
+      </div>
 
+      {logView === 'inventory' && isAdmin ? <InventoryActivityPanel /> : <>
       <section className="apex-card !p-4">
-        <div className="grid gap-3 xl:grid-cols-3 2xl:grid-cols-[minmax(240px,1.5fr)_repeat(5,minmax(140px,0.75fr))]">
-          <label className="relative block">
-            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]" />
-            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search actor, action or record type…" aria-label="Search activity" className="h-10 w-full rounded-lg border border-[var(--border-primary)] bg-[var(--surface-card)] pl-9 pr-9 text-xs text-[var(--text-primary)] outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950" />
-            {query && <button type="button" aria-label="Clear search" onClick={() => setQuery('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--text-tertiary)]"><X size={14} /></button>}
-          </label>
-          <FilterSelect label="Category" value={category} onChange={setCategory} options={CATEGORY_OPTIONS} />
+        <div className="grid gap-3 lg:grid-cols-[minmax(220px,1.5fr)_repeat(4,minmax(130px,0.75fr))]">
+          <FilterSelect label="Period" value={dateRange} onChange={(value) => setDateRange(value as DateRange)} options={[{ value: 'today', label: 'Today' }, { value: 'last7', label: 'Last 7 days' }, { value: 'last30', label: 'Last 30 days' }, { value: 'all', label: 'All time' }, { value: 'custom', label: 'Custom period' }]} />
           {canFilterPeople ? (
             <FilterSelect label="Department" value={departmentId} onChange={setDepartmentId} options={[{ value: '', label: isAdmin ? 'All departments' : 'All managed departments' }, ...departments.map((department: any) => ({ value: department.id, label: department.name ?? 'Unnamed department' }))]} />
           ) : <div className="flex h-10 items-center rounded-lg border border-[var(--border-primary)] bg-[var(--bg-secondary)] px-3 text-xs text-[var(--text-tertiary)]">Your department</div>}
@@ -315,73 +341,89 @@ export default function ActivityLogScreen() {
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--border-subtle)] pt-3">
-          <span className="mr-1 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]"><CalendarDays size={13} /> Period</span>
-          {([['today', 'Today'], ['last7', '7 days'], ['last30', '30 days'], ['all', 'All time'], ['custom', 'Custom']] as Array<[DateRange, string]>).map(([value, label]) => (
-            <button type="button" key={value} onClick={() => setDateRange(value)} className={`h-8 rounded-lg border px-3 text-xs font-semibold transition ${dateRange === value ? 'border-blue-300 bg-blue-50 text-blue-700 dark:border-blue-800 dark:bg-blue-950/40 dark:text-blue-300' : 'border-[var(--border-primary)] bg-[var(--surface-card)] text-[var(--text-secondary)] hover:border-blue-200'}`}>{label}</button>
-          ))}
           {dateRange === 'custom' && <><input type="date" value={customFrom} onChange={(event) => setCustomFrom(event.target.value)} aria-label="From date" className="h-8 rounded-lg border border-[var(--border-primary)] bg-[var(--surface-card)] px-2 text-xs text-[var(--text-secondary)]" /><span className="text-xs text-[var(--text-tertiary)]">to</span><input type="date" min={customFrom || undefined} value={customTo} onChange={(event) => setCustomTo(event.target.value)} aria-label="To date" className="h-8 rounded-lg border border-[var(--border-primary)] bg-[var(--surface-card)] px-2 text-xs text-[var(--text-secondary)]" /></>}
           <div className="ml-auto flex items-center gap-2">
-            {isFetching && !isLoading && <span className="text-[11px] text-[var(--text-tertiary)]">Updating…</span>}
-            <button type="button" onClick={resetFilters} className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"><RotateCcw size={13} /> Reset{activeFilters ? ` (${activeFilters})` : ''}</button>
+            {isFetching && !isLoading && <span className="text-caption text-[var(--text-tertiary)]">Updating…</span>}
+            <button type="button" onClick={resetFilters} className="inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"><RotateCcw size={14} /> Reset{activeFilters ? ` (${activeFilters})` : ''}</button>
           </div>
         </div>
       </section>
 
-      <section className="apex-card !overflow-hidden !p-0">
-        <div className="grid grid-cols-[minmax(0,1fr)_120px] items-center border-b border-[var(--border-subtle)] bg-[var(--bg-secondary)] px-4 py-2.5 sm:grid-cols-[minmax(0,1fr)_130px_150px]"><span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">Event</span><span className="hidden text-[10px] font-bold uppercase tracking-wider text-[var(--text-tertiary)] sm:block">Severity</span><span className="text-right text-[10px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">When</span></div>
-        {isLoading ? <ActivitySkeleton /> : isError ? (
+      <section>
+        {isLoading ? <ActivitySkeleton timeline /> : isError ? (
           <EmptyPanel icon={AlertTriangle} title="Activity could not be loaded" description="The audit service did not respond. Your filters have been preserved." action={<button type="button" onClick={() => refetch()} className="text-xs font-bold text-blue-600 hover:underline">Try again</button>} />
         ) : items.length === 0 ? (
           <EmptyPanel icon={Activity} title="No matching activity" description="No events match this scope and filter combination. Broaden the period or reset the filters." action={activeFilters ? <button type="button" onClick={resetFilters} className="text-xs font-bold text-blue-600 hover:underline">Reset filters</button> : undefined} />
-        ) : items.map((event) => {
-          const categoryInfo = CATEGORY_STYLE[event.category ?? 'system'] ?? CATEGORY_STYLE.system;
-          const severityInfo = severityMeta(event.severity);
-          const SeverityIcon = severityInfo.icon;
-          return (
-            <button type="button" key={event.id} onClick={() => setSelectedEvent(event)} className="grid w-full grid-cols-[minmax(0,1fr)_120px] items-center gap-3 border-b border-[var(--border-subtle)] px-4 py-3 text-left transition last:border-b-0 hover:bg-slate-50/80 dark:hover:bg-slate-900/40 sm:grid-cols-[minmax(0,1fr)_130px_150px]">
-              <span className="flex min-w-0 items-center gap-3"><span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[11px] font-extrabold text-white" style={{ background: categoryInfo.dot }}>{initials(event.actor?.name)}</span><span className="min-w-0"><span className="flex flex-wrap items-center gap-1.5"><strong className="truncate text-xs text-[var(--text-primary)]">{event.actor?.name ?? 'System'}</strong><span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide ${categoryInfo.color}`}>{categoryInfo.label}</span></span><span className="mt-0.5 block truncate text-xs text-[var(--text-secondary)]">{event.description ?? humanize(event.action)}</span><span className="mt-1 block truncate font-mono text-[9px] uppercase tracking-wide text-[var(--text-tertiary)]">{humanize(event.action)}{event.metadata?.ticketId ? ` · ${String(event.metadata.ticketId)}` : ''}</span></span></span>
-              <span className={`hidden w-fit items-center gap-1 rounded-full border px-2 py-1 text-[9px] font-bold sm:inline-flex ${severityInfo.className}`}><SeverityIcon size={11} />{severityInfo.label}</span>
-              <span className="text-right"><span className="block text-[11px] font-semibold text-[var(--text-secondary)]">{shortTimestamp(event.timestamp)}</span><span className="mt-0.5 block text-[10px] text-[var(--text-tertiary)]">{event.timeAgo}</span></span>
-            </button>
-          );
-        })}
+        ) : (
+          <TimelineActivityList groups={groupedItems} expandedEventId={expandedEventId} onToggle={(eventId) => setExpandedEventId((current) => current === eventId ? null : eventId)} />
+        )}
       </section>
 
       {!isLoading && !isError && data.total > 0 && <section className="flex flex-col items-center justify-between gap-3 rounded-xl border border-[var(--border-primary)] bg-[var(--surface-card)] px-4 py-3 sm:flex-row"><p className="text-xs text-[var(--text-secondary)]">Showing <strong>{(data.page - 1) * data.pageSize + 1}–{Math.min(data.page * data.pageSize, data.total)}</strong> of <strong>{data.total}</strong> events</p><div className="flex items-center gap-2"><button type="button" aria-label="Previous page" disabled={data.page <= 1 || isFetching} onClick={() => setPage((value) => Math.max(1, value - 1))} className="inline-flex h-8 items-center gap-1 rounded-lg border border-[var(--border-primary)] px-2.5 text-xs font-semibold text-[var(--text-secondary)] disabled:opacity-40"><ChevronLeft size={14} /> Previous</button><span className="px-2 text-xs font-semibold text-[var(--text-secondary)]">Page {data.page} of {Math.max(1, data.totalPages)}</span><button type="button" aria-label="Next page" disabled={data.page >= data.totalPages || isFetching} onClick={() => setPage((value) => value + 1)} className="inline-flex h-8 items-center gap-1 rounded-lg border border-[var(--border-primary)] px-2.5 text-xs font-semibold text-[var(--text-secondary)] disabled:opacity-40">Next <ChevronRight size={14} /></button></div></section>}
-      {selectedEvent && <EventDrawer event={selectedEvent} onClose={() => setSelectedEvent(null)} onOpen={() => selectedEvent.entityUrl && router.push(selectedEvent.entityUrl)} />}
+      </>}
     </div>
   );
 }
 
 function FilterSelect({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: Array<{ value: string; label: string }> }) {
-  return <label className="relative block"><span className="sr-only">{label}</span><select value={value} onChange={(event) => onChange(event.target.value)} className={`h-10 w-full appearance-none rounded-lg border px-3 pr-8 text-xs outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950 ${value ? 'border-blue-300 bg-blue-50/70 font-semibold text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300' : 'border-[var(--border-primary)] bg-[var(--surface-card)] text-[var(--text-secondary)]'}`}>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><ChevronRight size={13} className="pointer-events-none absolute right-2.5 top-1/2 rotate-90 -translate-y-1/2 text-[var(--text-tertiary)]" /></label>;
+  return <label className="relative block"><span className="sr-only">{label}</span><select value={value} onChange={(event) => onChange(event.target.value)} className={`h-10 w-full appearance-none rounded-lg border px-3 pr-8 text-xs outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-950 ${value ? 'border-blue-300 bg-blue-50/70 font-semibold text-blue-700 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300' : 'border-[var(--border-primary)] bg-[var(--surface-card)] text-[var(--text-secondary)]'}`}>{options.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select><ChevronRight size={14} className="pointer-events-none absolute right-2.5 top-1/2 rotate-90 -translate-y-1/2 text-[var(--text-tertiary)]" /></label>;
 }
 
-function SummaryCard({ icon: Icon, label, value, tone }: { icon: any; label: string; value: number; tone: 'blue' | 'cyan' | 'amber' | 'violet' }) {
-  const tones = { blue: 'bg-blue-50 text-blue-600 dark:bg-blue-950/30 dark:text-blue-300', cyan: 'bg-cyan-50 text-cyan-600 dark:bg-cyan-950/30 dark:text-cyan-300', amber: 'bg-amber-50 text-amber-600 dark:bg-amber-950/30 dark:text-amber-300', violet: 'bg-violet-50 text-violet-600 dark:bg-violet-950/30 dark:text-violet-300' };
-  return <div className="apex-card flex items-center gap-3 !p-3.5"><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${tones[tone]}`}><Icon size={17} /></span><span className="min-w-0"><strong className="block text-lg leading-none text-[var(--text-primary)]">{value.toLocaleString('en-IN')}</strong><span className="mt-1 block truncate text-[10px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">{label}</span></span></div>;
+function TimelineActivityList({ groups, expandedEventId, onToggle }: { groups: Array<{ label: string; events: AuditEvent[] }>; expandedEventId: string | null; onToggle: (eventId: string) => void }) {
+  return <div className="space-y-6">{groups.map((group) => <section key={group.label}>
+    <h2 className="mb-3 text-caption font-extrabold uppercase tracking-[0.16em] text-[var(--text-primary)]">{group.label}</h2>
+    <div className="relative space-y-2 pl-9 before:absolute before:bottom-5 before:left-[8px] before:top-5 before:w-px before:bg-blue-200 dark:before:bg-blue-900">
+      {group.events.map((event) => {
+        const category = CATEGORY_STYLE[event.category ?? 'system'] ?? CATEGORY_STYLE.system;
+        const severity = severityMeta(event.severity);
+        const SeverityIcon = severity.icon;
+        const isExpanded = expandedEventId === event.id;
+        const details = timelineDetails(event);
+        return <article key={event.id} className="relative overflow-visible rounded-xl border border-[var(--border-primary)] bg-[var(--surface-card)] shadow-sm transition hover:border-blue-200 hover:shadow-md dark:hover:border-blue-900">
+          <span className="absolute -left-[34px] top-[22px] z-10 h-[15px] w-[15px] rounded-full border-[4px] border-[var(--bg-primary)]" style={{ backgroundColor: category.dot }} />
+          <button type="button" aria-expanded={isExpanded} onClick={() => onToggle(event.id)} className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-3 px-4 py-3 text-left lg:grid-cols-[minmax(170px,0.42fr)_minmax(0,1fr)_auto_auto]">
+            <span className="flex min-w-0 items-center gap-2.5">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-50 text-caption font-extrabold text-blue-700 dark:bg-blue-950/50 dark:text-blue-300">{initials(event.actor?.name)}</span>
+              <strong className="truncate text-xs text-[var(--text-primary)]">{event.actor?.name ?? 'System'}</strong>
+            </span>
+            <span className="col-span-2 flex min-w-0 flex-wrap items-center gap-2 lg:col-span-1">
+              <span className={`shrink-0 rounded-md px-2 py-1 text-caption font-extrabold uppercase tracking-wide ${category.color}`}>{category.label}</span>
+              <span className="min-w-0 truncate text-xs font-semibold text-[var(--text-secondary)]">{event.description ?? humanize(event.action)}</span>
+              {(event.fromState || event.toState) && <span className="basis-full truncate text-caption text-[var(--text-tertiary)]">{humanize(event.fromState ?? 'None')} <ChevronRight size={12} className="inline" /> {humanize(event.toState ?? 'None')}</span>}
+            </span>
+            <span className={`hidden items-center gap-1 rounded-full border px-2 py-1 text-caption font-bold sm:inline-flex ${severity.className}`}><SeverityIcon size={10} />{severity.label}</span>
+            <span className="flex items-center justify-end gap-3">
+              <span className="whitespace-nowrap text-right"><span className="block text-caption font-bold text-[var(--text-secondary)]">{timeOnly(event.timestamp)}</span><span className="block text-caption text-[var(--text-tertiary)]">{event.timeAgo}</span></span>
+              <ChevronDown size={16} className={`text-[var(--text-tertiary)] transition-transform ${isExpanded ? 'rotate-180' : ''}`} />
+            </span>
+          </button>
+          {isExpanded && <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-secondary)]/60 px-4 py-3 sm:pl-[52px]">
+            <dl className="grid gap-x-8 gap-y-2 sm:grid-cols-2 xl:grid-cols-3">{details.map(([label, value]) => <div key={`${label}-${value}`} className="grid grid-cols-[90px_minmax(0,1fr)] gap-2 text-caption"><dt className="font-bold text-[var(--text-tertiary)]">{label}</dt><dd className="break-words font-semibold text-[var(--text-secondary)]">{value}</dd></div>)}</dl>
+          </div>}
+        </article>;
+      })}
+    </div>
+  </section>)}</div>;
 }
 
-function ActivitySkeleton() {
-  return <div>{[1, 2, 3, 4, 5].map((item) => <div key={item} className="flex animate-pulse items-center gap-3 border-b border-[var(--border-subtle)] px-4 py-3 last:border-b-0"><span className="h-9 w-9 rounded-full bg-[var(--bg-tertiary)]" /><span className="flex-1 space-y-2"><span className="block h-2.5 w-2/5 rounded bg-[var(--bg-tertiary)]" /><span className="block h-2.5 w-3/5 rounded bg-[var(--bg-secondary)]" /></span><span className="h-7 w-24 rounded bg-[var(--bg-secondary)]" /></div>)}</div>;
+function timelineDetails(event: AuditEvent): Array<[string, string]> {
+  const details: Array<[string, string]> = [
+    ['Event', humanize(event.action)],
+    ['Recorded', exactTimestamp(event.timestamp)],
+  ];
+  if (event.entityType || event.entityId) details.push(['Record', [event.entityType ? humanize(event.entityType) : '', event.entityId].filter(Boolean).join(' · ')]);
+  if (event.fromState || event.toState) details.push(['Change', `${humanize(event.fromState ?? 'None')} → ${humanize(event.toState ?? 'None')}`]);
+  const metadataEntries = Object.entries(event.metadata ?? {})
+    .filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
+    .slice(0, 3);
+  metadataEntries.forEach(([key, value]) => details.push([humanize(key), String(value)]));
+  return details;
+}
+
+function ActivitySkeleton({ timeline = false }: { timeline?: boolean }) {
+  return <div className={timeline ? 'space-y-2 pl-9' : ''}>{[1, 2, 3, 4, 5].map((item) => <div key={item} className={`flex animate-pulse items-center gap-3 px-4 py-3 ${timeline ? 'rounded-xl border border-[var(--border-primary)] bg-[var(--surface-card)]' : 'border-b border-[var(--border-subtle)] last:border-b-0'}`}><span className="h-9 w-9 rounded-full bg-[var(--bg-tertiary)]" /><span className="flex-1 space-y-2"><span className="block h-2.5 w-2/5 rounded bg-[var(--bg-tertiary)]" /><span className="block h-2.5 w-3/5 rounded bg-[var(--bg-secondary)]" /></span><span className="h-7 w-24 rounded bg-[var(--bg-secondary)]" /></div>)}</div>;
 }
 
 function EmptyPanel({ icon: Icon, title, description, action }: { icon: any; title: string; description: string; action?: React.ReactNode }) {
   return <div className="flex flex-col items-center px-6 py-12 text-center"><span className="mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-[var(--bg-secondary)] text-[var(--text-tertiary)]"><Icon size={20} /></span><p className="text-sm font-bold text-[var(--text-primary)]">{title}</p><p className="mt-1 max-w-md text-xs leading-5 text-[var(--text-tertiary)]">{description}</p>{action && <div className="mt-3">{action}</div>}</div>;
 }
-
-function EventDrawer({ event, onClose, onOpen }: { event: AuditEvent; onClose: () => void; onOpen: () => void }) {
-  const severity = severityMeta(event.severity);
-  const SeverityIcon = severity.icon;
-  const category = CATEGORY_STYLE[event.category ?? 'system'] ?? CATEGORY_STYLE.system;
-  return <div className="fixed inset-0 z-[80] flex justify-end bg-slate-950/30 backdrop-blur-[1px]" role="presentation" onMouseDown={(mouseEvent) => { if (mouseEvent.currentTarget === mouseEvent.target) onClose(); }}><aside role="dialog" aria-modal="true" aria-label="Activity event details" className="flex h-full w-full max-w-lg flex-col border-l border-[var(--border-primary)] bg-[var(--surface-card)] shadow-2xl"><header className="flex items-start justify-between border-b border-[var(--border-primary)] px-5 py-4"><div><p className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-600">Audit event</p><h2 className="mt-1 text-base font-bold text-[var(--text-primary)]">{humanize(event.action)}</h2></div><button type="button" onClick={onClose} aria-label="Close event details" className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--text-tertiary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--text-primary)]"><X size={17} /></button></header><div className="flex-1 space-y-5 overflow-y-auto px-5 py-5"><div className="flex flex-wrap gap-2"><span className={`rounded px-2 py-1 text-[10px] font-bold uppercase ${category.color}`}>{category.label}</span><span className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[10px] font-bold ${severity.className}`}><SeverityIcon size={11} />{severity.label}</span></div><div className="rounded-xl border border-[var(--border-primary)] bg-[var(--bg-secondary)] p-4"><p className="text-sm font-semibold leading-6 text-[var(--text-primary)]"><strong>{event.actor?.name ?? 'System'}</strong> {event.description ?? humanize(event.action)}</p><p className="mt-2 text-xs text-[var(--text-tertiary)]">{exactTimestamp(event.timestamp)}</p></div><DetailGrid event={event} />{(event.fromState || event.toState) && <section><DetailHeading>State transition</DetailHeading><div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2"><ValueBox label="Before" value={event.fromState ?? 'None'} /><ChevronRight size={16} className="text-[var(--text-tertiary)]" /><ValueBox label="After" value={event.toState ?? 'None'} /></div></section>}{event.metadata && Object.keys(event.metadata).length > 0 && <JsonSection title="Event context" value={event.metadata} />}{event.beforeValue && <JsonSection title="Previous values" value={event.beforeValue} />}{event.afterValue && <JsonSection title="Updated values" value={event.afterValue} />}</div><footer className="flex items-center justify-between gap-3 border-t border-[var(--border-primary)] px-5 py-4"><button type="button" onClick={onClose} className="h-9 rounded-lg border border-[var(--border-primary)] px-4 text-xs font-semibold text-[var(--text-secondary)]">Close</button>{event.entityUrl && <button type="button" onClick={onOpen} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-600 px-4 text-xs font-bold text-white hover:bg-blue-700">Open related record <ExternalLink size={13} /></button>}</footer></aside></div>;
-}
-
-function DetailGrid({ event }: { event: AuditEvent }) {
-  const details = [['Actor', event.actor?.name ?? 'System'], ['Record type', event.entityType ?? 'System'], ['Record ID', event.entityId ?? 'Not available'], ['Event ID', event.id], ...(event.device ? [['Device', event.device]] : []), ...(event.ip ? [['IP address', event.ip]] : [])];
-  return <section><DetailHeading>Event identity</DetailHeading><dl className="grid gap-3 sm:grid-cols-2">{details.map(([label, value]) => <div key={label} className="min-w-0 rounded-lg border border-[var(--border-subtle)] p-3"><dt className="text-[9px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">{label}</dt><dd className="mt-1 break-all text-xs font-semibold text-[var(--text-secondary)]">{value}</dd></div>)}</dl></section>;
-}
-
-function DetailHeading({ children }: { children: React.ReactNode }) { return <h3 className="mb-2 text-[10px] font-bold uppercase tracking-[0.16em] text-[var(--text-tertiary)]">{children}</h3>; }
-function ValueBox({ label, value }: { label: string; value: string }) { return <div className="rounded-lg border border-[var(--border-primary)] p-3"><p className="text-[9px] font-bold uppercase tracking-wider text-[var(--text-tertiary)]">{label}</p><p className="mt-1 text-xs font-semibold text-[var(--text-secondary)]">{humanize(value)}</p></div>; }
-function JsonSection({ title, value }: { title: string; value: unknown }) { return <section><DetailHeading>{title}</DetailHeading><pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-[var(--border-primary)] bg-slate-950 p-3 font-mono text-[10px] leading-5 text-slate-200">{safeJson(value)}</pre></section>; }

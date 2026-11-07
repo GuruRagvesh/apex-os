@@ -22,9 +22,11 @@ import { WorkdayService } from './workday.service';
  * then approved through the reporting hierarchy.
  */
 
-export const MEETING_TYPES = ['ONE_ON_ONE', 'INTERNAL', 'EXTERNAL', 'CUSTOM'] as const;
+export const MEETING_TYPES = ['INTERNAL', 'EXTERNAL', 'CUSTOM'] as const;
+export const MEETING_FORMATS = ['ONE_ON_ONE', 'GROUP'] as const;
 export const MEETING_PURPOSES = ['REVIEW', 'PLANNING', 'TRAINING', 'CLIENT', 'STATUS_UPDATE', 'OTHER'] as const;
 type MeetingType = typeof MEETING_TYPES[number];
+type MeetingFormat = typeof MEETING_FORMATS[number];
 
 const RANK: Record<string, number> = { SUPER_ADMIN: 5, ADMIN: 4, MANAGER: 3, TEAM_LEAD: 2, EMPLOYEE: 1, INTERN: 0 };
 const LEAD_ROLES = new Set(['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN']);
@@ -35,6 +37,7 @@ export const MEETING_CANCELLED_SOURCE = 'MEETING_CANCELLED';
 export interface StartMeetingInput {
   agenda: string;
   type: string;
+  format?: string;
   purpose?: string;
   participantIds?: string[];
   clientName?: string;
@@ -72,19 +75,51 @@ export class MeetingV2Service {
     return String(user?.role?.name ?? '').toUpperCase();
   }
 
+  /** All departments a person genuinely belongs to or leads. */
+  private departmentIdsOf(user: any): string[] {
+    return [...new Set([
+      user?.departmentId,
+      ...(user?.managedDepts ?? []).map((access: any) => access.departmentId),
+      ...(user?.teamsLed ?? []).map((team: any) => team.departmentId),
+      ...(user?.teamMemberships ?? []).map((membership: any) => membership.team?.departmentId),
+      ...(user?.departmentMemberships ?? []).map((membership: any) => membership.departmentId),
+      ...(user?.roleAssignments ?? []).map((assignment: any) => assignment.departmentId),
+    ].filter(Boolean))] as string[];
+  }
+
+  private personInclude() {
+    return {
+      role: true,
+      department: true,
+      managedDepts: true,
+      teamsLed: { select: { departmentId: true, department: { select: { name: true } } } },
+      teamMemberships: { select: { team: { select: { departmentId: true, department: { select: { name: true } } } } } },
+      departmentMemberships: { select: { departmentId: true, department: { select: { name: true } } } },
+      roleAssignments: { select: { departmentId: true, department: { select: { name: true } } } },
+    };
+  }
+
   private async actor(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId }, include: { role: true, department: true } });
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, include: this.personInclude() });
     if (!user || !user.isActive) throw new ForbiddenException('Your account is not active.');
     return user;
   }
 
   private personShape(user: any) {
+    const departmentIds = this.departmentIdsOf(user);
+    const departmentName = user.department?.name
+      ?? user.teamsLed?.[0]?.department?.name
+      ?? user.teamMemberships?.[0]?.team?.department?.name
+      ?? user.departmentMemberships?.[0]?.department?.name
+      ?? user.roleAssignments?.[0]?.department?.name
+      ?? null;
     return {
       id: user.id,
       name: user.name,
       role: this.roleOf(user),
-      departmentId: user.departmentId ?? null,
-      departmentName: user.department?.name ?? null,
+      departmentId: user.departmentId ?? departmentIds[0] ?? null,
+      departmentIds,
+      departmentName,
     };
   }
 
@@ -105,7 +140,7 @@ export class MeetingV2Service {
     const [people, departments, chain] = await Promise.all([
       this.prisma.user.findMany({
         where: { isActive: true, id: { not: userId } },
-        include: { role: true, department: true },
+        include: this.personInclude(),
         orderBy: { name: 'asc' },
       }),
       this.prisma.department.findMany({ select: { id: true, name: true }, orderBy: { name: 'asc' } }),
@@ -140,7 +175,7 @@ export class MeetingV2Service {
     const [seniors, leaveRows] = await Promise.all([
       this.prisma.user.findMany({
         where: { isActive: true, role: { name: { in: ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'] } } },
-        include: { role: true, department: true, managedDepts: true },
+        include: this.personInclude(),
         orderBy: { name: 'asc' },
       }),
       this.prisma.leaveRequest.findMany({
@@ -153,10 +188,7 @@ export class MeetingV2Service {
       id: person.id,
       name: person.name,
       role: this.roleOf(person),
-      departmentIds: [...new Set([
-        person.departmentId,
-        ...(person.managedDepts ?? []).map((access: any) => access.departmentId),
-      ].filter(Boolean))] as string[],
+      departmentIds: this.departmentIdsOf(person),
       onLeave: away.has(person.id),
     }));
   }
@@ -175,14 +207,17 @@ export class MeetingV2Service {
     const mandatoryIds = mandatory.map((candidate) => candidate.id);
     const departmentMap = new Map<string, string>();
     for (const person of attendees) {
-      if (person.departmentId) departmentMap.set(person.departmentId, person.department?.name ?? person.departmentId);
+      // A leader may have access to several departments, but their presence in
+      // one meeting must not force approvals from every department they manage.
+      const departmentId = person.departmentId ?? this.departmentIdsOf(person)[0];
+      if (departmentId) departmentMap.set(departmentId, person.department?.name ?? departmentId);
     }
 
     const groups: MeetingApprovalPlan['groups'] = [];
     for (const [departmentId, departmentName] of departmentMap) {
       if (mandatory.some((candidate) => candidate.departmentIds.includes(departmentId) || ADMIN_ROLES.has(candidate.role))) continue;
 
-      const organizerRank = organizer.departmentId === departmentId ? (RANK[this.roleOf(organizer)] ?? 0) : 0;
+      const organizerRank = this.departmentIdsOf(organizer).includes(departmentId) ? (RANK[this.roleOf(organizer)] ?? 0) : 0;
       const clientOnly = type === 'EXTERNAL' && Boolean(input?.clientName?.trim()) && attendees.length === 1;
       const minimumRank = Math.max(clientOnly ? RANK.MANAGER : RANK.TEAM_LEAD, organizerRank + 1);
       let choices = available.filter((candidate) =>
@@ -289,8 +324,14 @@ export class MeetingV2Service {
     const role = this.roleOf(organizer);
     const agenda = String(input.agenda ?? '').trim();
     if (agenda.length < 3 || agenda.length > 200) throw new BadRequestException('The agenda must be 3 to 200 characters.');
-    const type = String(input.type ?? '').toUpperCase() as MeetingType;
+    const requestedType = String(input.type ?? '').toUpperCase();
+    // Older clients sent ONE_ON_ONE as a type. Treat it as an Internal
+    // one-on-one while new clients send type and format independently.
+    const legacyOneOnOne = requestedType === 'ONE_ON_ONE';
+    const type = (legacyOneOnOne ? 'INTERNAL' : requestedType) as MeetingType;
     if (!MEETING_TYPES.includes(type)) throw new BadRequestException('Choose a meeting type.');
+    const format = (legacyOneOnOne ? 'ONE_ON_ONE' : String(input.format ?? 'GROUP').toUpperCase()) as MeetingFormat;
+    if (!MEETING_FORMATS.includes(format)) throw new BadRequestException('Choose one-on-one or group meeting.');
     const purpose = input.purpose ? String(input.purpose).toUpperCase() : null;
     if (purpose && !(MEETING_PURPOSES as readonly string[]).includes(purpose)) throw new BadRequestException('Choose a valid purpose.');
     const isDepartmental = type === 'INTERNAL' && (Boolean(input.isDepartmental) || !LEAD_ROLES.has(role));
@@ -300,24 +341,29 @@ export class MeetingV2Service {
 
     const ids = [...new Set((input.participantIds ?? []).map(String))].filter((id) => id && id !== userId);
     const people = ids.length
-      ? await this.prisma.user.findMany({ where: { id: { in: ids }, isActive: true }, include: { role: true, department: true } })
+      ? await this.prisma.user.findMany({ where: { id: { in: ids }, isActive: true }, include: this.personInclude() })
       : [];
     if (people.length !== ids.length) throw new BadRequestException('One or more selected people are not available.');
     const clientName = type === 'EXTERNAL' ? this.cleanList(input.clientName) : null;
     const guestNames = type === 'CUSTOM' || type === 'EXTERNAL' ? this.cleanList(input.guestNames) : null;
 
-    const sameDept = (p: any) => Boolean(organizer.departmentId) && p.departmentId === organizer.departmentId;
-    if (type === 'ONE_ON_ONE') {
-      if (people.length !== 1) throw new BadRequestException('A one-on-one meeting has exactly one other person.');
-      if (!sameDept(people[0])) throw new BadRequestException('A one-on-one is with someone in your department. Use External or Custom for others.');
-    }
+    const organizerDepartments = this.departmentIdsOf(organizer);
+    const sameDept = (p: any) => this.departmentIdsOf(p).some((id) => organizerDepartments.includes(id));
     if (type === 'INTERNAL') {
-      if (!people.length) throw new BadRequestException('Add at least one person from your department.');
-      const outside = people.filter((p) => !sameDept(p) && !(ADMIN_ROLES.has(this.roleOf(p)) && LEAD_ROLES.has(role)));
+      if (!people.length) throw new BadRequestException(ADMIN_ROLES.has(role) ? 'Add at least one person from the company.' : 'Add at least one person from your department.');
+      const outside = ADMIN_ROLES.has(role) ? [] : people.filter((p) => !sameDept(p));
       if (outside.length) throw new BadRequestException(`${outside.map((p) => p.name).join(', ')} ${outside.length === 1 ? 'is' : 'are'} not in your department.`);
     }
-    if (type === 'EXTERNAL' && !people.length && !clientName) throw new BadRequestException('Add people from another department, or a client.');
+    if (type === 'EXTERNAL') {
+      if (!people.length && !clientName) throw new BadRequestException('Add people from another department, or a client.');
+      const sameDepartment = ADMIN_ROLES.has(role) ? [] : people.filter(sameDept);
+      if (sameDepartment.length) throw new BadRequestException('External meetings can include people from other departments, not your own department.');
+    }
     if (type === 'CUSTOM' && !people.length && !guestNames) throw new BadRequestException('Add at least one person.');
+    if (type === 'CUSTOM' && format !== 'GROUP') throw new BadRequestException('Custom meetings use the group format.');
+    if (format === 'ONE_ON_ONE' && people.length !== 1) {
+      throw new BadRequestException('Choose exactly one person for a one-on-one meeting.');
+    }
 
     const busy = await this.busyUserIds(ids);
     if (busy.size) {
@@ -337,8 +383,9 @@ export class MeetingV2Service {
       data: {
         topic: agenda,
         meetingType: type,
+        meetingFormat: format,
         timingMode: 'IMMEDIATE',
-        departmentId: organizer.departmentId,
+        departmentId: organizer.departmentId ?? organizerDepartments[0] ?? null,
         organizerId: userId,
         organizerNameSnapshot: organizer.name,
         counterpartyId: counterparty.id,
@@ -416,7 +463,8 @@ export class MeetingV2Service {
     return {
       id: meeting.id,
       agenda: meeting.topic,
-      type: meeting.meetingType,
+      type: meeting.meetingType === 'ONE_ON_ONE' ? 'INTERNAL' : meeting.meetingType,
+      format: meeting.meetingType === 'ONE_ON_ONE' ? 'ONE_ON_ONE' : meeting.meetingFormat,
       purpose: meeting.purpose,
       isDepartmental: meeting.isDepartmental,
       clientName: meeting.clientName,
@@ -483,7 +531,7 @@ export class MeetingV2Service {
       include: { breakLogs: { where: { endAt: null } } },
     });
     if (session?.breakLogs.some((b) => b.breakType === 'MEETING')) throw new ConflictException('You are already in a meeting.');
-    if (session?.status === 'ON_BREAK') await this.workday.endBreak(userId);
+    if (session?.status === 'ON_BREAK') await this.workday.endBreak(userId, 'MEETING_JOIN');
 
     if (!session) {
       await this.prisma.meetingParticipant.update({ where: { id: participant.id }, data: { status: 'ACCEPTED', respondedAt: now } });
@@ -501,7 +549,7 @@ export class MeetingV2Service {
   async leave(userId: string, meetingId: string) {
     const open = await this.prisma.breakLog.findFirst({ where: { userId, meetingId, breakType: 'MEETING', endAt: null } });
     if (!open) throw new ConflictException('You are not in this meeting.');
-    const result = await this.workday.endBreak(userId);
+    const result = await this.workday.endBreak(userId, 'MEETING_LEAVE');
     await this.prisma.meetingParticipant.updateMany({ where: { meetingId, userId }, data: { status: 'LEFT', leftAt: new Date() } });
     await this.completeIfEmpty(meetingId);
     return result;
@@ -537,7 +585,7 @@ export class MeetingV2Service {
     if (meeting.organizerId !== userId) throw new ForbiddenException('Only the person who started the meeting can cancel it.');
     if (meeting.status !== 'IN_PROGRESS') throw new ConflictException('This meeting has already ended.');
     const open = await this.prisma.breakLog.findMany({ where: { meetingId, breakType: 'MEETING', endAt: null }, select: { userId: true } });
-    for (const row of open) await this.workday.endBreak(row.userId);
+    for (const row of open) await this.workday.endBreak(row.userId, 'MEETING_CANCEL');
     const now = new Date();
     await this.prisma.$transaction([
       this.prisma.breakLog.updateMany({ where: { meetingId }, data: { source: MEETING_CANCELLED_SOURCE } }),

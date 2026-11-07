@@ -118,7 +118,7 @@ describe('FP-18E Policy Auto Stop Helper', () => {
   });
 
   // ── Resume/active-session grace window (workday resume auto-close consent fix) ──
-  // A session the user is demonstrably still in (WORKING/ON_BREAK, recent
+  // A WORKING session the user is demonstrably still in (recent
   // lastActiveAt) must not be silently force-closed the instant the clock
   // crosses the cutoff — it gets AUTO_CLOSE_GRACE_MINUTES to respond to the
   // frontend consent prompt. Genuinely abandoned sessions still close safely.
@@ -145,6 +145,17 @@ describe('FP-18E Policy Auto Stop Helper', () => {
     expect(res.shouldStop).toBe(false);
   });
 
+  it('14b. ON_BREAK session is not stopped after the grace window either', () => {
+    const policy = { autoClose: true, autoCloseTime: '20:00', timezone: 'Asia/Kolkata' };
+    const cutoff = buildCompanyDateTimeUtc('2026-06-04', '20:00', 'Asia/Kolkata');
+    const now = new Date(cutoff.getTime() + (AUTO_CLOSE_GRACE_MINUTES + 60) * 60000);
+    const user = { role: { name: 'EMPLOYEE' }, lastActiveAt: new Date(cutoff.getTime() - 60 * 60000) };
+    const session = { logoutAt: null, status: 'ON_BREAK' };
+
+    const res = shouldPolicyAutoStop(session, user, policy, now, '2026-06-04', '2026-06-04');
+    expect(res.shouldStop).toBe(false);
+  });
+
   it('15. WORKING session past the grace window with no activity IS stopped (abandoned-session safety net)', () => {
     const policy = { autoClose: true, autoCloseTime: '20:00', timezone: 'Asia/Kolkata' };
     const cutoff = buildCompanyDateTimeUtc('2026-06-04', '20:00', 'Asia/Kolkata');
@@ -157,7 +168,7 @@ describe('FP-18E Policy Auto Stop Helper', () => {
     expect(res.cutoffUtc).toBeDefined();
   });
 
-  it('16. IDLE session past cutoff is stopped even with a status field present (grace only applies to WORKING/ON_BREAK)', () => {
+  it('16. IDLE session past cutoff is stopped even with a status field present (grace only applies to WORKING)', () => {
     const policy = { autoClose: true, autoCloseTime: '20:00', timezone: 'Asia/Kolkata' };
     const cutoff = buildCompanyDateTimeUtc('2026-06-04', '20:00', 'Asia/Kolkata');
     const now = new Date(cutoff.getTime() + 2 * 60000);

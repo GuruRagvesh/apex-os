@@ -7,7 +7,7 @@
   --surface: #ffffff;
   --text: #0f274f;
   --muted: #475569;
-  --subtle: #64748b;
+  --subtle: #5b6b82;
   --border: #e2e8f0;
   --border-strong: #cbd5e1;
   color: var(--text);
@@ -44,10 +44,9 @@
 .pageHeader h1 {
   margin: 0;
   color: var(--navy);
-  font-size: 30px;
-  line-height: 1.15;
-  font-weight: 700;
-  letter-spacing: -.035em;
+  font-size: 24px;
+  line-height: 1.25;
+  font-weight: 600;
 }
 .pageHeader p {margin-top: 6px;color: var(--muted);font-size: 14px;}
 .headerActions {display: flex;align-items: center;gap: 10px;flex-shrink: 0;}
@@ -123,9 +122,9 @@
   gap: 9px;
   margin: 0;
   color: var(--navy);
-  font-size: 19px;
+  font-size: 20px;
   line-height: 1.3;
-  font-weight: 650;
+  font-weight: 600;
 }
 .todayHeader h2 svg {width: 19px;height: 19px;color: var(--blue);}
 .statusBadge {
@@ -154,7 +153,7 @@
 .metricRow>div {min-width: 0;padding: 2px 13px;}
 .metricRow>div+div {border-left: 1px solid var(--border);}
 .metricRow dt {color: var(--muted);font-size: 12px;}
-.metricRow dd {margin-top: 5px;color: var(--navy);font-size: 18px;line-height: 1.25;font-weight: 650;font-variant-numeric: tabular-nums;overflow-wrap: anywhere;}
+.metricRow dd {margin-top: 5px;color: var(--navy);font-size: 20px;line-height: 1.25;font-weight: 600;font-variant-numeric: tabular-nums;overflow-wrap: anywhere;}
 .progressBlock {margin-top: 19px;}
 .progressLabel {display: flex;align-items: center;justify-content: space-between;gap: 12px;margin-bottom: 7px;color: var(--muted);font-size: 12px;}
 .progressLabel strong {color: var(--navy);font-size: 13px;font-weight: 700;}
@@ -166,7 +165,7 @@
 .punchIcon {width: 32px;height: 32px;display: grid;place-items: center;border-radius: 50%;background: var(--pale-blue);color: var(--blue);}
 .punchIcon svg {width: 17px;height: 17px;}
 .punches small {display: block;color: var(--muted);font-size: 11px;}
-.punches strong {display: block;margin-top: 2px;color: var(--navy);font-size: 14px;font-weight: 650;font-variant-numeric: tabular-nums;}
+.punches strong {display: block;margin-top: 2px;color: var(--navy);font-size: 14px;font-weight: 600;font-variant-numeric: tabular-nums;}
 .primaryButton {
   min-height: 40px;
   display: inline-flex;
@@ -178,7 +177,7 @@
   background: var(--navy);
   color: #fff;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
   box-shadow: 0 4px 10px rgba(1,38,106,.14);
   transition: background .16s ease, transform .16s ease;
 }
@@ -204,9 +203,9 @@
 
 .calendarSection {padding: 22px 24px 24px;min-width: 0;}
 .calendarSectionHeader {padding-bottom: 16px;border-bottom: 1px solid var(--border);}
-.calendarSectionHeader h2 {margin: 0;color: var(--navy);font-size: 20px;font-weight: 650;letter-spacing: -.02em;}
+.calendarSectionHeader h2 {margin: 0;color: var(--navy);font-size: 20px;font-weight: 600;letter-spacing: -.02em;}
 .scopeTabs {display: flex;padding: 3px;border: 1px solid var(--border);border-radius: 10px;background: #f1f5f9;}
-.scopeTabs button {min-width: 78px;border-radius: 7px;padding: 7px 14px;color: var(--subtle);font-size: 12px;font-weight: 650;}
+.scopeTabs button {min-width: 78px;border-radius: 7px;padding: 7px 14px;color: var(--subtle);font-size: 12px;font-weight: 600;}
 .scopeTabs button[aria-pressed="true"] {background: #fff;color: var(--navy);box-shadow: 0 1px 4px rgba(15,39,79,.1);}
 .leaveBalanceKpis {display:grid;grid-template-columns:minmax(175px,1.25fr) repeat(3,minmax(120px,1fr));align-items:stretch;gap:10px;margin-top:16px;}
 .leaveBalanceLabel,.leaveBalanceKpi {min-width:0;min-height:66px;border:1px solid var(--border);border-radius:11px;background:linear-gradient(145deg,#fff 0%,#f8fbff 100%);box-shadow:0 3px 10px rgba(15,39,79,.045);}
@@ -215,14 +214,14 @@
 .leaveBalanceLabel svg {width:18px;height:18px;}
 .leaveBalanceLabel strong,.leaveBalanceLabel small {display:block;}
 .leaveBalanceLabel strong {color:var(--navy);font-size:13px;font-weight:700;}
-.leaveBalanceLabel small {margin-top:2px;color:var(--muted);font-size:10px;}
+.leaveBalanceLabel small {margin-top:2px;color:var(--muted);font-size:11px;}
 .leaveBalanceKpi {display:grid;grid-template-columns:minmax(0,1fr) auto;align-content:center;column-gap:8px;padding:10px 13px;}
-.leaveBalanceKpi small {grid-column:1/-1;color:var(--muted);font-size:10px;font-weight:600;}
-.leaveBalanceKpi strong {color:var(--navy);font-size:21px;line-height:1.1;font-weight:720;font-variant-numeric:tabular-nums;}
-.leaveBalanceKpi span {align-self:end;padding-bottom:2px;color:var(--subtle);font-size:10px;}
+.leaveBalanceKpi small {grid-column:1/-1;color:var(--muted);font-size:11px;font-weight:600;}
+.leaveBalanceKpi strong {color:var(--navy);font-size:20px;line-height:1.1;font-weight:700;font-variant-numeric:tabular-nums;}
+.leaveBalanceKpi span {align-self:end;padding-bottom:2px;color:var(--subtle);font-size:11px;}
 .leaveBalanceKpi[data-unavailable="true"] {background:#f8fafc;box-shadow:none;}
 .calendarToolbar {display: flex;align-items: center;justify-content: space-between;gap: 16px;padding: 16px 0 14px;}
-.calendarToolbar h3 {color: var(--navy);font-size: 18px;font-weight: 650;}
+.calendarToolbar h3 {color: var(--navy);font-size: 20px;font-weight: 600;}
 .monthControls {display: flex;align-items: center;gap: 7px;}
 .monthControls>button {width: 38px;height: 38px;display: grid;place-items: center;border: 1px solid var(--border-strong);border-radius: 9px;background: #fff;color: var(--navy);}
 .monthControls>button:hover:not(:disabled) {background: var(--pale-blue);border-color: #9abce5;}
@@ -257,8 +256,8 @@ button.summaryItem:hover,
 button.summaryItem[aria-pressed="true"] {border-color:#7baae1;background:var(--pale-blue);box-shadow:0 4px 12px rgba(38,102,196,.11);transform:translateY(-1px);}
 .summaryItem[data-tone="review"]:not([data-zero="true"]) .summaryDot {box-shadow:0 0 0 4px #fff7d6;}
 .summaryItem[data-zero="true"] {opacity: .58;}
-.summaryItem small {display: block;color: var(--muted);font-size: 10px;white-space: nowrap;}
-.summaryItem strong {display: block;margin-top: 2px;color: var(--navy);font-size: 19px;line-height: 1;font-weight: 700;font-variant-numeric: tabular-nums;}
+.summaryItem small {display: block;color: var(--muted);font-size: 11px;white-space: nowrap;}
+.summaryItem strong {display: block;margin-top: 2px;color: var(--navy);font-size: 20px;line-height: 1;font-weight: 700;font-variant-numeric: tabular-nums;}
 .summaryDot {width: 8px;height: 28px;border-radius: 999px;background: var(--border-strong);flex: 0 0 8px;}
 .summaryDot[data-tone="present"] {background: #16a34a;}
 .summaryDot[data-tone="late"] {background: #ea580c;}
@@ -271,18 +270,18 @@ button.summaryItem[aria-pressed="true"] {border-color:#7baae1;background:var(--p
 
 .monthCalendar {margin-top: 16px;}
 .legendPanel {display:flex;align-items:flex-start;gap:14px;margin-bottom:14px;border:1px solid var(--border);border-radius:11px;padding:9px 10px;background:#f8fbff;box-shadow:0 2px 8px rgba(15,39,79,.035);}
-.legendHeading {display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:90px;padding:5px 2px;color:var(--navy);font-size:10px;font-weight:700;white-space:nowrap;}
+.legendHeading {display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:90px;padding:5px 2px;color:var(--navy);font-size:11px;font-weight:700;white-space:nowrap;}
 .legend {display:flex;flex:1;flex-wrap:wrap;align-items:center;gap:5px;}
-.legend button {display:inline-flex;align-items:center;gap:6px;min-height:27px;border:1px solid #dbe6f3;border-radius:999px;padding:4px 8px;background:#fff;color:var(--muted);font-size:10px;box-shadow:0 1px 2px rgba(15,39,79,.025);}
+.legend button {display:inline-flex;align-items:center;gap:6px;min-height:27px;border:1px solid #dbe6f3;border-radius:999px;padding:4px 8px;background:#fff;color:var(--muted);font-size:11px;box-shadow:0 1px 2px rgba(15,39,79,.025);}
 .legend button:hover {border-color:#9abce5;color:var(--navy);}
 .legend button[aria-pressed="true"] {background:var(--pale-blue);border-color:#7baae1;color:var(--navy);box-shadow:0 0 0 1px rgba(38,102,196,.08);}
-.legend i {width: 9px;height: 9px;display: inline-grid;place-items: center;border-radius: 50%;color: #fff;font-size: 7px;font-style: normal;font-weight: 800;}
+.legend i {width: 9px;height: 9px;display: inline-grid;place-items: center;border-radius: 50%;color: #fff;font-size: 11px;font-style: normal;font-weight: 700;}
 .legend button[data-secondary="true"] i {background: #fff !important;border: 2px solid #22c55e;color: #15803d;}
-.clearFilter {border:0!important;padding:0!important;background:transparent!important;color:var(--blue)!important;font-weight:650;box-shadow:none!important;}
+.clearFilter {border:0!important;padding:0!important;background:transparent!important;color:var(--blue)!important;font-weight:600;box-shadow:none!important;}
 .calendarScroll {overflow-x: auto;padding: 2px;}
 .weekdays,
 .calendarGrid {display: grid;grid-template-columns: repeat(7,minmax(0,1fr));gap: 7px;min-width: 700px;}
-.weekdays {margin-bottom: 7px;color: var(--subtle);text-align: center;font-size: 11px;font-weight: 650;}
+.weekdays {margin-bottom: 7px;color: var(--subtle);text-align: center;font-size: 11px;font-weight: 600;}
 .calendarGrid {grid-auto-rows: minmax(84px,auto);}
 .day {
   min-width: 0;
@@ -299,12 +298,12 @@ button.summaryItem[aria-pressed="true"] {border-color:#7baae1;background:var(--p
 button.day:hover {border-color: #8bb7e8;box-shadow: 0 3px 9px rgba(15,39,79,.07);}
 .dayTop {display: flex;align-items: center;justify-content: space-between;gap: 6px;}
 .dayNumber {color: #425b80;font-size: 11px;font-weight: 700;font-variant-numeric: tabular-nums;}
-.todayTag {border-radius: 999px;padding: 2px 6px;background: var(--blue);color: #fff;font-size: 9px;font-weight: 700;}
+.todayTag {border-radius: 999px;padding: 2px 6px;background: var(--blue);color: #fff;font-size: 11px;font-weight: 700;}
 .dayStatus {display: flex;align-items: center;gap: 7px;margin-top: 9px;min-width: 0;}
 .dayStatus>svg {width: 18px;height: 18px;flex: 0 0 18px;}
 .dayStatus>span {min-width: 0;}
-.dayStatus strong {display: block;overflow: hidden;color: var(--text);font-size: 11px;line-height: 1.15;font-weight: 650;text-overflow: ellipsis;}
-.dayStatus small {display: block;margin-top: 2px;color: var(--muted);font-size: 9px;}
+.dayStatus strong {display: block;overflow: hidden;color: var(--text);font-size: 11px;line-height: 1.15;font-weight: 600;text-overflow: ellipsis;}
+.dayStatus small {display: block;margin-top: 2px;color: var(--muted);font-size: 11px;}
 .secondaryBadge,
 .reviewBadge,
 .regularizedBadge {
@@ -316,7 +315,7 @@ button.day:hover {border-color: #8bb7e8;box-shadow: 0 3px 9px rgba(15,39,79,.07)
   padding: 2px 5px;
   background: rgba(255,255,255,.68);
   color: #475569;
-  font-size: 9px;
+  font-size: 11px;
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -350,14 +349,14 @@ button.day:hover {border-color: #8bb7e8;box-shadow: 0 3px 9px rgba(15,39,79,.07)
 
 .yearLoading,
 .yearError {min-height: 220px;display: flex;align-items: center;justify-content: center;gap: 9px;margin-top: 16px;border: 1px dashed var(--border-strong);border-radius: 12px;color: var(--muted);font-size: 13px;}
-.yearError button {color: var(--blue);font-weight: 650;}
+.yearError button {color: var(--blue);font-weight: 600;}
 .yearGrid {display: grid;grid-template-columns: repeat(4,minmax(0,1fr));gap: 10px;margin-top: 16px;}
 .yearCard {min-height: 130px;border: 1px solid var(--border);border-radius: 12px;padding: 14px;background: #fff;text-align: left;transition: border-color .16s ease,box-shadow .16s ease;}
 .yearCard:hover {border-color: #91b8e6;box-shadow: 0 4px 12px rgba(15,39,79,.07);}
 .yearCardHeading {display: flex;align-items: center;justify-content: space-between;gap: 9px;}
-.yearCardHeading strong {color: var(--navy);font-size: 15px;}
-.yearCardHeading small {color: var(--subtle);font-size: 10px;}
-.yearCardNumbers {display: grid;grid-template-columns: repeat(3,1fr);gap: 5px;margin-top: 20px;color: var(--muted);font-size: 9px;}
+.yearCardHeading strong {color: var(--navy);font-size: 16px;}
+.yearCardHeading small {color: var(--subtle);font-size: 11px;}
+.yearCardNumbers {display: grid;grid-template-columns: repeat(3,1fr);gap: 5px;margin-top: 20px;color: var(--muted);font-size: 11px;}
 .yearCardNumbers b {display: block;color: var(--navy);font-size: 16px;font-weight: 700;}
 .yearDistribution {display: flex;height: 5px;overflow: hidden;margin-top: 13px;border-radius: 999px;background: #e2e8f0;}
 .yearDistribution i {min-width: 0;}
@@ -367,7 +366,7 @@ button.day:hover {border-color: #8bb7e8;box-shadow: 0 3px 9px rgba(15,39,79,.07)
 .errorState>svg {width: 20px;height: 20px;flex: 0 0 20px;}
 .errorState strong {font-size: 14px;}
 .errorState p {margin-top: 3px;color: #64748b;font-size: 13px;}
-.errorState button {margin-top: 10px;border: 1px solid #fca5a5;border-radius: 8px;padding: 6px 10px;background: #fff;font-size: 12px;font-weight: 650;}
+.errorState button {margin-top: 10px;border: 1px solid #fca5a5;border-radius: 8px;padding: 6px 10px;background: #fff;font-size: 12px;font-weight: 600;}
 .loadingStack {display: grid;gap: 20px;}
 .skeleton {border: 1px solid var(--border);border-radius: 16px;background: linear-gradient(90deg,#f1f5f9,#fff,#f1f5f9);background-size: 200% 100%;animation: skeleton 1.4s ease infinite;}
 .todaySkeleton {height: 300px;}
@@ -379,7 +378,7 @@ button.day:hover {border-color: #8bb7e8;box-shadow: 0 3px 9px rgba(15,39,79,.07)
 .correctionList>button>span:first-child {min-width: 0;}
 .correctionList strong {display: block;color: var(--navy);font-size: 13px;}
 .correctionList small {display: block;margin-top: 4px;color: var(--muted);font-size: 12px;overflow-wrap: anywhere;}
-.correctionList>button>span:last-child {color: var(--blue);font-size: 11px;font-weight: 650;white-space: nowrap;}
+.correctionList>button>span:last-child {color: var(--blue);font-size: 11px;font-weight: 600;white-space: nowrap;}
 
 @keyframes skeleton {to {background-position: -200% 0;}}
 
@@ -395,7 +394,7 @@ button.day:hover {border-color: #8bb7e8;box-shadow: 0 3px 9px rgba(15,39,79,.07)
 @container(max-width: 720px) {
   .page {padding: 18px;}
   .pageHeader {align-items: flex-start;}
-  .pageHeader h1 {font-size: 27px;}
+  .pageHeader h1 {font-size: 24px;}
   .headerActions {align-items: stretch;flex-direction: column;}
   .textAction,.leaveMenu summary {width: 100%;}
   .todayCard,.calendarSection {padding-left: 18px;padding-right: 18px;}
@@ -417,12 +416,12 @@ button.day:hover {border-color: #8bb7e8;box-shadow: 0 3px 9px rgba(15,39,79,.07)
   .headerActions {width: 100%;display: grid;grid-template-columns: 1fr 1fr;}
   .leaveMenu nav {left: 0;right: auto;width: min(260px,calc(100vw - 56px));}
   .todayHeader,.calendarSectionHeader {align-items: flex-start;flex-direction: column;}
-  .todayHeader h2 {font-size: 17px;}
+  .todayHeader h2 {font-size: 16px;}
   .statusBadge {align-self: flex-start;}
-  .primaryMetric>strong {font-size: 28px;}
+  .primaryMetric>strong {font-size: 30px;}
   .metricRow {grid-template-columns: 1fr 1fr;}
   .metricRow>div {padding: 0 10px;}
-  .metricRow dd {font-size: 17px;}
+  .metricRow dd {font-size: 16px;}
   .punches {align-items: stretch;flex-direction: column;}
   .punches>div {min-width: 0;}
   .primaryButton {width: 100%;}
@@ -442,3 +441,73 @@ button.day:hover {border-color: #8bb7e8;box-shadow: 0 3px 9px rgba(15,39,79,.07)
   .day {transition: none;}
   .skeleton {animation: none;}
 }
+/* Dark theme, hand-tuned: the page's own colour variables. */
+:global(html[data-theme="john-wick-dark"]) .page {
+  --navy: #fafafa;
+  --blue: #60a5fa;
+  --light-blue: #93c5fd;
+  --pale-blue: #14203a;
+  --page-bg: #0a0a0c;
+  --surface: #151518;
+  --text: #fafafa;
+  --muted: #c4c4cc;
+  --subtle: #a1a1aa;
+  --border: #242429;
+  --border-strong: #2f2f35;
+  color-scheme: dark;
+}
+:global(html[data-theme="john-wick-dark"]) .primaryButton { background: #2563eb; }
+:global(html[data-theme="john-wick-dark"]) .primaryButton:hover { background: #1d4ed8; }
+:global(html[data-theme="john-wick-dark"]) .todayTag { background: #2563eb; }
+
+/* ── Dark theme (generated from the light colours above, DESIGN.md palette) ── */
+:global(html[data-theme="john-wick-dark"]) .textAction,
+:global(html[data-theme="john-wick-dark"]) .leaveMenu summary { background: #151518; }
+:global(html[data-theme="john-wick-dark"]) .textAction:hover,
+:global(html[data-theme="john-wick-dark"]) .leaveMenu summary:hover { border-color: #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .leaveMenu nav { background: #151518; }
+:global(html[data-theme="john-wick-dark"]) .sectionKicker { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .progressTrack { background: #14203a; }
+:global(html[data-theme="john-wick-dark"]) .infoNote,
+:global(html[data-theme="john-wick-dark"]) .attentionNote { border-top: 1px solid #2f2f35; background: #1c1c20; color: #60a5fa; }
+:global(html[data-theme="john-wick-dark"]) .attentionNote { border-top-color: #2f2f35; background: #2e2410; color: #fbbf24; }
+:global(html[data-theme="john-wick-dark"]) .scopeTabs { background: #1c1c20; }
+:global(html[data-theme="john-wick-dark"]) .scopeTabs button[aria-pressed="true"] { background: #151518; }
+:global(html[data-theme="john-wick-dark"]) .leaveBalanceLabel,
+:global(html[data-theme="john-wick-dark"]) .leaveBalanceKpi { background: linear-gradient(145deg,#151518 0%,#1c1c20 100%); }
+:global(html[data-theme="john-wick-dark"]) .leaveBalanceLabel>span { background: #1c1c20; }
+:global(html[data-theme="john-wick-dark"]) .leaveBalanceKpi[data-unavailable="true"] { background: #1a1a1e; }
+:global(html[data-theme="john-wick-dark"]) .monthControls>button { background: #151518; }
+:global(html[data-theme="john-wick-dark"]) .monthControls>button:hover:not(:disabled) { border-color: #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .monthPicker { background: #151518; }
+:global(html[data-theme="john-wick-dark"]) .yearPicker select { background: #151518; }
+:global(html[data-theme="john-wick-dark"]) .summaryItem { background: #1c1c20; }
+:global(html[data-theme="john-wick-dark"]) button.summaryItem:hover,
+:global(html[data-theme="john-wick-dark"]) button.summaryItem[aria-pressed="true"] { border-color: #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .summaryItem[data-tone="review"]:not([data-zero="true"]) .summaryDot { box-shadow: 0 0 0 4px #242429; }
+:global(html[data-theme="john-wick-dark"]) .legendPanel { background: #1c1c20; }
+:global(html[data-theme="john-wick-dark"]) .legend button { border: 1px solid #2f2f35; background: #151518; }
+:global(html[data-theme="john-wick-dark"]) .legend button:hover { border-color: #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .legend button[aria-pressed="true"] { border-color: #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .legend button[data-secondary="true"] i { background: #151518 !important; border: 2px solid #1d5c48; color: #34d399; }
+:global(html[data-theme="john-wick-dark"]) .day { background: #151518; }
+:global(html[data-theme="john-wick-dark"]) button.day:hover { border-color: #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .dayNumber { color: #e4e4e7; }
+:global(html[data-theme="john-wick-dark"]) .secondaryBadge,
+:global(html[data-theme="john-wick-dark"]) .reviewBadge,
+:global(html[data-theme="john-wick-dark"]) .regularizedBadge { background: rgba(21,21,24,.68); color: #e4e4e7; }
+:global(html[data-theme="john-wick-dark"]) .reviewBadge { background: #2e2410; color: #fbbf24; }
+:global(html[data-theme="john-wick-dark"]) .regularizedBadge { border: 1px solid #1d5c48; background: #0f2a22; color: #34d399; }
+:global(html[data-theme="john-wick-dark"]) .neutralDay { background: #151518; color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .neutralDay .dayNumber { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .todayDay { box-shadow: 0 0 0 2px #242429; }
+:global(html[data-theme="john-wick-dark"]) .selectedDay { box-shadow: 0 0 0 2px #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .yearCard { background: #151518; }
+:global(html[data-theme="john-wick-dark"]) .yearCard:hover { border-color: #2f2f35; }
+:global(html[data-theme="john-wick-dark"]) .yearDistribution { background: #14203a; }
+:global(html[data-theme="john-wick-dark"]) .upcomingMonth { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .errorState { border: 1px solid #6b2a33; background: #151518; color: #f87171; }
+:global(html[data-theme="john-wick-dark"]) .errorState p { color: #c4c4cc; }
+:global(html[data-theme="john-wick-dark"]) .errorState button { border: 1px solid #6b2a33; background: #151518; }
+:global(html[data-theme="john-wick-dark"]) .skeleton { background: linear-gradient(90deg,#1c1c20,#151518,#1c1c20); }
+/* ── end dark theme ── */

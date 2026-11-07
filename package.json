@@ -23,6 +23,7 @@
     "backend:start": "npm --prefix backend run start:prod",
     "backend:verify-deployment-layout": "node scripts/deployment/verify-backend-root-layout.mjs",
     "backend:verify-module-identity": "node scripts/deployment/verify-backend-module-identity.mjs",
-    "frontend:verify-import": "node scripts/frontend/verify-attendance-import.mjs"
+    "frontend:verify-import": "node scripts/frontend/verify-attendance-import.mjs",
+    "frontend:verify-design-rules": "node scripts/frontend/verify-design-rules.mjs"
   }
 }

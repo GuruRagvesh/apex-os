@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Menu, Bell, CheckCheck, Search, Loader2 } from 'lucide-react';
+import { Menu, Bell, CheckCheck, Search, Loader2, Plus } from 'lucide-react';
 import { useAuthStore } from '@/store/auth.store';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { notificationsApi, workdayApi } from '@/lib/api';
@@ -14,6 +14,7 @@ import { CommandPalette } from '@apex/apps-web/components/command-palette';
 import { PersonalHighlightsTopbar } from '@apex/intelligence-dashboard';
 import toast from 'react-hot-toast';
 import { pollWhileHealthy } from '@apex/shared-auth';
+import { CreateTicketLink } from '@apex/operations-tickets-lifecycle/components/ticket-creation-gate';
 
 // /hrms and /sales-crm are standalone workspace pages (frontend/app/(workspaces)) —
 // they no longer render inside the dashboard shell, so TopBar never mounts for them.
@@ -121,7 +122,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
   const desktopSearchTrigger = (
     <button
       onClick={() => setPaletteOpen(true)}
-      className="hidden sm:flex w-full max-w-xl items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs transition-colors"
+      className="hidden sm:flex w-full max-w-md items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs transition-colors"
       style={{
         backgroundColor: 'var(--bg-tertiary)',
         color: 'var(--text-secondary)',
@@ -129,7 +130,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
       }}
     >
       <span className="flex items-center gap-2">
-        <Search size={13} />
+        <Search size={14} />
         <span>Search…</span>
       </span>
     </button>
@@ -193,6 +194,13 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
         >
           <Search size={16} />
         </button>
+        <CreateTicketLink
+          href="/tickets/new"
+          className="hidden h-9 items-center gap-1.5 rounded-xl bg-blue-600 px-3 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700 sm:inline-flex"
+        >
+          <Plus size={16} />
+          <span>New ticket</span>
+        </CreateTicketLink>
         {user && <PersonalHighlightsTopbar role={typeof user.role === 'string' ? user.role : (user.role as any)?.name ?? ''} />}
         {/* Keep the compact workday state in the header; detailed attendance remains on Home. */}
         <div className="relative">
@@ -220,7 +228,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
               <button
                 onClick={() => { setShowWorkdayMenu(false); router.push('/dashboard'); }}
                 className="w-full text-center text-xs hover:underline"
-                style={{ color: 'var(--accent)' }}
+                style={{ color: 'var(--accent-text)' }}
               >
                 Go to Home
               </button>
@@ -239,7 +247,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
           >
             <Bell size={18} />
             {count > 0 && (
-              <span className="absolute top-1 right-1 w-4 h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+              <span className="absolute top-1 right-1 w-4 h-4 bg-red-600 text-white text-caption font-bold rounded-full flex items-center justify-center">
                 {count > 9 ? '9+' : count}
               </span>
             )}
@@ -264,10 +272,10 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
                       onClick={() => markAllRead.mutate()}
                       disabled={markAllRead.isPending}
                       className="flex items-center gap-1 text-xs disabled:opacity-40 hover:underline"
-                      style={{ color: 'var(--accent)' }}
+                      style={{ color: 'var(--accent-text)' }}
                       title="Mark all as read"
                     >
-                      <CheckCheck size={13} />
+                      <CheckCheck size={14} />
                       Mark all read
                     </button>
                   )}

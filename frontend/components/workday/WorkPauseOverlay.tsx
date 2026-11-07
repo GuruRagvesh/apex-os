@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { animate, splitText, stagger } from 'animejs';
 import { ArrowLeft, Coffee, Play, UsersRound } from 'lucide-react';
 import { ModalPortal } from '@/components/ui/ModalPortal';
@@ -31,6 +31,11 @@ export function WorkPauseOverlay({ kind, elapsedMinutes, plannedMinutes, resumin
   const layerRef = useRef<HTMLElement | null>(null);
   const wordRef = useRef<HTMLHeadingElement | null>(null);
   const isMeeting = kind === 'meeting';
+  const [resumeConfirmationPending, setResumeConfirmationPending] = useState(false);
+
+  useEffect(() => {
+    setResumeConfirmationPending(false);
+  }, [kind]);
 
   useEffect(() => {
     const target = wordRef.current;
@@ -70,7 +75,11 @@ export function WorkPauseOverlay({ kind, elapsedMinutes, plannedMinutes, resumin
     const layer = layerRef.current;
     if (!layer) return;
 
-    const siblings = Array.from(document.body.children).filter((element) => element !== layer) as HTMLElement[];
+    // Keep only the server-timed break warning interactive above this frozen
+    // scene. Every other application surface remains inert while paused.
+    const siblings = Array.from(document.body.children).filter((element) =>
+      element !== layer && !element.hasAttribute('data-break-warning-layer'),
+    ) as HTMLElement[];
     const previous = siblings.map((element) => ({ element, inert: element.inert }));
     siblings.forEach((element) => { element.inert = true; });
     return () => previous.forEach(({ element, inert }) => { element.inert = inert; });
@@ -113,12 +122,12 @@ export function WorkPauseOverlay({ kind, elapsedMinutes, plannedMinutes, resumin
             <div className={styles.meetingActions}>
               {onBackToApex && (
                 <button type="button" className={styles.backButton} onClick={onBackToApex}>
-                  <ArrowLeft size={17} aria-hidden="true" />
+                  <ArrowLeft size={16} aria-hidden="true" />
                   Back to Apex
                 </button>
               )}
-              <button type="button" className={styles.meetingResume} onClick={onResume} disabled={resuming} autoFocus>
-                <Play size={17} fill="currentColor" aria-hidden="true" />
+              <button type="button" className={styles.meetingResume} onClick={onResume} disabled={resuming}>
+                <Play size={16} fill="currentColor" aria-hidden="true" />
                 {resuming ? 'Resuming…' : 'Resume Work'}
               </button>
             </div>
@@ -131,9 +140,18 @@ export function WorkPauseOverlay({ kind, elapsedMinutes, plannedMinutes, resumin
         </div>
 
         {!isMeeting && (
-          <button type="button" className={styles.resume} onClick={onResume} disabled={resuming} autoFocus>
-            <Play size={17} fill="currentColor" aria-hidden="true" />
-            {resuming ? 'Resuming…' : 'Resume Work'}
+          <button
+            type="button"
+            className={styles.resume}
+            onClick={() => {
+              if (resumeConfirmationPending) onResume();
+              else setResumeConfirmationPending(true);
+            }}
+            disabled={resuming}
+            aria-label={resumeConfirmationPending ? 'Confirm resume work and end break' : 'Resume work'}
+          >
+            <Play size={16} fill="currentColor" aria-hidden="true" />
+            {resuming ? 'Resuming…' : resumeConfirmationPending ? 'Click again to resume' : 'Resume Work'}
           </button>
         )}
       </section>

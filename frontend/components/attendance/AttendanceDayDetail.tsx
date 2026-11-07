@@ -222,7 +222,7 @@ export function AttendanceDayDetail({
             />
           )}
         </dl>
-        <p className="apex-text-subtle mt-2 text-[11px]">
+        <p className="apex-text-subtle mt-2 text-caption">
           Attendance presence is punch out minus punch in. Worked time and Workday span are
           operational and are not compared to the requirement.
         </p>
@@ -294,8 +294,8 @@ export function AttendanceDayDetail({
         )}
 
         {presence.evidenceMismatch && (
-          <p className="mt-2 flex items-start gap-1.5 text-[11px] text-amber-700 dark:text-amber-400">
-            <AlertTriangle size={13} className="mt-px shrink-0" />
+          <p className="mt-2 flex items-start gap-1.5 text-caption text-amber-700 dark:text-amber-400">
+            <AlertTriangle size={14} className="mt-px shrink-0" />
             <span>
               Some Workday activity occurred outside the evidence-backed attendance window.
               Workday activity is operational time; attendance presence is evidence-backed punch
@@ -326,7 +326,7 @@ export function AttendanceDayDetail({
               {correction.reason && (
                 <p className="apex-text-muted mt-0.5 text-xs">{correction.reason}</p>
               )}
-              <p className="apex-text-subtle mt-1 text-[11px]">
+              <p className="apex-text-subtle mt-1 text-caption">
                 HR is the final authority for attendance corrections.
               </p>
             </div>
@@ -408,7 +408,7 @@ function ActivityTimeline({
             {e.changed && (
               <ul className="mt-0.5 space-y-0.5">
                 {e.changed.map((c) => (
-                  <li key={c.field} className="apex-text-muted text-[11px]">
+                  <li key={c.field} className="apex-text-muted text-caption">
                     {fieldLabel(c.field)}: {c.from ?? 'Missing'} &rarr; {c.to ?? 'Missing'}
                   </li>
                 ))}
@@ -416,10 +416,10 @@ function ActivityTimeline({
             )}
 
             {e.reason && (
-              <p className="apex-text-muted mt-0.5 text-[11px]">Reason: {e.reason}</p>
+              <p className="apex-text-muted mt-0.5 text-caption">Reason: {e.reason}</p>
             )}
 
-            <p className="apex-text-subtle mt-0.5 text-[11px]">
+            <p className="apex-text-subtle mt-0.5 text-caption">
               {actorLabel(e)} &middot;{' '}
               {new Date(e.at).toLocaleString([], {
                 day: 'numeric',
@@ -440,14 +440,14 @@ function LocationLine({ evidence }: { evidence: OwnPunchEvidence }) {
   const loc = presentLocation(evidence);
   const colour =
     loc.tone === 'good'
-      ? 'text-emerald-600 dark:text-emerald-400'
+      ? 'text-emerald-700 dark:text-emerald-400'
       : loc.tone === 'warn'
-        ? 'text-amber-600 dark:text-amber-400'
+        ? 'text-amber-700 dark:text-amber-400'
         : 'apex-text-muted';
   return (
     <div>
       <p className={`text-xs font-medium ${colour}`}>{loc.headline}</p>
-      {loc.detail && <p className="apex-text-subtle text-[11px]">{loc.detail}</p>}
+      {loc.detail && <p className="apex-text-subtle text-caption">{loc.detail}</p>}
     </div>
   );
 }

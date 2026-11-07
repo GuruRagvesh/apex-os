@@ -94,19 +94,19 @@ function CardContent({ ticket, isPending, canMove = true, canDrag = canMove }: {
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="text-xs font-mono" style={{ color: 'var(--text-tertiary)' }}>{ticket.ticketId}</span>
           {!canMove && !isDone && (
-            <span className="flex items-center gap-0.5 text-[9px] font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 dark:text-slate-400 px-1 py-0.5 rounded" title="Read-only context">
+            <span className="flex items-center gap-0.5 text-caption font-bold text-slate-500 bg-slate-100 dark:bg-slate-800 dark:text-slate-400 px-1 py-0.5 rounded" title="Read-only context">
               🔒 READ-ONLY
             </span>
           )}
           {ticket.isOverdue && !isDone && (
-            <span className="flex items-center gap-0.5 text-[9px] font-bold text-red-600 bg-red-50 dark:bg-red-950/40 dark:text-red-400 px-1 py-0.5 rounded">
+            <span className="flex items-center gap-0.5 text-caption font-bold text-red-600 bg-red-50 dark:bg-red-950/40 dark:text-red-400 px-1 py-0.5 rounded">
               ⚠️ OVERDUE
             </span>
           )}
         </div>
         <div className="flex items-center gap-1.5">
           {isPending && <Loader2 size={12} className="animate-spin text-indigo-500" />}
-          {ticket.priority === 'URGENT' && !isDone && <AlertTriangle size={13} className="text-red-500 flex-shrink-0" />}
+          {ticket.priority === 'URGENT' && !isDone && <AlertTriangle size={14} className="text-red-600 flex-shrink-0" />}
         </div>
       </div>
 
@@ -119,7 +119,7 @@ function CardContent({ ticket, isPending, canMove = true, canDrag = canMove }: {
       <TimingTicker ticket={ticket} className="mt-1 mb-1.5" />
 
       {ticket.scheduledStartAt && (
-        <p className="text-[11px] mt-0.5 mb-1.5" style={{ color: 'var(--text-tertiary)' }}>
+        <p className="text-caption mt-0.5 mb-1.5" style={{ color: 'var(--text-tertiary)' }}>
           🕑 {new Date(ticket.scheduledStartAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           {ticket.scheduledEndAt && ` → ${new Date(ticket.scheduledEndAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`}
         </p>
@@ -144,19 +144,19 @@ function CardContent({ ticket, isPending, canMove = true, canDrag = canMove }: {
         <div className="flex items-center gap-2">
           {(ticket.estimatedMinutes || ticket.estimatedTime) && (
             <span className="text-xs flex items-center gap-1" style={{ color: 'var(--text-tertiary)' }}>
-              <Clock size={11} />
+              <Clock size={12} />
               {ticket.estimatedMinutes ? `${ticket.estimatedMinutes}m` : `${ticket.estimatedTime}h`}
             </span>
           )}
           {ticket.dueDate && (
-            <span className={cn('text-xs', new Date(ticket.dueDate) < new Date() ? 'text-red-500' : '')} style={new Date(ticket.dueDate) >= new Date() ? { color: 'var(--text-tertiary)' } : undefined}>
+            <span className={cn('text-xs', new Date(ticket.dueDate) < new Date() ? 'text-red-600' : '')} style={new Date(ticket.dueDate) >= new Date() ? { color: 'var(--text-tertiary)' } : undefined}>
               {formatDate(ticket.dueDate)}
             </span>
           )}
         </div>
         {ticket.assignedTo ? (
           <div className="w-6 h-6 bg-indigo-600 rounded-full flex items-center justify-center" title={ticket.assignedTo.name}>
-            <span className="text-white text-[10px] font-bold">{getInitials(ticket.assignedTo.name)}</span>
+            <span className="text-white text-caption font-bold">{getInitials(ticket.assignedTo.name)}</span>
           </div>
         ) : (
           <div className="w-6 h-6 rounded-full" style={{ backgroundColor: 'var(--bg-tertiary)' }} title="Unassigned" />
@@ -270,7 +270,7 @@ function DroppableColumn({
         </div>
         <span
           className="text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center font-mono"
-          style={{ backgroundColor: `${col.accentColor}20`, color: col.accentColor }}
+          style={{ backgroundColor: `${col.accentColor}20`, color: `color-mix(in srgb, color-mix(in srgb, ${col.accentColor} 72%, #0f172a) var(--status-tint-keep, 100%), color-mix(in srgb, ${col.accentColor} 68%, #ffffff))` }}
         >
           {tickets.length}
         </span>
@@ -325,7 +325,7 @@ function DroppableColumn({
           >
             <span className="text-2xl mb-1" style={{ color: 'var(--text-tertiary)' }}>+</span>
             <p className="text-xs font-medium" style={{ color: 'var(--text-tertiary)' }}>No tickets here</p>
-            <CreateTicketLink className="text-xs hover:underline mt-0.5" style={{ color: 'var(--accent)' }} onClick={(e) => e.stopPropagation()}>
+            <CreateTicketLink className="text-xs hover:underline mt-0.5" style={{ color: 'var(--accent-text)' }} onClick={(e) => e.stopPropagation()}>
               Create a new ticket
             </CreateTicketLink>
           </div>
@@ -533,7 +533,7 @@ export default function KanbanScreen() {
       {/* Header */}
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Kanban Board</h2>
+          <h2 className="apex-page-title">Kanban Board</h2>
           {roleDisplay === 'INTERN' && (
             <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
               You can move only tickets where you are the reporter or assignee.
@@ -543,7 +543,7 @@ export default function KanbanScreen() {
         <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full lg:w-auto">
           <label className="relative flex-1 lg:w-64">
             <span className="sr-only">Search Kanban tickets</span>
-            <Search size={15} className="absolute left-3 top-1/2 z-10 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-tertiary)' }} />
+            <Search size={16} className="absolute left-3 top-1/2 z-10 -translate-y-1/2 pointer-events-none" style={{ color: 'var(--text-tertiary)' }} />
             <input
               type="search"
               value={search}
@@ -582,7 +582,7 @@ export default function KanbanScreen() {
             aria-label="Refresh Kanban board"
             title="Refresh Kanban board"
           >
-            <RefreshCw size={15} className={cn(isFetching && 'animate-spin')} />
+            <RefreshCw size={16} className={cn(isFetching && 'animate-spin')} />
           </button>
           <CreateTicketLink className="apex-btn-new-ticket">
             <Plus size={16} /> New Ticket
@@ -598,7 +598,7 @@ export default function KanbanScreen() {
         </div>
       ) : isError ? (
         <div className="apex-section-border rounded-2xl border p-8 text-center" style={{ backgroundColor: 'var(--surface-card)' }} role="alert">
-          <AlertTriangle className="mx-auto mb-3 text-amber-500" size={28} />
+          <AlertTriangle className="mx-auto mb-3 text-amber-700" size={28} />
           <h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Kanban board could not be loaded</h3>
           <p className="text-sm mt-1 mb-4" style={{ color: 'var(--text-secondary)' }}>Refresh and try again. No ticket was changed.</p>
           <button type="button" className="apex-btn apex-btn-secondary" onClick={() => refetch()}>Try again</button>

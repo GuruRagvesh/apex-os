@@ -201,11 +201,11 @@ export function SmartAnnouncementsCarousel({ data, recognition = EMPTY_RECOGNITI
         >
           <div className="relative z-10 flex h-[86px] shrink-0 items-center gap-2 border-r border-slate-200 bg-white px-3 dark:border-slate-700 dark:bg-slate-900 sm:px-5">
             <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[8px] bg-[#eef4ff] text-[#2563eb] dark:bg-blue-950 dark:text-blue-300">
-              <Megaphone size={17} strokeWidth={1.8} aria-hidden="true" />
+              <Megaphone size={16} strokeWidth={1.8} aria-hidden="true" />
             </span>
             <span className="hidden sm:block">
-              <span className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-[#4477bf] dark:text-blue-300">APEX OS</span>
-              <span className="block text-[13px] font-semibold text-[#172b50] dark:text-slate-100">{announcementsOnly ? 'Breaking news' : 'Live updates'}</span>
+              <span className="block text-caption font-semibold uppercase tracking-[0.08em] text-[#4477bf] dark:text-blue-300">APEX OS</span>
+              <span className="block text-sm font-semibold text-[#172b50] dark:text-slate-100">{announcementsOnly ? 'Breaking news' : 'Live updates'}</span>
             </span>
           </div>
 
@@ -223,10 +223,10 @@ export function SmartAnnouncementsCarousel({ data, recognition = EMPTY_RECOGNITI
                         <button type="button" tabIndex={copyIndex === 0 ? 0 : -1}
                           onClick={() => openItem(item.key)}
                           className="group flex min-h-[64px] shrink-0 items-center gap-2.5 whitespace-nowrap px-2 text-left focus-visible:rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600">
-                          <Icon size={15} className="shrink-0 text-blue-600 dark:text-blue-300" aria-hidden="true" />
-                          <span className="text-[10px] font-medium text-[#4477bf] dark:text-blue-300">{item.category}</span>
-                          <span className="max-w-[280px] truncate text-[13px] font-semibold text-[#172b50] group-hover:text-blue-600 dark:text-slate-100">{item.title}</span>
-                          <span className="max-w-[260px] truncate text-[11px] text-[#6b82a6] dark:text-slate-400">{item.summary}</span>
+                          <Icon size={16} className="shrink-0 text-blue-600 dark:text-blue-300" aria-hidden="true" />
+                          <span className="text-caption font-medium text-[#4477bf] dark:text-blue-300">{item.category}</span>
+                          <span className="max-w-[280px] truncate text-sm font-semibold text-[#172b50] group-hover:text-blue-600 dark:text-slate-100">{item.title}</span>
+                          <span className="max-w-[260px] truncate text-caption text-[#6b82a6] dark:text-slate-400">{item.summary}</span>
                         </button>
                         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-blue-300" aria-hidden="true" />
                       </div>;
@@ -249,7 +249,7 @@ export function SmartAnnouncementsCarousel({ data, recognition = EMPTY_RECOGNITI
               <button type="button" onClick={() => newestAnnouncement && openEditor(newestAnnouncement)} disabled={!newestAnnouncement}
                 aria-label="Edit latest announcement" title="Edit latest announcement"
                 className="rounded-full p-2 text-slate-500 transition-colors hover:bg-blue-50 hover:text-blue-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-35 dark:text-slate-300 dark:hover:bg-slate-800">
-                <PenLine size={17} aria-hidden="true" />
+                <PenLine size={16} aria-hidden="true" />
               </button>
             </>}
             <button type="button" onClick={() => { setSelectedCritical(null); setSelectedKey(null); setDetailsOpen(true); }}
@@ -280,7 +280,7 @@ export function SmartAnnouncementsCarousel({ data, recognition = EMPTY_RECOGNITI
             {!selectedCritical && !selectedItem && <div className="mt-4 space-y-2">
               {items.map((item) => <button key={item.key} type="button" onClick={() => setSelectedKey(item.key)}
                 className="block w-full rounded-lg bg-blue-50 px-3 py-2 text-left text-sm hover:bg-blue-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-600 dark:bg-slate-800 dark:hover:bg-slate-700">
-                <span className="block text-[11px] font-medium text-blue-600 dark:text-blue-300">{item.category}</span>
+                <span className="block text-caption font-medium text-blue-600 dark:text-blue-300">{item.category}</span>
                 <span className="font-medium text-slate-800 dark:text-slate-100">{item.title}</span>
                 <span className="block truncate text-xs text-slate-500 dark:text-slate-400">{item.summary}</span>
               </button>)}

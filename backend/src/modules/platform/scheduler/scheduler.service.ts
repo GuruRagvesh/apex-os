@@ -14,6 +14,22 @@ import { TVAService } from '../../../common/services/tva.service';
 import { COMPANY_CRON_TIMEZONE } from '../../../common/constants/company-time.constants';
 import { AttendanceAuthorityService } from '../../../common/services/attendance-authority.service';
 
+export function resolveBreakWarningTransition(
+  breakLog: { warningStage: string; estimatedMinutes: number | null; plannedEndAt: Date | null },
+  now: Date,
+): { phase: 'early' | 'final'; activeStage: 'EARLY_ACTIVE' | 'FINAL_ACTIVE' } | null {
+  if (!breakLog.plannedEndAt || !['PENDING', 'FINAL_PENDING'].includes(breakLog.warningStage)) return null;
+  const shortEstimate = breakLog.estimatedMinutes !== null && breakLog.estimatedMinutes <= 5;
+  const finalPhase = breakLog.warningStage === 'FINAL_PENDING' || shortEstimate;
+  const dueAt = finalPhase
+    ? breakLog.plannedEndAt
+    : new Date(breakLog.plannedEndAt.getTime() - 5 * 60_000);
+  if (dueAt.getTime() > now.getTime()) return null;
+  return finalPhase
+    ? { phase: 'final', activeStage: 'FINAL_ACTIVE' }
+    : { phase: 'early', activeStage: 'EARLY_ACTIVE' };
+}
+
 @Injectable()
 export class SchedulerService {
   private readonly logger = new Logger('SchedulerService');
@@ -64,28 +80,62 @@ export class SchedulerService {
     }
   }
 
-  /** Server-owned planned-break reminders; works even when the initiating tab is backgrounded. */
+  /**
+   * Server-owned break alarms. An estimate over five minutes first warns five
+   * minutes early; the end-time alarm is armed only when the person chooses
+   * Later. Estimates of five minutes or less have one alarm at their end.
+   */
   @Cron('* * * * *', { name: 'planned-break-overrun-reminders' })
   async plannedBreakOverrunReminders() {
     const now = this.tva.now();
-    const overdueBreaks = await this.prisma.breakLog.findMany({
-      where: { endAt: null, plannedEndAt: { not: null, lte: now } },
-      select: { id: true, userId: true, breakType: true, plannedEndAt: true },
+    const openBreaks = await this.prisma.breakLog.findMany({
+      where: {
+        endAt: null,
+        breakType: { not: 'MEETING' },
+        plannedEndAt: { not: null },
+      },
+      select: {
+        id: true,
+        userId: true,
+        breakType: true,
+        estimatedMinutes: true,
+        plannedEndAt: true,
+      },
       take: 500,
     });
-    for (const breakLog of overdueBreaks) {
+    for (const breakLog of openBreaks) {
+      const stateRow = await this.prisma.appSetting.findUnique({
+        where: { key: `break-warning-${breakLog.id}` },
+      });
+      const stateValue = (stateRow?.value ?? {}) as any;
+      const warningStage = typeof stateValue.stage === 'string' ? stateValue.stage : 'PENDING';
+      const transition = resolveBreakWarningTransition({ ...breakLog, warningStage }, now);
+      if (!transition) continue;
+      const { phase, activeStage } = transition;
       try {
+        // Claim the transition before delivery so two scheduler instances cannot
+        // start two alarms. The durable popup remains recoverable even if push fails.
+        const stateKey = `break-warning-${breakLog.id}`;
+        await this.prisma.appSetting.upsert({
+          where: { key: stateKey },
+          create: { key: stateKey, value: { stage: activeStage, userId: breakLog.userId, updatedAt: now.toISOString() }, updatedBy: breakLog.userId },
+          update: { value: { stage: activeStage, userId: breakLog.userId, updatedAt: now.toISOString() }, updatedBy: breakLog.userId },
+        });
         await this.notificationEventService.sendNotification(breakLog.userId, 'breakOverrun', {
-          title: 'Your planned break has ended',
-          message: 'You are still on break. Resume work when you are ready.',
+          title: phase === 'early' ? 'Your break ends in 5 minutes' : 'Your planned break has ended',
+          message: phase === 'early'
+            ? 'Your estimated break time is nearly complete.'
+            : 'You are still on break. Resume work when you are ready.',
           type: NotificationType.WARNING,
           link: '/dashboard',
           entityType: 'BREAK',
           entityId: breakLog.id,
-          dedupeKey: `break-overrun:${breakLog.id}`,
+          dedupeKey: `break-warning:${breakLog.id}:${phase}`,
+          forceDelivery: true,
         });
+        this.notificationEventService.emitBreakWarningChanged?.(breakLog.userId, breakLog.id);
       } catch (error) {
-        this.logger.error(`[scheduler] Planned-break reminder failed for ${breakLog.id}: ${error}`);
+        this.logger.error(`[scheduler] Break reminder failed for ${breakLog.id}: ${error}`);
       }
     }
   }

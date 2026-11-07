@@ -63,13 +63,13 @@ export function AnnouncementBroadcast({
         </motion.div>
 
         <div className="space-y-1 text-left">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] font-mono uppercase tracking-wider leading-none">
-            <span className={`font-bold ${hasAlert ? 'text-red-400' : 'text-blue-400'}`}>
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-caption font-mono uppercase tracking-wider leading-none">
+            <span className={`font-bold ${hasAlert ? 'text-red-600' : 'text-blue-400'}`}>
               Breaking News
             </span>
-            <span className="text-slate-400 font-semibold">• {today}</span>
+            <span className="text-slate-500 font-semibold">• {today}</span>
             {hasAlert && alertCount > 1 && (
-              <span className="bg-red-900/40 text-red-400 border border-red-800/40 px-1.5 py-0.5 rounded text-[9px] font-bold">
+              <span className="bg-red-900/40 text-red-600 border border-red-800/40 px-1.5 py-0.5 rounded text-caption font-bold">
                 {alertCount} active
               </span>
             )}
@@ -78,8 +78,8 @@ export function AnnouncementBroadcast({
             <span>{hasAlert ? eventTitle : 'No active operational alerts'}</span>
             {hasAlert && (
               <>
-                <span className="text-slate-400 font-normal">|</span>
-                <span className="text-slate-400 font-medium text-xs">Click to view all alerts and take action</span>
+                <span className="text-slate-500 font-normal">|</span>
+                <span className="text-slate-500 font-medium text-xs">Click to view all alerts and take action</span>
               </>
             )}
           </h3>
@@ -91,12 +91,12 @@ export function AnnouncementBroadcast({
         <button
           onClick={handleAdd}
           disabled={added || !hasAlert}
-          className={`px-4 py-2 rounded-xl font-bold text-[11px] font-sans tracking-wide transition-all uppercase flex items-center gap-1.5 cursor-pointer ${
+          className={`px-4 py-2 rounded-xl font-bold text-caption font-sans tracking-wide transition-all uppercase flex items-center gap-1.5 cursor-pointer ${
             added
-              ? 'bg-emerald-900/30 text-emerald-400 border border-emerald-800/50'
+              ? 'bg-emerald-900/30 text-emerald-700 border border-emerald-800/50'
               : !hasAlert
               ? 'border border-slate-700/50 text-slate-600 cursor-not-allowed opacity-50'
-              : 'border border-red-900/50 text-red-400 hover:bg-red-950/40'
+              : 'border border-red-900/50 text-red-600 hover:bg-red-950/40'
           }`}
         >
           {added ? (
@@ -139,8 +139,8 @@ export function AnnouncementBroadcast({
               </div>
               <div className="space-y-1.5 font-sans">
                 <h4 className="text-xs font-bold text-white">{hasAlert ? 'Breaking News Details' : 'Alert Status'}</h4>
-                <div className="space-y-1 font-semibold text-[10px] text-slate-400">
-                  <p><span className={hasAlert ? 'text-red-400' : 'text-blue-400'}>Alert:</span> {hasAlert ? eventTitle : 'No active alerts at this time'}</p>
+                <div className="space-y-1 font-semibold text-caption text-slate-500">
+                  <p><span className={hasAlert ? 'text-red-600' : 'text-blue-400'}>Alert:</span> {hasAlert ? eventTitle : 'No active alerts at this time'}</p>
                   <p><span className="text-blue-400">Scope:</span> All team members in your operational scope</p>
                   <p><span className="text-blue-400">Action:</span> {hasAlert ? 'Click to view all alerts and take action' : 'You\'re all clear — no action required'}</p>
                 </div>

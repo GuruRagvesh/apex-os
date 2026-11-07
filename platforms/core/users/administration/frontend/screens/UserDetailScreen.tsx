@@ -177,7 +177,7 @@ export default function UserDetailPage() {
   if (isError || !user) {
     return (
       <div className="flex flex-col items-center justify-center h-80 gap-3">
-        <AlertCircle size={40} className="text-rose-500" />
+        <AlertCircle size={40} className="text-rose-600" />
         <h3 className="text-lg font-semibold text-slate-800">Profile Access Restricted</h3>
         <p className="text-sm text-slate-500 max-w-sm text-center">
           You might not have permission to view this user's profile, or the user does not exist.
@@ -198,7 +198,7 @@ export default function UserDetailPage() {
       <nav className="flex items-center gap-1 text-xs text-slate-500 flex-wrap">
         {breadcrumbs.map((crumb, i) => (
           <span key={i} className="flex items-center gap-1">
-            {i > 0 && <ChevronRight className="w-3 h-3 text-slate-400" />}
+            {i > 0 && <ChevronRight className="w-3 h-3 text-slate-500" />}
             {crumb.href ? (
               <Link href={crumb.href} className="hover:text-indigo-600 transition-colors">
                 {crumb.label}
@@ -220,7 +220,7 @@ export default function UserDetailPage() {
             <ArrowLeft size={16} className="text-slate-600" />
           </button>
           <div>
-            <h1 className="text-xl font-bold text-slate-800">Employee Directory</h1>
+            <h1 className="apex-page-title">Employee Directory</h1>
             <p className="text-xs text-slate-500">View and manage employee profile and operational metrics</p>
           </div>
         </div>
@@ -234,7 +234,7 @@ export default function UserDetailPage() {
             <Avatar name={user.name} avatar={user.avatar} />
             <div className="pb-1 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-2xl font-bold text-slate-800">{user.name}</h2>
+                <h2 className="apex-page-title">{user.name}</h2>
                 {user.role && (
                   <span className={cn('px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase tracking-wider', roleBadge[user.role.name] ?? 'bg-slate-100 text-slate-600')}>
                     {user.role.name}
@@ -252,15 +252,15 @@ export default function UserDetailPage() {
 
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 text-sm pt-4 border-t border-slate-100">
             <div className="flex items-center gap-2.5 text-slate-600">
-              <Mail size={16} className="text-slate-400" />
+              <Mail size={16} className="text-slate-500" />
               <span className="truncate font-medium">{user.email}</span>
             </div>
             <div className="flex items-center gap-2.5 text-slate-600">
-              <Briefcase size={16} className="text-slate-400" />
+              <Briefcase size={16} className="text-slate-500" />
               <span>{user.employmentType || 'Full-time'} • {user.workMode || 'Office'}</span>
             </div>
             <div className="flex items-center gap-2.5 text-slate-600">
-              <Calendar size={16} className="text-slate-400" />
+              <Calendar size={16} className="text-slate-500" />
               <span>Joined {user.joiningDate ? formatDate(user.joiningDate) : 'Recently'}</span>
             </div>
           </div>
@@ -306,19 +306,19 @@ export default function UserDetailPage() {
                 <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Employment Details</h3>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                   <div>
-                    <p className="text-xs text-slate-400">Reporting Manager</p>
+                    <p className="text-xs text-slate-500">Reporting Manager</p>
                     <p className="font-semibold text-slate-700 mt-0.5">{user.reportingManager || 'Not Assigned'}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">Team Lead</p>
+                    <p className="text-xs text-slate-500">Team Lead</p>
                     <p className="font-semibold text-slate-700 mt-0.5">{user.teamLeadName || 'Not Assigned'}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">Work Shift</p>
+                    <p className="text-xs text-slate-500">Work Shift</p>
                     <p className="font-semibold text-slate-700 mt-0.5">{user.shiftTiming || '9:30 AM - 6:30 PM'}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">Office Location</p>
+                    <p className="text-xs text-slate-500">Office Location</p>
                     <p className="font-semibold text-slate-700 mt-0.5">{user.workLocation || 'Pune HQ'}</p>
                   </div>
                 </div>
@@ -328,11 +328,11 @@ export default function UserDetailPage() {
               <div className="apex-section-border bg-white rounded-xl border">
                 <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                   <h3 className="font-semibold text-slate-800">Recent Activity Logs</h3>
-                  <span className="text-xs text-slate-400">Scoped actions</span>
+                  <span className="text-xs text-slate-500">Scoped actions</span>
                 </div>
                 <div className="divide-y divide-slate-100">
                   {!activityLogs || activityLogs.length === 0 ? (
-                    <p className="text-sm text-slate-400 text-center py-8">No recent activity logged for this user</p>
+                    <p className="text-sm text-slate-500 text-center py-8">No recent activity logged for this user</p>
                   ) : (
                     activityLogs.map((log: any) => (
                       <div key={log.id} className="p-4 flex items-start gap-3">
@@ -347,7 +347,7 @@ export default function UserDetailPage() {
                               {JSON.stringify(log.details)}
                             </p>
                           )}
-                          <span className="text-[10px] text-slate-400 block mt-1">{new Date(log.createdAt).toLocaleString()}</span>
+                          <span className="text-caption text-slate-500 block mt-1">{new Date(log.createdAt).toLocaleString()}</span>
                         </div>
                       </div>
                     ))
@@ -378,12 +378,12 @@ export default function UserDetailPage() {
                 <h4 className="font-bold text-sm text-slate-800">Operational Stats</h4>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="bg-slate-50 p-3 rounded-lg text-center">
-                    <p className="text-xl font-bold text-orange-600">{openTickets}</p>
-                    <p className="text-[10px] text-slate-500">Open Tickets</p>
+                    <p className="text-xl font-bold text-orange-700">{openTickets}</p>
+                    <p className="text-caption text-slate-500">Open Tickets</p>
                   </div>
                   <div className="bg-slate-50 p-3 rounded-lg text-center">
-                    <p className="text-xl font-bold text-green-600">{completedTickets}</p>
-                    <p className="text-[10px] text-slate-500">Completed</p>
+                    <p className="text-xl font-bold text-green-700">{completedTickets}</p>
+                    <p className="text-caption text-slate-500">Completed</p>
                   </div>
                 </div>
               </div>
@@ -400,8 +400,8 @@ export default function UserDetailPage() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 {[
                   { label: 'Yearly Allocation', value: leaveBalance?.allocation ?? '12 days', color: 'text-indigo-600 bg-indigo-50 border-indigo-100' },
-                  { label: 'Approved (Taken)', value: leaveBalance?.approved ? `${leaveBalance.approved} days` : '0 days', color: 'text-green-600 bg-green-50 border-green-100' },
-                  { label: 'Pending Approval', value: leaveBalance?.pending ? `${leaveBalance.pending} days` : '0 days', color: 'text-amber-600 bg-amber-50 border-amber-100' },
+                  { label: 'Approved (Taken)', value: leaveBalance?.approved ? `${leaveBalance.approved} days` : '0 days', color: 'text-green-700 bg-green-50 border-green-100' },
+                  { label: 'Pending Approval', value: leaveBalance?.pending ? `${leaveBalance.pending} days` : '0 days', color: 'text-amber-700 bg-amber-50 border-amber-100' },
                   { label: 'Remaining Balance', value: leaveBalance?.balance ? `${leaveBalance.balance} days` : '12 days', color: 'text-violet-600 bg-violet-50 border-violet-100' },
                 ].map((stat, i) => (
                   <div key={i} className={cn('p-4 rounded-xl border text-center shadow-sm transition-all hover:scale-[1.02]', stat.color)}>
@@ -420,7 +420,7 @@ export default function UserDetailPage() {
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
-                  <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] font-bold tracking-wider border-b border-slate-200">
+                  <thead className="bg-slate-50 text-slate-600 uppercase text-caption font-bold tracking-wider border-b border-slate-200">
                     <tr>
                       <th className="px-5 py-3">Date</th>
                       <th className="px-5 py-3">Status</th>
@@ -433,7 +433,7 @@ export default function UserDetailPage() {
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {!workdayHistory || workdayHistory.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-5 py-8 text-center text-slate-400">
+                        <td colSpan={6} className="px-5 py-8 text-center text-slate-500">
                           No workday/attendance records found
                         </td>
                       </tr>
@@ -451,7 +451,7 @@ export default function UserDetailPage() {
                             <td className="px-5 py-3.5 font-medium">{dateStr}</td>
                             <td className="px-5 py-3.5">
                               <span className={cn(
-                                'text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border',
+                                'text-caption px-2 py-0.5 rounded-full font-bold uppercase border',
                                 session.status === 'LOGGED_OUT' ? 'bg-slate-100 text-slate-600 border-slate-200' :
                                 session.status === 'WORKING' ? 'bg-green-100 text-green-700 border-green-200' :
                                 'bg-amber-100 text-amber-700 border-amber-200'
@@ -481,14 +481,14 @@ export default function UserDetailPage() {
             <div className="apex-section-border bg-white rounded-xl border overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                 <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                  <Briefcase size={16} className="text-slate-400" />
+                  <Briefcase size={16} className="text-slate-500" />
                   Active Project Memberships
                 </h3>
                 <span className="text-xs text-indigo-600 font-semibold">{projects.length} Projects</span>
               </div>
               <div className="divide-y divide-slate-100">
                 {projects.length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-8">Not associated with any projects</p>
+                  <p className="text-sm text-slate-500 text-center py-8">Not associated with any projects</p>
                 ) : (
                   projects.map((proj: any) => (
                     <Link
@@ -498,9 +498,9 @@ export default function UserDetailPage() {
                     >
                       <div>
                         <p className="text-sm font-semibold text-slate-800 group-hover:text-indigo-600 transition-colors">{proj.name}</p>
-                        <p className="text-xs text-slate-400 mt-0.5">ID: {proj.projectId} • {proj.status}</p>
+                        <p className="text-xs text-slate-500 mt-0.5">ID: {proj.projectId} • {proj.status}</p>
                       </div>
-                      <ExternalLink size={14} className="text-slate-300 group-hover:text-indigo-500 transition-colors" />
+                      <ExternalLink size={14} className="text-slate-500 group-hover:text-indigo-500 transition-colors" />
                     </Link>
                   ))
                 )}
@@ -511,14 +511,14 @@ export default function UserDetailPage() {
             <div className="apex-section-border bg-white rounded-xl border overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
                 <h3 className="font-semibold text-slate-800 flex items-center gap-2">
-                  <Ticket size={16} className="text-slate-400" />
+                  <Ticket size={16} className="text-slate-500" />
                   Recent Assigned Tickets
                 </h3>
-                <span className="text-xs text-slate-400 font-medium">({tickets.length})</span>
+                <span className="text-xs text-slate-500 font-medium">({tickets.length})</span>
               </div>
               <div className="divide-y divide-slate-100">
                 {tickets.length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-8">No tickets assigned</p>
+                  <p className="text-sm text-slate-500 text-center py-8">No tickets assigned</p>
                 ) : (
                   tickets.map((t: any) => (
                     <Link
@@ -526,9 +526,9 @@ export default function UserDetailPage() {
                       href={`/tickets/${t.id}`}
                       className="flex items-center gap-3 px-5 py-3.5 hover:bg-slate-50 transition-colors group"
                     >
-                      <span className="text-xs text-slate-400 font-mono w-16 flex-shrink-0">{t.ticketId}</span>
+                      <span className="text-xs text-slate-500 font-mono w-16 flex-shrink-0">{t.ticketId}</span>
                       <p className="flex-1 text-sm text-slate-700 font-semibold truncate group-hover:text-indigo-600 transition-colors">{t.title}</p>
-                      <span className={cn('text-[10px] px-2 py-0.5 rounded-full font-bold uppercase', STATUS_COLORS[t.status] ?? 'bg-slate-100 text-slate-600')}>
+                      <span className={cn('text-caption px-2 py-0.5 rounded-full font-bold uppercase', STATUS_COLORS[t.status] ?? 'bg-slate-100 text-slate-600')}>
                         {t.status}
                       </span>
                       <span className={cn('text-xs font-semibold', PRIORITY_COLORS[t.priority] ?? 'text-slate-500')}>
@@ -552,42 +552,42 @@ export default function UserDetailPage() {
                   <CreditCard size={18} className="text-indigo-500" />
                   Payroll & Statutory details
                 </h3>
-                <Shield size={14} className="text-slate-400" />
+                <Shield size={14} className="text-slate-500" />
               </div>
 
               {/* Show details or restricted warning */}
               {user.ctcAnnual === undefined ? (
                 <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
-                  <AlertCircle size={24} className="text-amber-500 animate-bounce" />
+                  <AlertCircle size={24} className="text-amber-700 animate-bounce" />
                   <p className="text-sm font-semibold text-slate-700">Access Restricted</p>
-                  <p className="text-xs text-slate-400 max-w-xs">
+                  <p className="text-xs text-slate-500 max-w-xs">
                     You do not have access to view this employee's sensitive financial details.
                   </p>
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                   <div>
-                    <p className="text-xs text-slate-400">CTC (Annual)</p>
+                    <p className="text-xs text-slate-500">CTC (Annual)</p>
                     <p className="font-mono font-bold text-slate-800 mt-0.5">{user.ctcAnnual}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">Basic Salary</p>
+                    <p className="text-xs text-slate-500">Basic Salary</p>
                     <p className="font-mono font-bold text-slate-800 mt-0.5">{user.basicSalary}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">Bank Name</p>
+                    <p className="text-xs text-slate-500">Bank Name</p>
                     <p className="font-semibold text-slate-800 mt-0.5">{user.bankName || '—'}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">Account Number</p>
+                    <p className="text-xs text-slate-500">Account Number</p>
                     <p className="font-mono font-semibold text-slate-800 mt-0.5">{user.accountNumber || '—'}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">PAN Number</p>
+                    <p className="text-xs text-slate-500">PAN Number</p>
                     <p className="font-mono font-semibold text-slate-800 mt-0.5">{user.panNumber || '—'}</p>
                   </div>
                   <div>
-                    <p className="text-xs text-slate-400">Aadhaar Number</p>
+                    <p className="text-xs text-slate-500">Aadhaar Number</p>
                     <p className="font-mono font-semibold text-slate-800 mt-0.5">{user.aadhaarNumber || '—'}</p>
                   </div>
                 </div>
@@ -615,22 +615,22 @@ export default function UserDetailPage() {
               </div>
               <div className="divide-y divide-slate-100">
                 {!canSeeDocs ? (
-                  <div className="p-8 text-center text-slate-400">
-                    <AlertCircle className="mx-auto text-slate-300 mb-2" size={24} />
+                  <div className="p-8 text-center text-slate-500">
+                    <AlertCircle className="mx-auto text-slate-500 mb-2" size={24} />
                     <p className="text-sm font-medium">Only HR/Admin or the owner can view documents</p>
                   </div>
                 ) : !documents || documents.length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-8">No documents uploaded yet</p>
+                  <p className="text-sm text-slate-500 text-center py-8">No documents uploaded yet</p>
                 ) : (
                   documents.map((doc: any) => (
                     <div key={doc.id} className="p-4 space-y-3">
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm font-semibold text-slate-800">{doc.documentType}</p>
-                          <p className="text-xs text-slate-400">{doc.fileName} ({(doc.fileSize / 1024).toFixed(0)} KB)</p>
+                          <p className="text-xs text-slate-500">{doc.fileName} ({(doc.fileSize / 1024).toFixed(0)} KB)</p>
                         </div>
                         <span className={cn(
-                          'text-[10px] px-2 py-0.5 rounded-full font-bold border uppercase',
+                          'text-caption px-2 py-0.5 rounded-full font-bold border uppercase',
                           doc.verificationStatus === 'VERIFIED' ? 'bg-green-100 text-green-700 border-green-200' :
                           doc.verificationStatus === 'REJECTED' ? 'bg-red-100 text-red-600 border-red-200' :
                           'bg-amber-100 text-amber-700 border-amber-200 animate-pulse'
@@ -657,7 +657,7 @@ export default function UserDetailPage() {
                             <button
                               onClick={() => verifyDocMutation.mutate({ docId: doc.id, status: 'VERIFIED' })}
                               disabled={verifyDocMutation.isPending}
-                              className="flex items-center gap-1 text-xs px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg transition-colors"
+                              className="flex items-center gap-1 text-xs px-3 py-1.5 bg-green-700 hover:bg-green-800 text-white font-semibold rounded-lg transition-colors"
                             >
                               <CheckCircle2 size={12} />
                               Verify

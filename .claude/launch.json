@@ -7,6 +7,14 @@
       "runtimeArgs": ["run", "dev"],
       "cwd": "frontend",
       "port": 3000
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "start:dev"],
+      "cwd": "backend",
+      "env": { "CORS_ORIGINS": "http://localhost:3002" },
+      "port": 3001
     }
   ]
 }

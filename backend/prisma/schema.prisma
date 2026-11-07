@@ -777,6 +777,8 @@ model Meeting {
   id                       String                    @id @default(cuid())
   topic                    String
   meetingType              String
+  /// ONE_ON_ONE | GROUP. Kept separate from Internal/External meeting scope.
+  meetingFormat            String                    @default("GROUP")
   timingMode               String
   departmentId             String?
   organizerId              String

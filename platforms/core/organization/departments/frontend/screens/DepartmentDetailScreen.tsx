@@ -41,7 +41,7 @@ const STATUS_COLORS: Record<string, string> = {
 const PRIORITY_COLORS: Record<string, string> = {
   LOW: 'text-slate-500',
   MEDIUM: 'text-blue-600',
-  HIGH: 'text-orange-600',
+  HIGH: 'text-orange-700',
   URGENT: 'text-red-600',
 };
 
@@ -239,7 +239,7 @@ export default function DepartmentDetailScreen() {
     return (
       <div className="max-w-xl mx-auto apex-card p-8 text-center space-y-4">
         <div className="mx-auto w-12 h-12 rounded-full flex items-center justify-center" style={{ backgroundColor: 'var(--accent-subtle)' }}>
-          <ShieldAlert size={24} style={{ color: 'var(--accent)' }} />
+          <ShieldAlert size={24} style={{ color: 'var(--accent-text)' }} />
         </div>
         <div>
           <h1 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>You do not have access to this department</h1>
@@ -265,7 +265,7 @@ export default function DepartmentDetailScreen() {
   if (isError || !dept) {
     return (
       <div className="flex flex-col items-center justify-center h-60 gap-3">
-        <AlertCircle size={32} className="text-slate-300" />
+        <AlertCircle size={32} className="text-slate-500" />
         <p className="text-slate-500">This department could not be located</p>
         <button onClick={() => router.back()} className="text-sm text-blue-600 hover:underline">
           Go back
@@ -314,24 +314,24 @@ export default function DepartmentDetailScreen() {
                 />
                 <button
                   onClick={() => nameVal.trim() && patchMutation.mutate({ name: nameVal.trim() })}
-                  className="p-1 text-green-600 hover:bg-green-50 rounded"
+                  className="p-1 text-green-700 hover:bg-green-50 rounded"
                 >
                   <Check size={16} />
                 </button>
                 <button
                   onClick={() => setEditingName(false)}
-                  className="p-1 text-slate-400 hover:bg-slate-100 rounded"
+                  className="p-1 text-slate-500 hover:bg-slate-100 rounded"
                 >
                   <X size={16} />
                 </button>
               </div>
             ) : (
               <div className="flex items-center gap-2">
-                <h1 className="text-xl font-bold" style={{ color: 'var(--text-primary)' }}>{dept.name}</h1>
+                <h1 className="apex-page-title">{dept.name}</h1>
                 {isAdmin && (
                   <button
                     onClick={() => { setNameVal(dept.name); setEditingName(true); }}
-                    className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-400 hover:text-slate-600"
+                    className="p-1.5 hover:bg-slate-100 rounded-lg transition-colors text-slate-500 hover:text-slate-600"
                   >
                     <Edit2 size={14} />
                   </button>
@@ -357,7 +357,7 @@ export default function DepartmentDetailScreen() {
             </div>
           </div>
         ) : (
-          <p className="text-sm text-slate-400 italic">No department manager or lead assigned</p>
+          <p className="text-sm text-slate-500 italic">No department manager or lead assigned</p>
         )}
       </div>
 
@@ -372,7 +372,7 @@ export default function DepartmentDetailScreen() {
               onClick={() => setShowAddManager(true)}
               className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium"
             >
-              <UserPlus size={15} />
+              <UserPlus size={16} />
               {departmentHead ? 'Change Head' : 'Assign Head'}
             </button>
           )}
@@ -401,10 +401,10 @@ export default function DepartmentDetailScreen() {
                 <button
                   onClick={() => { if (confirm(`Remove ${departmentHead.name} as Department Head?`)) removeManagerMutation.mutate(departmentHead.id); }}
                   disabled={removeManagerMutation.isPending}
-                  className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors flex-shrink-0"
+                  className="p-1 text-slate-500 hover:text-red-500 hover:bg-red-50 rounded transition-colors flex-shrink-0"
                   title="Remove Department Head"
                 >
-                  <UserMinus size={13} />
+                  <UserMinus size={14} />
                 </button>
               )}
             </div>
@@ -416,9 +416,9 @@ export default function DepartmentDetailScreen() {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
           { label: 'Total Members', value: dept.stats?.totalMembers ?? dept._count?.users ?? 0, icon: Users, color: 'text-blue-600 bg-blue-50' },
-          { label: 'Active Tickets', value: dept.stats?.activeTickets ?? 0, icon: Ticket, color: 'text-orange-600 bg-orange-50' },
+          { label: 'Active Tickets', value: dept.stats?.activeTickets ?? 0, icon: Ticket, color: 'text-orange-700 bg-orange-50' },
           { label: 'Pending Leave', value: dept.stats?.pendingLeave ?? 0, icon: Clock, color: 'text-purple-600 bg-purple-50' },
-          { label: 'Projects', value: dept.stats?.projects ?? dept._count?.projects ?? 0, icon: FolderKanban, color: 'text-green-600 bg-green-50' },
+          { label: 'Projects', value: dept.stats?.projects ?? dept._count?.projects ?? 0, icon: FolderKanban, color: 'text-green-700 bg-green-50' },
         ].map((s) => (
           <div key={s.label} className="apex-card p-4 text-center">
             <div className={`w-10 h-10 rounded-xl ${s.color} flex items-center justify-center mx-auto mb-2`}>
@@ -444,7 +444,7 @@ export default function DepartmentDetailScreen() {
               onClick={() => setShowAddMember(true)}
               className="flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 font-medium"
             >
-              <UserPlus size={15} />
+              <UserPlus size={16} />
               Add Member
             </button>
           )}
@@ -479,23 +479,23 @@ export default function DepartmentDetailScreen() {
                     <button
                       onClick={() => setTeamLeadMutation.mutate(m.id)}
                       disabled={setTeamLeadMutation.isPending}
-                      className="p-1 text-slate-400 hover:text-amber-500 hover:bg-amber-50 rounded transition-colors"
+                      className="p-1 text-slate-500 hover:text-amber-500 hover:bg-amber-50 rounded transition-colors"
                       title="Set as Team Lead"
                     >
-                      <Crown size={13} />
+                      <Crown size={14} />
                     </button>
                   )}
                   <button
                     onClick={() => { if (confirm(`Remove ${m.name} from this department?`)) removeMemberMutation.mutate(m.id); }}
                     disabled={removeMemberMutation.isPending}
-                    className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                    className="p-1 text-slate-500 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
                     title="Remove from department"
                   >
-                    <UserMinus size={13} />
+                    <UserMinus size={14} />
                   </button>
                 </div>
               )}
-              <ExternalLink size={13} className="text-slate-300 cursor-pointer" onClick={() => router.push(`/users/${m.id}?from=department&deptId=${dept.id}&deptName=${encodeURIComponent(dept.name)}`)} />
+              <ExternalLink size={14} className="text-slate-500 cursor-pointer" onClick={() => router.push(`/users/${m.id}?from=department&deptId=${dept.id}&deptName=${encodeURIComponent(dept.name)}`)} />
             </div>
           ))}
         </div>
@@ -543,9 +543,9 @@ export default function DepartmentDetailScreen() {
                   {t.priority}
                 </span>
                 {t.assignedTo && (
-                  <span className="text-xs text-slate-400 flex-shrink-0">{t.assignedTo.name}</span>
+                  <span className="text-xs text-slate-500 flex-shrink-0">{t.assignedTo.name}</span>
                 )}
-                <ExternalLink size={13} className="text-slate-300" />
+                <ExternalLink size={14} className="text-slate-500" />
               </div>
             ))}
           </div>

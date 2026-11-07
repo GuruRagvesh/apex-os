@@ -41,7 +41,7 @@ export default function WorkdayNotesPage() {
         style={{ backgroundColor: 'var(--surface-card)', borderColor: 'var(--border-primary)' }}
       >
         <div className="px-4 pb-6 pt-5 sm:px-6">
-          <h1 className="text-base font-semibold text-blue-500">Workday Notes</h1>
+          <h1 className="apex-page-title">Workday Notes</h1>
           <p className="mt-1 text-xs" style={{ color: 'var(--text-tertiary)' }}>
             Private, append-only notes visible only to you.
           </p>

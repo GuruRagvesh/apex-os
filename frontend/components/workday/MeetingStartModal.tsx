@@ -10,8 +10,9 @@ import { ModalPortal } from '../ui/ModalPortal';
 /** Apex's shared royal-blue accent; keep this flow visually inside the application. */
 const MEETING_ACCENT = '#2563EB';
 
-type MeetingType = 'ONE_ON_ONE' | 'INTERNAL' | 'EXTERNAL' | 'CUSTOM';
-type Person = { id: string; name: string; role: string; departmentId: string | null; departmentName: string | null; inMeeting: boolean };
+type MeetingType = 'INTERNAL' | 'EXTERNAL' | 'CUSTOM';
+type MeetingFormat = 'ONE_ON_ONE' | 'GROUP';
+type Person = { id: string; name: string; role: string; departmentId: string | null; departmentIds: string[]; departmentName: string | null; inMeeting: boolean };
 type Options = {
   me: Person;
   canCreateInternal: boolean;
@@ -24,7 +25,6 @@ type Options = {
 };
 
 const TYPES: { id: MeetingType; title: string; hint: string }[] = [
-  { id: 'ONE_ON_ONE', title: 'One-on-one', hint: 'One person in your department' },
   { id: 'INTERNAL', title: 'Internal', hint: 'People in your department' },
   { id: 'EXTERNAL', title: 'External', hint: 'Other departments or a client' },
   { id: 'CUSTOM', title: 'Custom', hint: 'Any mix of people' },
@@ -56,6 +56,7 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
 
   const [agenda, setAgenda] = useState('');
   const [type, setType] = useState<MeetingType | null>(null);
+  const [format, setFormat] = useState<MeetingFormat>('GROUP');
   const [purpose, setPurpose] = useState('');
   const [departmentIds, setDepartmentIds] = useState<string[]>([]);
   const [roles, setRoles] = useState<string[]>(FILTER_ROLES);
@@ -68,14 +69,18 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
   const [approverQuery, setApproverQuery] = useState('');
   const [approverIds, setApproverIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
 
   const me = options?.me;
   const isEmployee = !options?.canCreateInternal;
   const isDepartmental = type === 'INTERNAL' && isEmployee;
+  const supportsFormat = type === 'INTERNAL' || type === 'EXTERNAL';
+  const isOneOnOne = supportsFormat && format === 'ONE_ON_ONE';
   const peopleById = useMemo(() => new Map((options?.people ?? []).map((p) => [p.id, p])), [options]);
 
   const chooseType = (next: MeetingType) => {
     setType(next);
+    setFormat('GROUP');
     setSelected([]);
     setIncludeAdmin(false);
     setDepartmentIds(next === 'EXTERNAL' && me?.departmentId ? [] : []);
@@ -89,14 +94,16 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
   /** Who the picker may show for this type and role (the server enforces the same rules). */
   const inScope = (p: Person) => {
     if (!type || !me) return false;
-    const sameDept = Boolean(me.departmentId) && p.departmentId === me.departmentId;
+    const myDepartmentIds = me.departmentIds?.length ? me.departmentIds : (me.departmentId ? [me.departmentId] : []);
+    const personDepartmentIds = p.departmentIds?.length ? p.departmentIds : (p.departmentId ? [p.departmentId] : []);
+    const sameDept = personDepartmentIds.some((id) => myDepartmentIds.includes(id));
+    const companyInternal = isAdminRole(me.role);
     if (isAdminRole(p.role)) {
-      if (type === 'ONE_ON_ONE') return false;
-      if (type === 'INTERNAL') return !isEmployee && includeAdmin;
+      if (type === 'INTERNAL') return includeAdmin && (companyInternal || sameDept);
       return includeAdmin;
     }
-    if (type === 'ONE_ON_ONE' || type === 'INTERNAL') return sameDept;
-    if (type === 'EXTERNAL') return p.departmentId !== null && departmentIds.includes(p.departmentId);
+    if (type === 'INTERNAL') return companyInternal || sameDept;
+    if (type === 'EXTERNAL') return personDepartmentIds.some((id) => departmentIds.includes(id));
     return true;
   };
 
@@ -110,18 +117,18 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
   const toggle = (id: string) => {
     const person = peopleById.get(id);
     if (!person || person.inMeeting) return;
-    if (type === 'ONE_ON_ONE') { setSelected([id]); return; }
+    if (isOneOnOne) { setSelected([id]); return; }
     setSelected((current) => current.includes(id) ? current.filter((x) => x !== id) : [...current, id]);
   };
   const add = (id: string | null | undefined) => {
     if (!id) return;
     const person = peopleById.get(id);
     if (!person || person.inMeeting || !inScope(person)) return;
-    if (type === 'ONE_ON_ONE') setSelected([id]);
+    if (isOneOnOne) setSelected([id]);
     else setSelected((current) => current.includes(id) ? current : [...current, id]);
   };
   const adminIds = (options?.people ?? []).filter((p) => isAdminRole(p.role)).map((p) => p.id);
-  const canPickAdmin = type === 'EXTERNAL' || type === 'CUSTOM' || (type === 'INTERNAL' && !isEmployee);
+  const canPickAdmin = Boolean(type);
   const selectedPeople = selected.map((id) => peopleById.get(id)).filter(Boolean) as Person[];
   /** Mirrors the server: senior attendees + one available leader for every department. */
   const approvalPlan = useMemo(() => {
@@ -164,18 +171,27 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
   const uncoveredApprovalGroup = approvalPlan.groups.find((group) => !group.candidateIds.some((id) => approverIds.includes(id)));
   const missingMandatoryApprover = approvalPlan.mandatoryIds.some((id) => !approverIds.includes(id));
 
-  const problem = (() => {
+  const detailsProblem = (() => {
     if (agenda.trim().length < 3) return 'Add an agenda (at least 3 characters).';
     if (!type) return 'Choose a meeting type.';
-    if (type === 'ONE_ON_ONE' && selected.length !== 1) return 'A one-on-one has exactly one other person.';
+    return null;
+  })();
+  const peopleProblem = (() => {
+    if (!type) return 'Choose a meeting type.';
+    if (isOneOnOne && selected.length !== 1) return 'Choose exactly one person for a one-on-one meeting.';
     if (type === 'INTERNAL' && selected.length < 1) return 'Add at least one person from your department.';
-    if (!approvalPlan.candidates.length) return 'No available approver was found for this meeting.';
-    if (missingMandatoryApprover) return 'Keep every senior attendee in the approval list.';
-    if (uncoveredApprovalGroup) return `Choose an approver for ${uncoveredApprovalGroup.departmentName}.`;
     if (type === 'EXTERNAL' && !selected.length && !clientName.trim()) return 'Add people from another department, or a client.';
     if (type === 'CUSTOM' && !selected.length && !guestNames.trim()) return 'Add at least one person.';
     return null;
   })();
+  const approvalProblem = (() => {
+    if (!approvalPlan.candidates.length) return 'No available approver was found for this meeting.';
+    if (missingMandatoryApprover) return 'Keep every senior attendee in the approval list.';
+    if (uncoveredApprovalGroup) return `Choose an approver for ${uncoveredApprovalGroup.departmentName}.`;
+    return null;
+  })();
+  const problem = detailsProblem || peopleProblem || approvalProblem;
+  const activeProblem = step === 1 ? detailsProblem : step === 2 ? peopleProblem : approvalProblem;
 
   const start = async () => {
     if (problem || !type) return;
@@ -184,6 +200,7 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
       await workdayApi.startMeetingV2({
         agenda: agenda.trim(),
         type,
+        format: supportsFormat ? format : 'GROUP',
         purpose: purpose || undefined,
         participantIds: selected,
         clientName: type === 'EXTERNAL' ? clientName.trim() || undefined : undefined,
@@ -206,7 +223,7 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
   };
 
   const inputCls = 'w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm text-slate-800 focus:border-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/25';
-  const labelCls = 'mb-1.5 block font-mono text-xs uppercase tracking-wider text-slate-400';
+  const labelCls = 'mb-1.5 block font-mono text-xs uppercase tracking-wider text-slate-500';
 
   return (
     <ModalPortal>
@@ -223,15 +240,25 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
             </div>
             <div className="flex-1">
               <h2 id="meeting-start-title" className="text-base font-semibold text-white">Start a Meeting</h2>
-              <p className="mt-0.5 text-xs text-slate-400">Your work pauses when the meeting starts</p>
+              <p className="mt-0.5 text-xs text-slate-500">Your work pauses when the meeting starts</p>
             </div>
-            <button type="button" onClick={onClose} className="text-slate-400 transition-colors hover:text-white" aria-label="Close"><X size={16} /></button>
+            <button type="button" onClick={onClose} className="text-slate-500 transition-colors hover:text-white" aria-label="Close"><X size={16} /></button>
           </div>
 
           <div className="flex-1 space-y-4 overflow-y-auto bg-white px-6 py-5">
             {isLoading && <p className="py-6 text-center text-sm text-slate-500">Loading people…</p>}
             {isError && <p className="py-6 text-center text-sm text-red-600">People could not be loaded. Close this and try again.</p>}
             {options && <>
+              <div className="mb-1 grid grid-cols-3 gap-2" aria-label={`Step ${step} of 3`}>
+                {(['Meeting details', 'Participants', 'Approval'] as const).map((label, index) => {
+                  const number = (index + 1) as 1 | 2 | 3;
+                  const active = step === number;
+                  const complete = step > number;
+                  return <div key={label} className="min-w-0"><div className={`mb-1.5 h-1.5 rounded-full ${active || complete ? 'bg-blue-600' : 'bg-slate-200'}`} /><span className={`block truncate text-caption font-semibold ${active ? 'text-blue-700' : complete ? 'text-slate-600' : 'text-slate-500'}`}>{number}. {label}</span></div>;
+                })}
+              </div>
+
+              {step === 1 && <>
               <label className="block">
                 <span className={labelCls}>Agenda</span>
                 <input value={agenda} onChange={(event) => setAgenda(event.target.value)} maxLength={200} autoFocus placeholder="What is this meeting about?" className={inputCls} />
@@ -239,7 +266,7 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
 
               <div>
                 <span className={labelCls}>Meeting type</span>
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                   {TYPES.map((item) => (
                     <button key={item.id} type="button" onClick={() => chooseType(item.id)} aria-pressed={type === item.id}
                       className="rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition-all"
@@ -247,14 +274,34 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
                         ? { borderColor: MEETING_ACCENT, backgroundColor: 'rgba(37,99,235,0.08)', color: '#1e40af' }
                         : { borderColor: '#e2e8f0', color: '#334155' }}>
                       <span className="block font-semibold">{item.title}</span>
-                      <span className="mt-0.5 block text-[11px] text-slate-500">{item.id === 'INTERNAL' && isEmployee ? 'Departmental meeting' : item.hint}</span>
+                      <span className="mt-0.5 block text-caption text-slate-500">{item.id === 'INTERNAL' && isEmployee ? 'Departmental meeting' : item.hint}</span>
                     </button>
                   ))}
                 </div>
               </div>
 
+              {supportsFormat && <div>
+                <span className={labelCls}>Meeting format</span>
+                <div className="grid grid-cols-2 gap-2" role="group" aria-label="Meeting format">
+                  {([
+                    { id: 'ONE_ON_ONE' as const, title: 'One-on-one', hint: 'Choose any one available person' },
+                    { id: 'GROUP' as const, title: 'Group meeting', hint: 'Choose multiple people' },
+                  ]).map((item) => (
+                    <button key={item.id} type="button" onClick={() => { setFormat(item.id); setSelected([]); }} aria-pressed={format === item.id}
+                      className="rounded-xl border px-3 py-2.5 text-left text-sm font-medium transition-all"
+                      style={format === item.id
+                        ? { borderColor: MEETING_ACCENT, backgroundColor: 'rgba(37,99,235,0.08)', color: '#1e40af' }
+                        : { borderColor: '#e2e8f0', color: '#334155' }}>
+                      <span className="block font-semibold">{item.title}</span>
+                      <span className="mt-0.5 block text-caption text-slate-500">{item.hint}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>}
+              </>}
+
               {type && <>
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                {step === 1 && <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                   <label className="block">
                     <span className={labelCls}>Purpose (optional)</span>
                     <select value={purpose} onChange={(event) => setPurpose(event.target.value)} className={inputCls}>
@@ -270,13 +317,14 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
                     <span className={labelCls}>People outside Apex (optional)</span>
                     <input value={guestNames} onChange={(event) => setGuestNames(event.target.value)} maxLength={500} placeholder="Names, separated by commas" className={inputCls} />
                   </label>}
-                </div>
+                </div>}
 
+                {step === 2 && <>
                 {isDepartmental && <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">As an employee you can start a <b>departmental meeting</b> with people in your department, including your Team Lead.</p>}
 
                 <div className="rounded-2xl border border-slate-200 p-3">
                   <div className="mb-2 flex items-center justify-between">
-                    <span className="font-mono text-xs uppercase tracking-wider text-slate-400">Collaborators{type === 'ONE_ON_ONE' ? ' · pick one' : ''}</span>
+                    <span className="font-mono text-xs uppercase tracking-wider text-slate-500">Collaborators{isOneOnOne ? ' · pick one' : ''}</span>
                     <span className="text-xs font-semibold text-slate-500">{selected.length} selected</span>
                   </div>
 
@@ -284,13 +332,13 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
                     {options.myTeamLeadId && <button type="button" onClick={() => add(options.myTeamLeadId)} className="rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:border-blue-600 hover:text-blue-700">+ My Team Lead</button>}
                     {options.myManagerId && <button type="button" onClick={() => add(options.myManagerId)} className="rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:border-blue-600 hover:text-blue-700">+ My Manager</button>}
                     {canPickAdmin && adminIds.length > 0 && <button type="button" onClick={() => { setIncludeAdmin(true); setSelected((current) => Array.from(new Set([...current, ...adminIds.filter((id) => !peopleById.get(id)?.inMeeting)]))); }} className="rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:border-blue-600 hover:text-blue-700">+ Admin</button>}
-                    {type !== 'ONE_ON_ONE' && visible.length > 0 && <button type="button" onClick={() => setSelected((current) => Array.from(new Set([...current, ...visible.filter((p) => !p.inMeeting).map((p) => p.id)])))} className="rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:border-blue-600 hover:text-blue-700">+ Everyone shown</button>}
+                    {!isOneOnOne && visible.length > 0 && <button type="button" onClick={() => setSelected((current) => Array.from(new Set([...current, ...visible.filter((p) => !p.inMeeting).map((p) => p.id)])))} className="rounded-full border border-dashed border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-600 hover:border-blue-600 hover:text-blue-700">+ Everyone shown</button>}
                   </div>
 
                   {type === 'EXTERNAL' && <div className="mb-2">
-                    <span className="mb-1 block text-[11px] font-semibold text-slate-500">Departments</span>
+                    <span className="mb-1 block text-caption font-semibold text-slate-500">Departments</span>
                     <div className="flex flex-wrap gap-x-3 gap-y-1">
-                      {options.departments.filter((d) => d.id !== me?.departmentId).map((d) => (
+                      {options.departments.filter((d) => isAdminRole(me?.role ?? '') || !(me?.departmentIds ?? [me?.departmentId]).filter(Boolean).includes(d.id)).map((d) => (
                         <label key={d.id} className="inline-flex items-center gap-1.5 text-xs text-slate-700">
                           <input type="checkbox" checked={departmentIds.includes(d.id)} onChange={(event) => setDepartmentIds((current) => event.target.checked ? [...current, d.id] : current.filter((id) => id !== d.id))} />
                           {d.name}
@@ -300,7 +348,7 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
                   </div>}
 
                   <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-                    <span className="text-[11px] font-semibold text-slate-500">Roles</span>
+                    <span className="text-caption font-semibold text-slate-500">Roles</span>
                     {FILTER_ROLES.map((role) => (
                       <label key={role} className="inline-flex items-center gap-1.5 text-xs text-slate-700">
                         <input type="checkbox" checked={roles.includes(role)} onChange={(event) => setRoles((current) => event.target.checked ? [...current, role] : current.filter((r) => r !== role))} />
@@ -311,7 +359,7 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
                   </div>
 
                   <div className="relative mb-2">
-                    <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                    <Search size={14} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" aria-hidden="true" />
                     <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search a name" aria-label="Search people" className={`${inputCls} pl-9`} />
                   </div>
 
@@ -322,13 +370,13 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
                         ? <p className="px-1 py-4 text-center text-xs text-slate-500">No one matches these filters.</p>
                         : visible.map((person) => (
                           <label key={person.id} role="listitem" className={`flex items-center gap-3 border-b border-slate-100 px-1 py-2 last:border-b-0 ${person.inMeeting ? 'opacity-50' : 'cursor-pointer hover:bg-slate-50'}`}>
-                            <input type={type === 'ONE_ON_ONE' ? 'radio' : 'checkbox'} name="meeting-person" checked={selected.includes(person.id)} disabled={person.inMeeting} onChange={() => toggle(person.id)} />
-                            <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-blue-50 text-[11px] font-bold text-blue-700">{initials(person.name)}</span>
+                            <input type={isOneOnOne ? 'radio' : 'checkbox'} name="meeting-person" checked={selected.includes(person.id)} disabled={person.inMeeting} onChange={() => toggle(person.id)} />
+                            <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-blue-50 text-caption font-bold text-blue-700">{initials(person.name)}</span>
                             <span className="min-w-0 flex-1">
                               <span className="block truncate text-sm font-medium text-slate-800">{person.name}</span>
-                              <span className="block truncate text-[11px] text-slate-500">{ROLE_LABEL[person.role] ?? person.role}{person.departmentName ? ` · ${person.departmentName}` : ''}</span>
+                              <span className="block truncate text-caption text-slate-500">{ROLE_LABEL[person.role] ?? person.role}{person.departmentName ? ` · ${person.departmentName}` : ''}</span>
                             </span>
-                            {person.inMeeting && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-800">In a meeting</span>}
+                            {person.inMeeting && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-caption font-semibold text-blue-800">In a meeting</span>}
                           </label>
                         ))}
                   </div>
@@ -344,16 +392,16 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
                     })}
                   </div>}
                 </div>
+                </>}
 
-                <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-3">
+                {step === 3 && <div className="rounded-2xl border border-blue-200 bg-blue-50/60 p-3">
                   <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <span className={labelCls}>Send for approval to</span>
-                      <p className="text-xs text-slate-600">Every department in the meeting must have a leader validating its recorded time.</p>
                     </div>
                     <div className="grid min-w-72 grid-cols-1 gap-2 sm:grid-cols-2">
                       <label>
-                        <span className="mb-1 block text-[11px] font-semibold text-slate-600">Designation filter</span>
+                        <span className="mb-1 block text-caption font-semibold text-slate-600">Designation filter</span>
                         <select value={approverRoleFilter} onChange={(event) => setApproverRoleFilter(event.target.value)} className={inputCls}>
                           <option value="ALL">All designations</option>
                           <option value="TEAM_LEAD">Team Leader</option>
@@ -363,7 +411,7 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
                         </select>
                       </label>
                       <label>
-                        <span className="mb-1 block text-[11px] font-semibold text-slate-600">Name filter</span>
+                        <span className="mb-1 block text-caption font-semibold text-slate-600">Name filter</span>
                         <input value={approverQuery} onChange={(event) => setApproverQuery(event.target.value)} placeholder="Search name" className={inputCls} />
                       </label>
                     </div>
@@ -388,9 +436,9 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
                             />
                             <span className="min-w-0 flex-1">
                               <span className="block text-sm font-semibold text-slate-800">{candidate.name}</span>
-                              <span className="block text-[11px] text-slate-500">{ROLE_LABEL[candidate.role] ?? candidate.role}{departments.length ? ` · ${departments.join(', ')}` : ' · attending senior'}</span>
+                              <span className="block text-caption text-slate-500">{ROLE_LABEL[candidate.role] ?? candidate.role}{departments.length ? ` · ${departments.join(', ')}` : ' · attending senior'}</span>
                             </span>
-                            {mandatory && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">Attending senior</span>}
+                            {mandatory && <span className="rounded-full bg-blue-100 px-2 py-0.5 text-caption font-semibold text-blue-700">Attending senior</span>}
                           </label>
                         );
                       })}
@@ -398,22 +446,22 @@ export function MeetingStartModal({ onClose, onStarted }: { onClose: () => void;
                   </div>
 
                   <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5">
-                    <span className="block font-mono text-[11px] uppercase tracking-wider text-emerald-700">Approval goes to</span>
+                    <span className="block font-mono text-caption uppercase tracking-wider text-emerald-700">Approval goes to</span>
                     <span className="block text-sm font-semibold text-slate-800">{selectedApprovers.length ? selectedApprovers.map((candidate) => `${candidate.name} (${ROLE_LABEL[candidate.role]})`).join(', ') : 'Choose an approver'}</span>
-                    <span className="block text-xs text-slate-600">The meeting starts now. These approvals validate the saved meeting time after it ends.</span>
                   </div>
-                </div>
+                </div>}
               </>}
             </>}
           </div>
 
           <div className="flex items-center justify-between gap-3 rounded-b-3xl border-t border-slate-200 bg-slate-50 px-6 py-4">
-            <span className="text-xs text-red-600">{(agenda || type) && problem ? problem : ''}</span>
+            <span className="text-xs text-red-600">{activeProblem ?? ''}</span>
             <div className="flex flex-shrink-0 gap-2">
               <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100">Cancel</button>
-              <button type="button" onClick={start} disabled={saving || Boolean(problem)} className="rounded-xl px-5 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50" style={{ backgroundColor: MEETING_ACCENT }}>
+              {step > 1 && <button type="button" onClick={() => setStep((current) => current === 3 ? 2 : 1)} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition-colors hover:bg-slate-100">Back</button>}
+              {step < 3 ? <button type="button" onClick={() => setStep((current) => current === 1 ? 2 : 3)} disabled={Boolean(activeProblem)} className="rounded-xl px-5 py-2 text-sm font-semibold text-white transition-colors disabled:cursor-not-allowed disabled:opacity-50" style={{ backgroundColor: MEETING_ACCENT }}>Continue</button> : <button type="button" onClick={start} disabled={saving || Boolean(problem)} className="rounded-xl px-5 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50" style={{ backgroundColor: MEETING_ACCENT }}>
                 {saving ? 'Starting…' : 'Start Meeting'}
-              </button>
+              </button>}
             </div>
           </div>
         </div>

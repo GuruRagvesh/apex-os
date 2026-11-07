@@ -44,7 +44,7 @@ function CalendarPopover({ value, onChange, onClose }: { value: string; onChange
   return (
     <div className="absolute right-12 top-12 z-40 w-72 rounded-xl border border-blue-200 bg-white p-3 shadow-2xl dark:border-blue-900 dark:bg-slate-900">
       <div className="flex items-center justify-between gap-2">
-        <button type="button" aria-label="Previous month" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} className="rounded-lg border border-slate-200 p-1.5 text-blue-700 hover:bg-blue-50 dark:border-slate-700"><ChevronLeft size={17} /></button>
+        <button type="button" aria-label="Previous month" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() - 1, 1))} className="rounded-lg border border-slate-200 p-1.5 text-blue-700 hover:bg-blue-50 dark:border-slate-700"><ChevronLeft size={16} /></button>
         <div className="flex gap-1">
           <select aria-label="Calendar month" value={cursor.getMonth()} onChange={(event) => setCursor(new Date(cursor.getFullYear(), Number(event.target.value), 1))} className="rounded-md border border-slate-200 bg-white px-2 py-1 text-sm font-semibold text-slate-800 dark:border-slate-700 dark:bg-slate-950 dark:text-white">
             {Array.from({ length: 12 }, (_, month) => <option key={month} value={month}>{new Intl.DateTimeFormat('en-IN', { month: 'long' }).format(new Date(2026, month, 1))}</option>)}
@@ -53,9 +53,9 @@ function CalendarPopover({ value, onChange, onClose }: { value: string; onChange
             {years.map((year) => <option key={year} value={year}>{year}</option>)}
           </select>
         </div>
-        <button type="button" aria-label="Next month" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} className="rounded-lg border border-slate-200 p-1.5 text-blue-700 hover:bg-blue-50 dark:border-slate-700"><ChevronRight size={17} /></button>
+        <button type="button" aria-label="Next month" onClick={() => setCursor(new Date(cursor.getFullYear(), cursor.getMonth() + 1, 1))} className="rounded-lg border border-slate-200 p-1.5 text-blue-700 hover:bg-blue-50 dark:border-slate-700"><ChevronRight size={16} /></button>
       </div>
-      <div className="mt-3 grid grid-cols-7 text-center text-[10px] font-semibold uppercase text-slate-500">{['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day) => <span key={day}>{day}</span>)}</div>
+      <div className="mt-3 grid grid-cols-7 text-center text-caption font-semibold uppercase text-slate-500">{['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'].map((day) => <span key={day}>{day}</span>)}</div>
       <div className="mt-1 grid grid-cols-7 gap-1">
         {Array.from({ length: startOffset }, (_, index) => <span key={`blank-${index}`} />)}
         {Array.from({ length: days }, (_, index) => {
@@ -90,9 +90,9 @@ function display(value: unknown) {
 }
 
 function statusClass(status: UnifiedReviewItem['status']) {
-  if (status === 'APPROVED') return 'bg-emerald-600 text-white';
+  if (status === 'APPROVED') return 'bg-emerald-700 text-white';
   if (status === 'REJECTED') return 'bg-red-600 text-white';
-  return 'bg-amber-500 text-white';
+  return 'bg-amber-700 text-white';
 }
 
 function StatusPill({ status }: { status: UnifiedReviewItem['status'] }) {
@@ -118,7 +118,7 @@ function EmployeeIdentity({ item }: { item: UnifiedReviewItem }) {
       )}
       <span className="min-w-0">
         <span className="block truncate text-sm font-bold text-slate-900 dark:text-white">{employee.name}</span>
-        <span className="block truncate text-[11px] font-medium uppercase tracking-wide text-blue-600 dark:text-blue-300">
+        <span className="block truncate text-caption font-medium uppercase tracking-wide text-blue-600 dark:text-blue-300">
           {position}{employee.department?.name ? ` · ${employee.department.name}` : ''}
         </span>
       </span>
@@ -147,9 +147,9 @@ function RequestDetails({ item, compact = false }: { item: UnifiedReviewItem; co
     <div className={`grid gap-x-5 gap-y-3 ${compact ? 'grid-cols-2 xl:grid-cols-4' : 'grid-cols-2'}`}>
       {ordered.map(([key, value]) => (
         <div key={key} className="min-w-0">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{detailLabels[key] ?? key.replaceAll('_', ' ')}</div>
+          <div className="text-caption font-semibold uppercase tracking-wide text-slate-500">{detailLabels[key] ?? key.replaceAll('_', ' ')}</div>
           <div className="mt-0.5 flex items-center gap-1.5 truncate text-sm font-semibold text-slate-950 dark:text-slate-100">
-            {timeDetailKeys.has(key) && (key.toLowerCase().includes('out') ? <LogOut size={15} className="shrink-0 text-blue-600" /> : key === 'occurredAt' ? <Clock3 size={15} className="shrink-0 text-blue-600" /> : <LogIn size={15} className="shrink-0 text-blue-600" />)}
+            {timeDetailKeys.has(key) && (key.toLowerCase().includes('out') ? <LogOut size={16} className="shrink-0 text-blue-600" /> : key === 'occurredAt' ? <Clock3 size={16} className="shrink-0 text-blue-600" /> : <LogIn size={16} className="shrink-0 text-blue-600" />)}
             <span>{timeDetailKeys.has(key) ? formatTime(value) : display(value)}</span>
           </div>
         </div>
@@ -188,10 +188,10 @@ function TransferPicker({ item, onDone, onCancel }: { item: UnifiedReviewItem; o
     <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 dark:border-blue-900 dark:bg-blue-950/20">
       <div className="flex items-center justify-between gap-3">
         <h4 className="font-semibold text-slate-950 dark:text-white">Transfer to an eligible reviewer</h4>
-        <button type="button" onClick={onCancel} className="rounded p-1 text-slate-500 hover:bg-white"><X size={17} /></button>
+        <button type="button" onClick={onCancel} className="rounded p-1 text-slate-500 hover:bg-white"><X size={16} /></button>
       </div>
       <div className="relative mt-3">
-        <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
+        <Search size={16} className="absolute left-3 top-2.5 text-slate-500" />
         <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search by name, ID, role or department" className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm text-slate-950 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" />
       </div>
       <div className="mt-3 max-h-52 space-y-2 overflow-y-auto">
@@ -333,7 +333,7 @@ function ReviewModal({ item, onClose }: { item: UnifiedReviewItem; onClose: () =
           {isPending && <div className="mt-auto flex flex-wrap justify-end gap-3 pt-2">
               <button type="button" disabled={decision.isPending} onClick={() => decision.mutate('REJECT')} className="rounded-lg border border-red-500 px-5 py-2.5 font-semibold text-red-600 transition hover:bg-red-600 hover:text-white hover:shadow-[0_0_16px_rgba(220,38,38,0.45)] disabled:opacity-50">Reject</button>
               <button type="button" onClick={() => setShowTransfer((value) => !value)} className="rounded-lg bg-blue-600 px-5 py-2.5 font-semibold text-white transition hover:bg-blue-700 hover:shadow-[0_0_16px_rgba(37,99,235,0.4)]">Transfer To</button>
-              <button type="button" disabled={decision.isPending} onClick={() => decision.mutate('APPROVE')} className="rounded-lg bg-emerald-600 px-5 py-2.5 font-semibold text-white transition hover:bg-emerald-700 hover:shadow-[0_0_16px_rgba(5,150,105,0.45)] disabled:opacity-50">Approve</button>
+              <button type="button" disabled={decision.isPending} onClick={() => decision.mutate('APPROVE')} className="rounded-lg bg-emerald-700 px-5 py-2.5 font-semibold text-white transition hover:bg-emerald-800 hover:shadow-[0_0_16px_rgba(5,150,105,0.45)] disabled:opacity-50">Approve</button>
             </div>}
         </div>
       </div>
@@ -403,8 +403,8 @@ export function UnifiedReviewQueue({ scope }: { scope: 'team' | 'company' }) {
           onClick={() => { setShowCalendar((value) => !value); setShowFilters(false); }}
           className="flex h-10 min-w-32 items-center justify-between gap-2 rounded-lg border border-blue-300 bg-white px-3 text-sm font-semibold text-slate-700 shadow-sm hover:bg-blue-50 dark:border-blue-800 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-blue-950"
         >
-          <span className="flex items-center gap-2"><CalendarDays size={17} className="text-blue-600" />{dateLabel}</span>
-          <ChevronRight size={15} className={`text-slate-400 transition-transform ${showCalendar ? 'rotate-90' : ''}`} />
+          <span className="flex items-center gap-2"><CalendarDays size={16} className="text-blue-600" />{dateLabel}</span>
+          <ChevronRight size={16} className={`text-slate-500 transition-transform ${showCalendar ? 'rotate-90' : ''}`} />
         </button>
         <button
           type="button"
@@ -414,19 +414,19 @@ export function UnifiedReviewQueue({ scope }: { scope: 'team' | 'company' }) {
           className={`relative flex h-10 w-10 items-center justify-center rounded-lg border bg-white text-blue-700 shadow-sm hover:bg-blue-50 dark:bg-slate-900 dark:text-blue-300 ${showFilters || activeAdditionalFilters ? 'border-blue-600 ring-2 ring-blue-100 dark:border-blue-500 dark:ring-blue-950' : 'border-blue-300 dark:border-blue-800'}`}
         >
           <ListFilter size={18} />
-          {activeAdditionalFilters > 0 && <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-700 px-1 text-[10px] font-bold text-white">{activeAdditionalFilters}</span>}
+          {activeAdditionalFilters > 0 && <span className="absolute -right-1.5 -top-1.5 flex h-5 min-w-5 items-center justify-center rounded-full bg-blue-700 px-1 text-caption font-bold text-white">{activeAdditionalFilters}</span>}
         </button>
         {showCalendar && <CalendarPopover value={dateFilter} onChange={setDateFilter} onClose={() => setShowCalendar(false)} />}
         {showFilters && (
           <div className="absolute right-0 top-12 z-40 w-80 rounded-xl border border-blue-200 bg-white p-4 shadow-2xl dark:border-blue-900 dark:bg-slate-900" role="dialog" aria-label="Additional review filters">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-950 dark:text-white">Filter requests</h3>
-              <button type="button" aria-label="Close filters" onClick={() => setShowFilters(false)} className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={17} /></button>
+              <button type="button" aria-label="Close filters" onClick={() => setShowFilters(false)} className="rounded-md p-1 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X size={16} /></button>
             </div>
             <label className="mt-4 block text-xs font-semibold uppercase tracking-wide text-slate-500">
               Name
               <div className="relative mt-1.5">
-                <Search size={16} className="absolute left-3 top-2.5 text-slate-400" />
+                <Search size={16} className="absolute left-3 top-2.5 text-slate-500" />
                 <input value={nameFilter} onChange={(event) => setNameFilter(event.target.value)} placeholder="Search employee name" className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm font-normal normal-case tracking-normal text-slate-950 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white" />
               </div>
             </label>
@@ -467,7 +467,7 @@ export function UnifiedReviewQueue({ scope }: { scope: 'team' | 'company' }) {
                 <td className="px-4 py-4"><p className="mb-3 line-clamp-2 text-sm text-slate-600 dark:text-slate-300">{item.reason}</p><RequestDetails item={item} compact /></td>
                 <td className="px-4 py-4"><StatusPill status={item.status} /></td>
                 <td className="relative px-4 py-4" onClick={(event) => event.stopPropagation()}>
-                  {item.status === 'PENDING' ? <button type="button" aria-label={`Actions for ${item.employee?.name ?? item.applicationId}`} onClick={() => setMenu((value) => value === item.id ? null : item.id)} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"><MoreVertical size={20} /></button> : <span className="text-slate-400">{dash}</span>}
+                  {item.status === 'PENDING' ? <button type="button" aria-label={`Actions for ${item.employee?.name ?? item.applicationId}`} onClick={() => setMenu((value) => value === item.id ? null : item.id)} className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"><MoreVertical size={20} /></button> : <span className="text-slate-500">{dash}</span>}
                   {item.status === 'PENDING' && menu === item.id && <div className="absolute right-10 top-3 z-20 w-40 rounded-lg border border-slate-200 bg-white p-1 shadow-xl dark:border-slate-700 dark:bg-slate-900">
                     <button type="button" onClick={() => quickDecision.mutate({ item, action: 'APPROVE' })} className="w-full rounded px-3 py-2 text-left text-sm font-medium text-emerald-700 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950">Approve</button>
                     <button type="button" onClick={() => quickDecision.mutate({ item, action: 'REJECT' })} className="w-full rounded px-3 py-2 text-left text-sm font-medium text-red-700 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950">Reject</button>

@@ -1,4 +1,10 @@
-import { firstOverdueWindow, segmentTypeForLedgerStage, subtractIntervals } from './productivity-timeline.service';
+import {
+  firstOverdueWindow,
+  PRODUCTIVITY_TIMELINE_DAY_WINDOW,
+  segmentTypeForLedgerStage,
+  subtractIntervals,
+  suggestedTimelineViewportStart,
+} from './productivity-timeline.service';
 
 const at = (minute: number) => new Date(Date.UTC(2026, 9, 1, 0, minute));
 
@@ -42,5 +48,20 @@ describe('productivity timeline interval calculation', () => {
       start: deadline,
       end: nextMidnight,
     });
+  });
+
+  it('keeps a canonical midnight-to-midnight data window', () => {
+    expect(PRODUCTIVITY_TIMELINE_DAY_WINDOW).toEqual({
+      startMinute: 0,
+      endMinute: 1440,
+      startLabel: '12:00 AM',
+      endLabel: '12:00 AM',
+    });
+  });
+
+  it('suggests a rounded viewport from the average first activity', () => {
+    expect(suggestedTimelineViewportStart([510, 555, 600])).toBe(540);
+    expect(suggestedTimelineViewportStart([465])).toBe(450);
+    expect(suggestedTimelineViewportStart([])).toBe(540);
   });
 });

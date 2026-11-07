@@ -284,7 +284,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
             'group relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors cursor-pointer overflow-hidden',
             active
               ? 'bg-blue-600/15 text-blue-400 border border-blue-900/40 shadow-inner'
-              : 'text-slate-400 hover:bg-slate-900 hover:text-slate-100 border border-transparent',
+              : 'text-slate-500 hover:bg-slate-900 hover:text-slate-100 border border-transparent',
           )}
         >
           {/* Sliding ArrowRight on hover */}
@@ -298,7 +298,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
           >
             <ArrowRight
               size={14}
-              className={active ? 'text-blue-400' : 'text-slate-400'}
+              className={active ? 'text-blue-400' : 'text-slate-500'}
             />
           </motion.span>
 
@@ -329,7 +329,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
   function SectionLabel({ children }: { children: React.ReactNode }) {
     if (collapsed) return null;
     return (
-      <p className="font-mono text-[10px] uppercase tracking-widest text-slate-500 px-3 mb-1 mt-4">
+      <p className="font-mono text-caption uppercase tracking-widest text-slate-500 px-3 mb-1 mt-4">
         {children}
       </p>
     );
@@ -368,7 +368,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
             type="button"
             onClick={onMobileClose}
             aria-label="Close navigation menu"
-            className="w-9 h-9 rounded-xl flex items-center justify-center border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300"
+            className="w-9 h-9 rounded-xl flex items-center justify-center border border-white/10 bg-white/5 hover:bg-white/10 text-slate-500"
           >
             <X size={16} />
           </button>
@@ -390,7 +390,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
               onClick={() => setCollapsed(false)}
               aria-label="Expand sidebar"
               title="Expand sidebar"
-              className="w-8 h-8 rounded-xl flex items-center justify-center border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 transition-colors"
+              className="w-8 h-8 rounded-xl flex items-center justify-center border border-white/10 bg-white/5 hover:bg-white/10 text-slate-500 transition-colors"
             >
               <PanelLeftOpen size={16} />
             </button>
@@ -407,7 +407,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
                 </div>
                 <div className="min-w-0">
                   <p className="font-bold text-white text-base leading-none truncate">APEX OS</p>
-                  <p className="text-[10px] text-slate-500 mt-0.5 font-mono uppercase tracking-widest truncate">Enterprise Execution OS</p>
+                  <p className="text-caption text-slate-500 mt-0.5 font-mono uppercase tracking-widest truncate">Enterprise Execution OS</p>
                 </div>
               </Link>
 
@@ -429,7 +429,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
                 onClick={() => setCollapsed(true)}
                 aria-label="Tuck sidebar"
                 title="Tuck sidebar"
-                className="w-8 h-8 rounded-xl flex items-center justify-center border border-white/10 bg-white/5 hover:bg-white/10 text-slate-300 transition-colors flex-shrink-0"
+                className="w-8 h-8 rounded-xl flex items-center justify-center border border-white/10 bg-white/5 hover:bg-white/10 text-slate-500 transition-colors flex-shrink-0"
               >
                 <PanelLeftClose size={16} />
               </button>
@@ -440,7 +440,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
                 className="absolute left-5 right-5 top-[68px] z-50 rounded-xl overflow-hidden"
                 style={{ backgroundColor: '#141C2E', border: '1px solid rgba(30,41,59,0.9)', boxShadow: '0 16px 32px rgba(0,0,0,0.5)' }}
               >
-                <p className="px-3 pt-2.5 pb-1.5 text-[10px] font-mono uppercase tracking-widest text-slate-500">Workspaces</p>
+                <p className="px-3 pt-2.5 pb-1.5 text-caption font-mono uppercase tracking-widest text-slate-500">Workspaces</p>
                 <div className="p-1.5 pt-0 space-y-0.5">
                   {moduleItems.map((item) => {
                     const active = pathname === item.href || pathname.startsWith(item.href + '/');

@@ -220,7 +220,7 @@ function DeleteTeamDialog({ team, onClose }: { team: any; onClose: () => void })
       <div className="apex-modal w-full max-w-sm p-6 modal-enter max-h-[calc(100vh-2rem)] overflow-y-auto" role="dialog" aria-modal="true" aria-label="Delete Team">
         <div className="flex items-center gap-3 mb-4">
           <div className="w-10 h-10 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--color-danger-bg)' }}>
-            <Trash2 size={18} style={{ color: 'var(--color-danger)' }} />
+            <Trash2 size={18} style={{ color: 'var(--danger-text)' }} />
           </div>
           <div>
             <h3 className="font-bold" style={{ color: 'var(--text-primary)' }}>Delete Team</h3>
@@ -231,7 +231,7 @@ function DeleteTeamDialog({ team, onClose }: { team: any; onClose: () => void })
           Delete <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{team.name}</span>?
         </p>
         {error && (
-          <p className="text-sm mb-3 rounded-lg p-3 font-medium" style={{ color: 'var(--color-danger)', backgroundColor: 'var(--color-danger-bg)' }}>
+          <p className="text-sm mb-3 rounded-lg p-3 font-medium" style={{ color: 'var(--danger-text)', backgroundColor: 'var(--color-danger-bg)' }}>
             {error}
           </p>
         )}
@@ -278,7 +278,7 @@ function TeamMembers({ team, canManage }: { team: any; canManage: boolean }) {
   });
 
   if (isLoading) return <p className="px-5 py-3 text-xs" style={{ color: 'var(--text-tertiary)' }}>Loading members…</p>;
-  if (isError) return <p className="px-5 py-3 text-xs" role="alert" style={{ color: 'var(--color-danger)' }}>Could not load this team's members.</p>;
+  if (isError) return <p className="px-5 py-3 text-xs" role="alert" style={{ color: 'var(--danger-text)' }}>Could not load this team's members.</p>;
 
   return (
     <div className="px-5 pb-4 pt-1 space-y-2" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
@@ -290,7 +290,7 @@ function TeamMembers({ team, canManage }: { team: any; canManage: boolean }) {
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate flex items-center gap-1.5" style={{ color: 'var(--text-primary)' }}>
               {m.user?.name}
-              {team.teamLeadId === m.userId && <Crown size={12} style={{ color: 'var(--color-warning)' }} aria-label="Team lead" />}
+              {team.teamLeadId === m.userId && <Crown size={12} style={{ color: 'var(--warning-text)' }} aria-label="Team lead" />}
             </p>
             <p className="text-xs truncate" style={{ color: 'var(--text-secondary)' }}>{m.user?.email}</p>
           </div>
@@ -299,10 +299,10 @@ function TeamMembers({ team, canManage }: { team: any; canManage: boolean }) {
             <button
               onClick={() => { if (confirm(`Remove ${m.user?.name} from ${team.name}?`)) removeMutation.mutate(m.userId); }}
               disabled={removeMutation.isPending}
-              className="p-1 rounded transition-colors text-slate-400 hover:text-red-500 disabled:opacity-50"
+              className="p-1 rounded transition-colors text-slate-500 hover:text-red-500 disabled:opacity-50"
               title="Remove from team"
             >
-              <UserMinus size={13} />
+              <UserMinus size={14} />
             </button>
           )}
         </div>
@@ -319,7 +319,7 @@ function TeamMembers({ team, canManage }: { team: any; canManage: boolean }) {
           <button onClick={() => { setAdding(false); setSelectedUserId(''); }} className="apex-btn apex-btn-secondary text-xs">Cancel</button>
         </div>
       ) : (
-        <button onClick={() => setAdding(true)} className="text-xs font-medium inline-flex items-center gap-1 pt-1" style={{ color: 'var(--accent)' }}>
+        <button onClick={() => setAdding(true)} className="text-xs font-medium inline-flex items-center gap-1 pt-1" style={{ color: 'var(--accent-text)' }}>
           <UserPlus size={12} /> Add member
         </button>
       ))}
@@ -369,7 +369,7 @@ export function DepartmentTeamsPanel({
       {isLoading ? (
         <p className="px-5 py-4 text-sm" style={{ color: 'var(--text-tertiary)' }}>Loading teams…</p>
       ) : isError ? (
-        <div className="px-5 py-4 text-sm flex items-center gap-3" role="alert" style={{ color: 'var(--color-danger)' }}>
+        <div className="px-5 py-4 text-sm flex items-center gap-3" role="alert" style={{ color: 'var(--danger-text)' }}>
           Could not load teams.
           <button onClick={() => refetch()} className="apex-btn apex-btn-secondary text-xs">Retry</button>
         </div>
@@ -397,7 +397,7 @@ export function DepartmentTeamsPanel({
                   <span className="font-medium text-sm truncate" style={{ color: 'var(--text-primary)' }}>{t.name}</span>
                 </button>
                 <span className="text-xs flex items-center gap-1" style={{ color: 'var(--text-secondary)' }}>
-                  <Crown size={11} style={{ color: 'var(--text-tertiary)' }} />
+                  <Crown size={12} style={{ color: 'var(--text-tertiary)' }} />
                   {t.teamLead?.name ?? 'No lead'}
                 </span>
                 <span className="text-xs" style={{ color: 'var(--text-tertiary)' }}>
@@ -405,8 +405,8 @@ export function DepartmentTeamsPanel({
                 </span>
                 {canManage && (
                   <div className="flex items-center gap-1">
-                    <button onClick={() => setEditTarget(t)} className="p-1 rounded text-slate-400 hover:text-blue-500" title="Edit team"><Pencil size={13} /></button>
-                    <button onClick={() => setDeleteTarget(t)} className="p-1 rounded text-slate-400 hover:text-red-500" title="Delete team"><Trash2 size={13} /></button>
+                    <button onClick={() => setEditTarget(t)} className="p-1 rounded text-slate-500 hover:text-blue-500" title="Edit team"><Pencil size={14} /></button>
+                    <button onClick={() => setDeleteTarget(t)} className="p-1 rounded text-slate-500 hover:text-red-500" title="Delete team"><Trash2 size={14} /></button>
                   </div>
                 )}
               </div>

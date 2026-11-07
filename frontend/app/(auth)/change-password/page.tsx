@@ -68,12 +68,12 @@ export default function ChangePasswordPage() {
             <span className="text-white text-2xl font-bold">A</span>
           </div>
           <h1 className="text-3xl font-bold text-white">Apex OS</h1>
-          <p className="text-slate-400 mt-1 text-sm">AI-Powered Business OS · TechnoEdge</p>
+          <p className="text-slate-500 mt-1 text-sm">AI-Powered Business OS · TechnoEdge</p>
         </div>
 
         {/* Warning banner */}
         <div className="flex items-start gap-3 bg-amber-500/20 border border-amber-400/30 rounded-xl p-4 mb-4">
-          <ShieldAlert size={20} className="text-amber-400 flex-shrink-0 mt-0.5" />
+          <ShieldAlert size={20} className="text-amber-700 flex-shrink-0 mt-0.5" />
           <p className="text-amber-200 text-sm leading-relaxed">
             You must change your default password before continuing. This keeps your account secure.
           </p>
@@ -102,7 +102,7 @@ export default function ChangePasswordPage() {
                 <button
                   type="button"
                   onClick={() => setShowCurrent(!showCurrent)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-600"
                 >
                   {showCurrent ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
@@ -128,13 +128,13 @@ export default function ChangePasswordPage() {
                 <button
                   type="button"
                   onClick={() => setShowNew(!showNew)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-600"
                 >
                   {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
               {newTooShort && (
-                <p className="text-xs text-red-500 mt-1">Password must be at least 8 characters</p>
+                <p className="text-xs text-red-600 mt-1">Password must be at least 8 characters</p>
               )}
               {/* Strength bar */}
               {newPassword.length > 0 && (
@@ -174,13 +174,13 @@ export default function ChangePasswordPage() {
                 <button
                   type="button"
                   onClick={() => setShowConfirm(!showConfirm)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-600"
                 >
                   {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
               {mismatch && (
-                <p className="text-xs text-red-500 mt-1">Passwords do not match</p>
+                <p className="text-xs text-red-600 mt-1">Passwords do not match</p>
               )}
             </div>
 

@@ -62,7 +62,7 @@ export function PunchPhoto({
   if (!captured) {
     return (
       <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-300">
-        <ImageOff size={13} className="flex-shrink-0" />
+        <ImageOff size={14} className="flex-shrink-0" />
         {/* A genuine attendance exception, not a display failure. */}
         No photo was captured for this punch.
       </div>
@@ -72,7 +72,7 @@ export function PunchPhoto({
   if (phase === 'loading' || phase === 'idle') {
     return (
       <div className="apex-text-muted flex h-40 items-center justify-center gap-2 rounded-lg border border-[var(--border-secondary)] text-xs">
-        <Loader2 size={13} className="animate-spin" />
+        <Loader2 size={14} className="animate-spin" />
         Loading photo…
       </div>
     );
@@ -90,9 +90,9 @@ export function PunchPhoto({
             setRefreshed(false);
             void load();
           }}
-          className="apex-text inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium hover:bg-[var(--bg-tertiary)]"
+          className="apex-text inline-flex items-center gap-1 rounded-md px-2 py-1 text-caption font-medium hover:bg-[var(--bg-tertiary)]"
         >
-          <RefreshCw size={11} />
+          <RefreshCw size={12} />
           Retry
         </button>
       </div>

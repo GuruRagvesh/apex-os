@@ -68,7 +68,7 @@ function RegisterEmployeeIdentity({ employee }: { employee: RegisterEmployee }) 
       )}
       <span className="min-w-0">
         <span className="block truncate text-sm font-bold text-slate-900 dark:text-white">{employee.name}</span>
-        <span className="block truncate text-[11px] font-medium uppercase tracking-wide text-blue-600 dark:text-blue-300">
+        <span className="block truncate text-caption font-medium uppercase tracking-wide text-blue-600 dark:text-blue-300">
           Employee{employee.department ? ` · ${employee.department}` : ''}
         </span>
       </span>
@@ -139,7 +139,7 @@ export function AttendanceConsole({ embedded = false }: { embedded?: boolean } =
   return (
     <div className="space-y-4">
       <div>
-        {!embedded && <h1 className="apex-page-title apex-text text-xl">Attendance</h1>}
+        {!embedded && <h1 className="apex-page-title">Attendance</h1>}
         <p className="apex-text-muted mt-1 text-sm">
           {access.isHr ? 'Company-wide' : 'Your team'} · stored results only
         </p>
@@ -180,7 +180,7 @@ export function AttendanceConsole({ embedded = false }: { embedded?: boolean } =
 
             <div className="flex flex-wrap items-center gap-4">
               <div className="text-right">
-                <p className="apex-text-subtle text-[11px] uppercase tracking-wide">
+                <p className="apex-text-subtle text-caption uppercase tracking-wide">
                   Working days
                 </p>
                 {/* The full scheduled month, not the elapsed part of it. What
@@ -286,7 +286,7 @@ export function AttendanceConsole({ embedded = false }: { embedded?: boolean } =
                       <td className="px-4 py-4">
                         <RegisterEmployeeIdentity employee={e} />
                         {e.isActive === false && (
-                          <span className="apex-text-subtle ml-[3.25rem] text-[10px] font-medium uppercase tracking-wide">
+                          <span className="apex-text-subtle ml-[3.25rem] text-caption font-medium uppercase tracking-wide">
                             Inactive
                           </span>
                         )}

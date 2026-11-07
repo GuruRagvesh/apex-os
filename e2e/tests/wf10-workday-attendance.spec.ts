@@ -58,6 +58,12 @@ test('WF5a: Employee Workday Cycle', async ({ page }) => {
   const resumeBtn = page.locator('button:has-text("Resume Work")').first();
   if (await resumeBtn.isVisible({ timeout: 3000 })) {
     await resumeBtn.click();
+    // A normal break now requires a second deliberate action. This prevents
+    // the old auto-focused button from ending a break on a stray Enter/Space.
+    const confirmResumeBtn = page.getByRole('button', { name: 'Confirm resume work and end break' });
+    if (await confirmResumeBtn.isVisible({ timeout: 3000 })) {
+      await confirmResumeBtn.click();
+    }
     // Back to WORKING
     await page.locator('text=Working').first().waitFor({ state: 'visible', timeout: 15000 });
   }

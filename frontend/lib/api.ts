@@ -96,6 +96,9 @@ export const workdayApi = {
   startBreak: (data: { breakType: string; estimatedMinutes?: number }) =>
     r(api.post('/workday/break/start', data)),
   endBreak: () => r(api.post('/workday/break/end', {})),
+  getBreakWarning: () => r(api.get('/workday/break/warning')),
+  handleBreakWarning: (data: { breakLogId: string; phase: 'EARLY' | 'FINAL'; action: 'LATER' }) =>
+    r(api.post('/workday/break/warning/action', data)),
   resumeWork: () => r(api.post('/workday/resume', {})),
   resumeAutoClosedWork: () => r(api.post('/workday/resume-auto-closed', {})),
   continueWorking: () => r(api.post('/workday/continue-working', {})),

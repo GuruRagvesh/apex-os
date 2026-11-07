@@ -405,7 +405,7 @@ export default function LeavePage() {
     <div className="space-y-5 max-w-5xl mx-auto">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Leave Management</h2>
+          <h2 className="apex-page-title">Leave Management</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {(_isAdmin || (user as any)?.isHR === true) && (
@@ -424,9 +424,9 @@ export default function LeavePage() {
         <div className="md:col-span-4 grid grid-cols-2 sm:grid-cols-4 gap-4">
           {[
             { label: 'Total',    value: metricText(stats?.total),    color: 'var(--text-primary)' },
-            { label: 'Pending',  value: metricText(stats?.pending),  color: 'var(--color-warning)' },
-            { label: 'Approved', value: metricText(stats?.approved), color: 'var(--color-success)' },
-            { label: 'Rejected', value: metricText(stats?.rejected), color: 'var(--color-danger)' },
+            { label: 'Pending',  value: metricText(stats?.pending),  color: 'var(--warning-text)' },
+            { label: 'Approved', value: metricText(stats?.approved), color: 'var(--success-text)' },
+            { label: 'Rejected', value: metricText(stats?.rejected), color: 'var(--danger-text)' },
           ].map((s) => (
             <div key={s.label} className="apex-card min-h-[92px] p-4">
               <p className="text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>{s.label}</p>
@@ -446,8 +446,8 @@ export default function LeavePage() {
             </div>
           ) : myBalanceFailed ? (
             <div className="mt-1 space-y-2">
-              <p className="text-xs font-semibold" style={{ color: 'var(--color-danger)' }}>Balance unavailable</p>
-              <p className="text-[11px]" style={{ color: 'var(--text-secondary)' }}>Your balance has not been treated as zero.</p>
+              <p className="text-xs font-semibold" style={{ color: 'var(--danger-text)' }}>Balance unavailable</p>
+              <p className="text-caption" style={{ color: 'var(--text-secondary)' }}>Your balance has not been treated as zero.</p>
               <button onClick={() => refetchMyBalance()} className="apex-btn apex-btn-secondary w-fit text-xs" disabled={fetchingMyBalance}>
                 {fetchingMyBalance ? 'Retrying…' : 'Retry'}
               </button>
@@ -456,7 +456,7 @@ export default function LeavePage() {
             <div className="space-y-1">
               {/* Remaining — prominent */}
               <div className="flex items-end gap-1">
-                <span className={cn("text-3xl font-extrabold leading-none tabular-nums", knownBalance != null && knownBalance <= 2 ? 'text-red-500' : 'text-indigo-500')}>
+                <span className={cn("text-3xl font-extrabold leading-none tabular-nums", knownBalance != null && knownBalance <= 2 ? 'text-red-600' : 'text-indigo-500')}>
                   {metricText(myBalance.balance)}
                 </span>
                 <span className="text-xs text-slate-500 mb-1">days remaining</span>
@@ -464,20 +464,20 @@ export default function LeavePage() {
               {/* Detail grid */}
               <div className="grid grid-cols-3 gap-x-2 mt-1.5">
                 <div>
-                  <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Alloc</p>
+                  <p className="text-caption font-bold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Alloc</p>
                   <p className="text-xs font-semibold" style={{ color: 'var(--text-primary)' }}>{metricText(myBalance.allocation)}d</p>
                 </div>
                 <div>
-                  <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Used</p>
-                  <p className="text-xs font-semibold text-emerald-600">{metricText(myBalance.approved)}d</p>
+                  <p className="text-caption font-bold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Used</p>
+                  <p className="text-xs font-semibold text-emerald-700">{metricText(myBalance.approved)}d</p>
                 </div>
                 <div>
-                  <p className="text-[9px] font-bold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Pend</p>
-                  <p className="text-xs font-semibold text-amber-500">{metricText(myBalance.pending)}d</p>
+                  <p className="text-caption font-bold uppercase tracking-wide" style={{ color: 'var(--text-tertiary)' }}>Pend</p>
+                  <p className="text-xs font-semibold text-amber-700">{metricText(myBalance.pending)}d</p>
                 </div>
               </div>
               {knownBalance != null && knownBalance <= 2 && (
-                <p className="text-[10px] text-red-500 font-semibold flex items-center gap-1 mt-0.5">
+                <p className="text-caption text-red-600 font-semibold flex items-center gap-1 mt-0.5">
                   <AlertTriangle size={9} /> Low balance
                 </p>
               )}
@@ -526,9 +526,9 @@ export default function LeavePage() {
             {label}
             {badge != null && badge > 0 && (
               <span
-                className="text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none"
+                className="text-caption font-bold px-1.5 py-0.5 rounded-full leading-none"
                 style={tab === key
-                  ? { backgroundColor: 'var(--color-warning-bg)', color: 'var(--color-warning)' }
+                  ? { backgroundColor: 'var(--color-warning-bg)', color: 'var(--warning-text)' }
                   : { backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)' }}
               >
                 {badge}
@@ -544,7 +544,7 @@ export default function LeavePage() {
           <div className="flex items-center justify-center h-40"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600" /></div>
         ) : isError ? (
           <div className="flex min-h-48 flex-col items-center justify-center gap-2 px-6 py-8 text-center" role="alert">
-            <AlertTriangle size={22} style={{ color: 'var(--color-danger)' }} />
+            <AlertTriangle size={22} style={{ color: 'var(--danger-text)' }} />
             <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{leaveErrorView.title}</p>
             <p className="max-w-md text-xs" style={{ color: 'var(--text-secondary)' }}>{leaveErrorView.message}</p>
             {leaveErrorView.canRetry && (
@@ -574,7 +574,7 @@ export default function LeavePage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
                         <p className="text-sm font-semibold" style={{ color: 'var(--text-primary)' }}>{leave.user?.name}</p>
-                        <span className="text-xs text-slate-400">({leave.user?.role?.name || 'Employee'})</span>
+                        <span className="text-xs text-slate-500">({leave.user?.role?.name || 'Employee'})</span>
                       </div>
                       <div className="flex items-center gap-2 mt-0.5">
                         <span className="text-xs font-semibold text-indigo-650 bg-indigo-50 dark:bg-indigo-950/30 dark:text-indigo-400 px-2 py-0.5 rounded">{leave.type}</span>
@@ -600,14 +600,14 @@ export default function LeavePage() {
                             disabled={approveMutation.isPending}
                             className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-green-700 bg-green-50 hover:bg-green-100 dark:bg-green-900/20 dark:text-green-400 dark:hover:bg-green-900/40 rounded-lg transition-colors disabled:opacity-50"
                           >
-                            <CheckCircle size={13} /> Approve
+                            <CheckCircle size={14} /> Approve
                           </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); handleRejectClick(leave.id); }}
                             disabled={rejectMutation.isPending}
                             className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-red-600 bg-red-50 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/40 rounded-lg transition-colors disabled:opacity-50"
                           >
-                            <XCircle size={13} /> Reject
+                            <XCircle size={14} /> Reject
                           </button>
                         </div>
                       )}
@@ -620,13 +620,13 @@ export default function LeavePage() {
                       {/* 2-column info */}
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
                         <div className="space-y-1.5">
-                          <p className="text-slate-400 font-semibold uppercase tracking-wider text-[10px]">Employment Context</p>
+                          <p className="text-slate-500 font-semibold uppercase tracking-wider text-caption">Employment Context</p>
                           <p><span className="text-slate-500 font-medium">Role:</span> <span className="text-slate-800 dark:text-gray-200 font-semibold">{leave.user?.role?.name ?? 'Employee'}</span></p>
                           <p><span className="text-slate-500 font-medium">Department:</span> <span className="text-slate-800 dark:text-gray-200 font-semibold">{leave.user?.department?.name ?? 'None'}</span></p>
                           <p><span className="text-slate-500 font-medium">Reporting TL/Manager:</span> <span className="text-slate-800 dark:text-gray-200 font-semibold">{leave.user?.teamLeadName || leave.user?.reportingManager || 'N/A'}</span></p>
                         </div>
                         <div className="space-y-1.5">
-                          <p className="text-slate-400 font-semibold uppercase tracking-wider text-[10px]">Request Details</p>
+                          <p className="text-slate-500 font-semibold uppercase tracking-wider text-caption">Request Details</p>
                           <p><span className="text-slate-500 font-medium">Duration:</span> <span className="text-slate-800 dark:text-gray-200 font-semibold">{duration === null ? 'Unavailable — calendar setup required' : `${duration} working days`}{duration !== null && leave.isHalfDay && ` (Half-day: ${leave.halfDayType || 'First Half'})`}</span></p>
                           <p><span className="text-slate-500 font-medium">Reason:</span> <span className="text-slate-800 dark:text-gray-200">{leave.reason}</span></p>
                           <p data-testid="leave-setup-status" data-setup-status={leave.setupStatus ?? 'LEGACY_UNASSESSED'}><span className="text-slate-500 font-medium">Policy check:</span> <span className="text-slate-800 dark:text-gray-200">{displayLeaveSetupStatus(leave.setupStatus).label}</span></p>
@@ -662,7 +662,7 @@ export default function LeavePage() {
 
                       {/* Leave Balance Section */}
                       <div className="border-t border-slate-100 dark:border-slate-800 pt-3">
-                        <p className="text-slate-400 font-semibold uppercase tracking-wider text-[10px] mb-1.5">Leave Balance Decision Support</p>
+                        <p className="text-slate-500 font-semibold uppercase tracking-wider text-caption mb-1.5">Leave Balance Decision Support</p>
                         {isLoadingBalance ? (
                           <p className="text-xs text-slate-500 animate-pulse">Loading leave balance details...</p>
                         ) : balanceErrors[leave.userId] ? (
@@ -699,7 +699,7 @@ export default function LeavePage() {
                             <div className="w-px h-6 bg-slate-200 dark:bg-slate-700" />
                             <div>
                               <p className="text-slate-405" style={{ color: 'var(--text-secondary)' }}>Balance After Approval</p>
-                              <p className={cn('font-extrabold', duration !== null && balanceData.balance - duration < 0 ? 'text-red-500' : 'text-emerald-500')}>
+                              <p className={cn('font-extrabold', duration !== null && balanceData.balance - duration < 0 ? 'text-red-600' : 'text-emerald-700')}>
                                 {duration === null ? 'Unavailable' : `${Math.max(0, balanceData.balance - duration)} days`}
                               </p>
                             </div>
@@ -762,7 +762,7 @@ export default function LeavePage() {
             {/* Balance context */}
             {myBalance && (
               <div className="flex items-center gap-2 mb-4 px-3 py-2 rounded-lg text-xs" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
-                <Info size={12} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+                <Info size={12} style={{ color: 'var(--accent-text)', flexShrink: 0 }} />
                 <span style={{ color: 'var(--text-secondary)' }}>
                   You have <strong style={{ color: knownBalance != null && knownBalance <= 2 ? 'var(--color-danger)' : 'var(--accent-text)' }}>{metricText(myBalance.balance)} days</strong> remaining
                   {knownNumber(myBalance.pending) != null && myBalance.pending > 0 && ` (${myBalance.pending}d pending)`}
@@ -901,7 +901,7 @@ export default function LeavePage() {
 
             {/* What happens after submission */}
             <div className="mt-3 px-3 py-2 rounded-lg flex items-start gap-2 text-xs" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
-              <Info size={11} style={{ color: 'var(--text-tertiary)', flexShrink: 0, marginTop: 1 }} />
+              <Info size={12} style={{ color: 'var(--text-tertiary)', flexShrink: 0, marginTop: 1 }} />
               <span style={{ color: 'var(--text-secondary)' }}>
                 {form.submissionMode === 'EMERGENCY' ? <>Emergency Leave is provisionally protected immediately, but your Team Lead or Manager must still decide it and HR can review the evidence.</> : <>The request is routed automatically to your assigned Team Lead, department Team Lead, Manager, another active Manager, or Admin fallback. A late submission is recorded for review without an automatic salary deduction.</>}
               </span>
@@ -938,7 +938,7 @@ export default function LeavePage() {
         <LeaveModal labelledBy="reject-leave-title" onClose={() => { setRejectingId(null); setRejectReason(''); }} maxWidth="max-w-sm">
             <div className="flex items-center gap-2.5 mb-1">
               <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: 'var(--color-danger-bg)' }}>
-                <XCircle size={16} style={{ color: 'var(--color-danger)' }} />
+                <XCircle size={16} style={{ color: 'var(--danger-text)' }} />
               </div>
               <h3 id="reject-leave-title" className="font-bold text-base" style={{ color: 'var(--text-primary)' }}>Reject Leave Request</h3>
             </div>
@@ -959,7 +959,7 @@ export default function LeavePage() {
 
             {/* Backend gap note */}
             <div className="mt-2 px-3 py-2 rounded-lg flex items-start gap-2 text-xs" style={{ backgroundColor: 'var(--bg-tertiary)' }}>
-              <Info size={11} style={{ color: 'var(--text-tertiary)', flexShrink: 0, marginTop: 1 }} />
+              <Info size={12} style={{ color: 'var(--text-tertiary)', flexShrink: 0, marginTop: 1 }} />
               <span style={{ color: 'var(--text-tertiary)' }}>
                 Rejection reason is for your reference only and is <strong>not currently stored by the system</strong>. Only the rejection status and your name are recorded.
               </span>

@@ -8,7 +8,7 @@ export function PriorityBadge({ priority }: { priority: string }) {
   const c = PRIORITY_COLORS[priority] ?? { bg: 'rgba(100,116,139,0.15)', text: '#94a3b8' };
   return (
     <span
-      className="text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
+      className="text-caption font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
       style={{ backgroundColor: c.bg, color: c.text }}
     >
       {priority}
@@ -28,7 +28,7 @@ export function StageBadge({ stage }: { stage: string }) {
   const c = STAGE_COLOR_BUCKETS.find((b) => b.test(stage))!;
   return (
     <span
-      className="text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
+      className="text-caption font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
       style={{ backgroundColor: c.bg, color: c.text }}
     >
       {stage}
@@ -47,7 +47,7 @@ export function PlainBadge({ children, tone = 'neutral' }: { children: React.Rea
   const c = toneMap[tone];
   return (
     <span
-      className="text-[10px] font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
+      className="text-caption font-semibold px-2 py-0.5 rounded-full whitespace-nowrap"
       style={{ backgroundColor: c.bg, color: c.text }}
     >
       {children}

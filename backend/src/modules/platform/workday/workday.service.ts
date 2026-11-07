@@ -28,6 +28,15 @@ const WORKDAY_TIMER_TRANSACTION = { maxWait: 10_000, timeout: 20_000 };
 /** BreakLog.source of a break started from the idle prompt (the person was IDLE). */
 export const BREAK_FROM_IDLE_SOURCE = 'MANUAL_BREAK_FROM_IDLE';
 
+export type BreakEndOrigin = 'USER_RESUME' | 'MEETING_JOIN' | 'MEETING_LEAVE' | 'MEETING_CANCEL';
+
+export type BreakEndContext = {
+  origin?: BreakEndOrigin;
+  ipAddress?: string;
+  userAgent?: string;
+  actorContext?: string;
+};
+
 export interface FinalizeWorkSessionOptions {
   effectiveEndAt: Date;
   terminalStatus: 'LOGGED_OUT' | 'AUTO_CLOSED';
@@ -750,9 +759,11 @@ export class WorkdayService {
     if (estimatedMinutes !== null && (!Number.isInteger(estimatedMinutes) || estimatedMinutes < 1 || estimatedMinutes > 1440)) {
       throw new BadRequestException('Planned break duration must be a whole number from 1 to 1440 minutes');
     }
-    const plannedEndAt = estimatedMinutes === null
+    // A manual break without an estimate uses the agreed 60-minute fallback.
+    // Meetings are represented as breaks internally but are not break alarms.
+    const plannedEndAt = dto.breakType === 'MEETING'
       ? null
-      : new Date(now.getTime() + estimatedMinutes * 60_000);
+      : new Date(now.getTime() + (estimatedMinutes ?? 60) * 60_000);
 
     const session = await this.prisma.workSession.findFirst({
       where: { userId, date: today },
@@ -832,7 +843,12 @@ export class WorkdayService {
     return { breakLog };
   }
 
-  async endBreak(userId: string) {
+  async endBreak(
+    userId: string,
+    input: BreakEndOrigin | BreakEndContext = 'USER_RESUME',
+  ) {
+    const context: BreakEndContext = typeof input === 'string' ? { origin: input } : input;
+    const origin = context.origin ?? 'USER_RESUME';
     const today = this.getTodayDate();
     const now = this.tva.now();
 
@@ -876,7 +892,19 @@ export class WorkdayService {
       }, tx);
 
       await tx.attendanceEvent.create({
-        data: { userId, workSessionId: session.id, eventType: 'BREAK_END' },
+        data: {
+          userId,
+          workSessionId: session.id,
+          eventType: 'BREAK_END',
+          source: origin === 'MEETING_CANCEL' ? 'system' : 'manual',
+          metadata: {
+            origin,
+            breakLogId: openBreak.id,
+            breakType: openBreak.breakType,
+          },
+          ipAddress: context.ipAddress,
+          deviceMetadata: context.userAgent ? { userAgent: context.userAgent } : undefined,
+        },
       });
 
       await this.attendanceAuthority.setUserStatus(userId, 'WORKING', now, tx);
@@ -898,10 +926,87 @@ export class WorkdayService {
       entityType: 'WorkdaySession',
       entityId: session.id,
       action: OperationalAction.BREAK_ENDED,
-      metadata: { durationMinutes },
+      metadata: { durationMinutes, origin, breakLogId: openBreak.id, breakType: openBreak.breakType },
+      ip: context.ipAddress,
+      device: context.userAgent,
+      actorContext: context.actorContext ?? origin,
     }).catch(() => {});
 
+    await this.saveBreakWarningState(openBreak.id, userId, 'COMPLETE', now).catch(() => undefined);
+    this.notificationEventService.emitBreakWarningChanged?.(userId, openBreak.id);
+
     return { breakLog: updated, durationMinutes };
+  }
+
+  async getActiveBreakWarning(userId: string) {
+    const warning = await this.prisma.breakLog.findFirst({
+      where: {
+        userId,
+        endAt: null,
+      },
+      orderBy: { startAt: 'desc' },
+      select: {
+        id: true,
+        breakType: true,
+        estimatedMinutes: true,
+        plannedEndAt: true,
+        startAt: true,
+      },
+    });
+    if (!warning) return { warning: null };
+    const state = await this.getBreakWarningState(warning.id);
+    if (!['EARLY_ACTIVE', 'FINAL_ACTIVE'].includes(state.stage)) return { warning: null };
+    return {
+      warning: {
+        breakLogId: warning.id,
+        breakType: warning.breakType,
+        estimatedMinutes: warning.estimatedMinutes,
+        plannedEndAt: warning.plannedEndAt,
+        startedAt: warning.startAt,
+        phase: state.stage === 'EARLY_ACTIVE' ? 'EARLY' : 'FINAL',
+        triggeredAt: state.updatedAt,
+      },
+    };
+  }
+
+  async handleBreakWarning(
+    userId: string,
+    dto: { breakLogId: string; phase: 'EARLY' | 'FINAL'; action: 'LATER' },
+  ) {
+    if (!dto?.breakLogId || !['EARLY', 'FINAL'].includes(dto.phase) || dto.action !== 'LATER') {
+      throw new BadRequestException('A valid break warning action is required');
+    }
+    const expectedStage = dto.phase === 'EARLY' ? 'EARLY_ACTIVE' : 'FINAL_ACTIVE';
+    const nextStage = dto.phase === 'EARLY' ? 'FINAL_PENDING' : 'COMPLETE';
+    const now = this.tva.now();
+    const openBreak = await this.prisma.breakLog.findFirst({
+      where: { id: dto.breakLogId, userId, endAt: null },
+      select: { id: true },
+    });
+    if (!openBreak) throw new ConflictException('This break warning is no longer active');
+    const state = await this.getBreakWarningState(dto.breakLogId);
+    if (state.stage !== expectedStage) throw new ConflictException('This break warning is no longer active');
+    await this.saveBreakWarningState(dto.breakLogId, userId, nextStage, now);
+    this.notificationEventService.emitBreakWarningChanged?.(userId, dto.breakLogId);
+    return { ok: true, warningStage: nextStage };
+  }
+
+  private async getBreakWarningState(breakLogId: string): Promise<{ stage: string; updatedAt: Date | null }> {
+    const row = await this.prisma.appSetting.findUnique({ where: { key: `break-warning-${breakLogId}` } });
+    const value = (row?.value ?? {}) as any;
+    return {
+      stage: typeof value.stage === 'string' ? value.stage : 'PENDING',
+      updatedAt: typeof value.updatedAt === 'string' ? new Date(value.updatedAt) : null,
+    };
+  }
+
+  private async saveBreakWarningState(breakLogId: string, userId: string, stage: string, now: Date) {
+    const key = `break-warning-${breakLogId}`;
+    return this.prisma.appSetting.upsert({
+      where: { key },
+      create: { key, value: { stage, userId, updatedAt: now.toISOString() }, updatedBy: userId },
+      update: { value: { stage, userId, updatedAt: now.toISOString() }, updatedBy: userId },
+    });
   }
 
   async reportIdle(userId: string, idleDuration: number) {
@@ -954,7 +1059,7 @@ export class WorkdayService {
     return { status: 'ok', applied };
   }
 
-  async resumeWork(userId: string) {
+  async resumeWork(userId: string, breakEndContext: BreakEndContext = {}) {
     const today = this.getTodayDate();
     const now = this.tva.now();
 
@@ -967,7 +1072,7 @@ export class WorkdayService {
       orderBy: { createdAt: 'desc' },
     });
     if (current?.status === 'ON_BREAK') {
-      await this.endBreak(userId);
+      await this.endBreak(userId, { ...breakEndContext, origin: 'USER_RESUME' });
       return { message: 'Resumed', updated: 1 };
     }
 
@@ -1145,20 +1250,21 @@ export class WorkdayService {
       }, 0), 0);
     const meetingCount = sessions.reduce((total, currentSession) => total + currentSession.breakLogs
       .filter(countedMeeting).length, 0);
+    const breakCount = sessions.reduce((total, currentSession) => total + currentSession.breakLogs
+      .filter((breakLog: any) => breakLog.breakType !== 'MEETING').length, 0);
 
     const remainingBreakMinutes = Math.max(0, DAILY_BREAK_ALLOWANCE_MINUTES - rt.totalBreakMinutes);
     const exceededBreakMinutes = Math.max(0, rt.totalBreakMinutes - DAILY_BREAK_ALLOWANCE_MINUTES);
 
-    // Tells the frontend when to show the auto-close consent prompt. This is
-    // deliberately independent of the backend's own grace-period safety net in
-    // shouldPolicyAutoStop: the prompt should appear promptly right at cutoff
-    // for anyone still WORKING/ON_BREAK, while the backend only force-closes
-    // later, once there's genuinely no activity signal for the grace window.
+    // Tells the frontend when to show the auto-close consent prompt. A manual
+    // break is exempt from current-day policy auto-stop, so it must not show a
+    // misleading prompt; once the person resumes WORKING, the normal cutoff
+    // prompt and grace-period safety net apply again.
     let needsAutoCloseConsent = false;
     let autoCloseTime: string | null = null;
     // Auto-close is frozen while the person is in a meeting: no prompt until it ends.
     const inMeeting = Boolean(session?.breakLogs?.some((b: any) => !b.endAt && b.breakType === 'MEETING'));
-    if (session && ['WORKING', 'ON_BREAK'].includes(session.status) && !inMeeting) {
+    if (session?.status === 'WORKING' && !inMeeting) {
       const policySetting = await this.prisma.appSetting.findUnique({ where: { key: 'workday_policy' } });
       const policy = (policySetting?.value as any) ?? null;
       if (policy?.autoClose === true) {
@@ -1177,6 +1283,7 @@ export class WorkdayService {
       focusedWorkMinutes: Math.max(0, rt.elapsedWorkMinutes - meetingMinutes),
       meetingMinutes,
       meetingCount,
+      breakCount,
       totalBreakMinutes: rt.totalBreakMinutes,
       firstStartTime: rt.firstStartTime,
       currentEndTime: rt.currentEndTime,

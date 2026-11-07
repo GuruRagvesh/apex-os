@@ -74,7 +74,7 @@ export function RecentActivityFeed() {
   if (isError) {
     return (
       <div className="apex-card" style={{ padding: 24, textAlign: 'center' }}>
-        <p style={{ fontSize: 13, color: 'var(--color-danger)', fontWeight: 600, margin: 0 }}>Recent activity unavailable</p>
+        <p style={{ fontSize: 13, color: 'var(--danger-text)', fontWeight: 600, margin: 0 }}>Recent activity unavailable</p>
         <button 
           onClick={() => refetch()}
           style={{ fontSize: 11, marginTop: 8, color: 'var(--accent-text)', cursor: 'pointer', background: 'transparent', border: 'none', fontWeight: 600 }}
@@ -101,7 +101,7 @@ export function RecentActivityFeed() {
   return (
     <div className="apex-card" style={{ padding: 0, overflow: 'hidden' }}>
       <div style={{ padding: '6px 12px', borderBottom: '1px solid var(--border-subtle)', backgroundColor: 'rgba(0,0,0,0.02)' }} className="flex justify-between items-center">
-        <span className="text-[9px] uppercase tracking-wider font-extrabold text-slate-450 dark:text-slate-500">{scopeLabel}</span>
+        <span className="text-caption uppercase tracking-wider font-extrabold text-slate-450 dark:text-slate-500">{scopeLabel}</span>
       </div>
       {visible.map((ev: any, i: number) => (
         <div
@@ -123,7 +123,7 @@ export function RecentActivityFeed() {
             width: 26, height: 26, borderRadius: '50%', flexShrink: 0,
             background: 'var(--accent)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            fontSize: 10, fontWeight: 700, color: '#fff',
+            fontSize: 11, fontWeight: 700, color: '#fff',
           }}>
             {(ev.actor?.name ?? '?').charAt(0).toUpperCase()}
           </div>
@@ -132,7 +132,7 @@ export function RecentActivityFeed() {
               <strong>{ev.actor?.name ?? 'System'}</strong>{' '}
               {ev.description ?? ACTION_LABELS[ev.action] ?? ev.action?.toLowerCase().replace(/_/g, ' ')}
               {ev.entityType === 'Ticket' && ev.metadata?.ticketId && (
-                <span className="ml-1 text-blue-600 dark:text-blue-400 font-mono font-bold text-[10px]">
+                <span className="ml-1 text-blue-600 dark:text-blue-400 font-mono font-bold text-caption">
                   [{ev.metadata.ticketId}]
                 </span>
               )}
@@ -141,7 +141,7 @@ export function RecentActivityFeed() {
           <time
             dateTime={ev.timestamp}
             title={companyTimeLabel(ev.timestamp)}
-            style={{ fontSize: 10, color: 'var(--text-tertiary)', flexShrink: 0, whiteSpace: 'nowrap' }}
+            style={{ fontSize: 11, color: 'var(--text-tertiary)', flexShrink: 0, whiteSpace: 'nowrap' }}
           >
             {ev.timeAgo ?? timeAgo(ev.timestamp)}
           </time>

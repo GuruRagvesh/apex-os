@@ -244,7 +244,7 @@ export function ImportWorkspace({
       {!embedded && (
         <header className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h1 className="apex-text text-xl font-semibold">Import / Update Data</h1>
+            <h1 className="apex-page-title">Import / Update Data</h1>
             <p className="apex-text-muted mt-1 text-sm">
               Correct or recover attendance when normal capture did not work.
             </p>
@@ -337,7 +337,7 @@ export function ImportWorkspace({
                 <p className="apex-text text-sm font-semibold">2. Upload the file</p>
 
                 <fieldset className="mt-3">
-                  <legend className="apex-text-subtle text-[11px] uppercase tracking-wide">
+                  <legend className="apex-text-subtle text-caption uppercase tracking-wide">
                     What is this file for?
                   </legend>
                   <div className="mt-2 space-y-2">
@@ -365,7 +365,7 @@ export function ImportWorkspace({
                 <div className="mt-4">
                   <label
                     htmlFor="import-file"
-                    className="apex-text-subtle text-[11px] uppercase tracking-wide"
+                    className="apex-text-subtle text-caption uppercase tracking-wide"
                   >
                     File
                   </label>
@@ -446,7 +446,7 @@ export function ImportWorkspace({
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
                 {summaryCards(batch).map((card) => (
                   <div key={card.label} className="apex-card py-3">
-                    <p className="apex-text-subtle text-[11px] uppercase tracking-wide">
+                    <p className="apex-text-subtle text-caption uppercase tracking-wide">
                       {card.label}
                     </p>
                     <p className={`mt-1 text-xl font-semibold tabular-nums ${TONE_TEXT[card.tone]}`}>
@@ -491,7 +491,7 @@ export function ImportWorkspace({
                   <div className="mt-3 flex flex-wrap gap-x-6 gap-y-2">
                     {resultLines(result).map((line) => (
                       <div key={line.label}>
-                        <p className="apex-text-subtle text-[11px] uppercase tracking-wide">
+                        <p className="apex-text-subtle text-caption uppercase tracking-wide">
                           {line.label}
                         </p>
                         <p className={`text-lg font-semibold tabular-nums ${TONE_TEXT[line.tone]}`}>
@@ -592,7 +592,7 @@ function Recovery() {
       </p>
       <div className="mt-3 flex flex-wrap items-end gap-2">
         <div>
-          <label htmlFor="recovery-date" className="apex-text-subtle text-[11px] uppercase tracking-wide">
+          <label htmlFor="recovery-date" className="apex-text-subtle text-caption uppercase tracking-wide">
             Date
           </label>
           <input
@@ -604,7 +604,7 @@ function Recovery() {
           />
         </div>
         <div className="min-w-[200px] flex-1">
-          <label htmlFor="recovery-search" className="apex-text-subtle text-[11px] uppercase tracking-wide">
+          <label htmlFor="recovery-search" className="apex-text-subtle text-caption uppercase tracking-wide">
             Find a person
           </label>
           <input
@@ -632,7 +632,7 @@ function Recovery() {
         ) : (
           <table className="w-full min-w-[560px] text-left text-sm">
             <thead>
-              <tr className="apex-text-subtle text-[11px] uppercase tracking-wide">
+              <tr className="apex-text-subtle text-caption uppercase tracking-wide">
                 <th className="pb-2">Employee</th>
                 <th className="pb-2">Status</th>
                 <th className="pb-2">In</th>
@@ -901,7 +901,7 @@ function History({ rows, onOpen }: { rows: ImportBatch[]; onOpen: (id: string) =
     <div className="apex-card overflow-x-auto">
       <table className="w-full min-w-[42rem] text-left text-sm">
         <thead>
-          <tr className="apex-text-subtle border-b border-[var(--border)] text-[11px] uppercase tracking-wide">
+          <tr className="apex-text-subtle border-b border-[var(--border)] text-caption uppercase tracking-wide">
             <th className="py-2 pr-3 font-medium">Reference</th>
             <th className="py-2 pr-3 font-medium">File</th>
             <th className="py-2 pr-3 font-medium">Purpose</th>

@@ -32,7 +32,7 @@ export function PlannedPane({ icon, title, description, note }: { icon: React.Re
               {title}
             </h2>
             <span
-              className="text-[9px] font-mono uppercase tracking-widest px-2 py-1 rounded-full"
+              className="text-caption font-mono uppercase tracking-widest px-2 py-1 rounded-full"
               style={{ background: 'rgba(148,163,184,0.12)', color: 'var(--color-text-secondary)' }}
             >
               Launching Soon

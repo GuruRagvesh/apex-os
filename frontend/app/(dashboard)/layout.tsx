@@ -16,6 +16,7 @@ import { DesktopNotificationManager } from '@/components/notifications/DesktopNo
 import { WorkPauseGuard } from '@/components/workday/WorkPauseGuard';
 import { MeetingInviteCenter } from '@/components/workday/MeetingInviteCenter';
 import { AnnouncementOverlayGuard } from '@/components/announcements/AnnouncementOverlayGuard';
+import { BreakWarningCenter } from '@/components/notifications/BreakWarningCenter';
 import { syncStoredOwner } from '@apex/operations-tickets-lifecycle/shared/ticket-nav-state';
 import {
   Ticket, CalendarDays, AlertTriangle, FolderKanban,
@@ -99,7 +100,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       id: 'new-ticket',
       label: 'Create New Ticket',
       description: 'Open a new support or task ticket',
-      icon: <Ticket size={15} />,
+      icon: <Ticket size={16} />,
       shortcut: 'N',
       category: 'tickets',
       onClick: () => router.push('/tickets/new'),
@@ -108,7 +109,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       id: 'due-today',
       label: 'View Due Today',
       description: 'Tickets due today in your scope',
-      icon: <CalendarDays size={15} />,
+      icon: <CalendarDays size={16} />,
       shortcut: 'D',
       category: 'tickets',
       onClick: () => router.push('/tickets?filter=due-today'),
@@ -117,7 +118,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       id: 'high-priority',
       label: isLeadOrAbove ? 'High Priority Tickets' : 'My High Priority Tickets',
       description: isLeadOrAbove ? 'View high priority items in your scope' : 'View your high priority work',
-      icon: <AlertTriangle size={15} />,
+      icon: <AlertTriangle size={16} />,
       category: 'tickets',
       onClick: () => router.push('/tickets?priority=HIGH'),
     },
@@ -126,7 +127,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         id: 'leave-review',
         label: 'Review Leave Requests',
         description: 'Leave requests and approvals in your scope',
-        icon: <CalendarDays size={15} />,
+        icon: <CalendarDays size={16} />,
         shortcut: 'L',
         category: 'hr',
         onClick: () => router.push('/leave'),
@@ -135,7 +136,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         id: 'leave-self',
         label: 'Apply or View Leave',
         description: 'Open your own leave requests',
-        icon: <CalendarDays size={15} />,
+        icon: <CalendarDays size={16} />,
         shortcut: 'L',
         category: 'hr',
         onClick: () => router.push('/leave'),
@@ -144,7 +145,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       id: 'projects',
       label: 'Open Projects',
       description: 'View projects available to your role',
-      icon: <FolderKanban size={15} />,
+      icon: <FolderKanban size={16} />,
       shortcut: 'P',
       category: 'projects',
       onClick: () => router.push('/projects'),
@@ -153,7 +154,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       id: 'team',
       label: 'Check Team Availability',
       description: 'Open roster and live team status',
-      icon: <Activity size={15} />,
+      icon: <Activity size={16} />,
       category: 'team',
       onClick: () => router.push('/team'),
     }] : []),
@@ -161,7 +162,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       id: 'activity',
       label: isManagerOrAbove ? 'Activity Log' : 'Team Activity Log',
       description: 'View scoped operational activity',
-      icon: <Activity size={15} />,
+      icon: <Activity size={16} />,
       category: 'workday',
       onClick: () => router.push('/admin/activity'),
     }] : []),
@@ -169,7 +170,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       id: 'login',
       label: 'Start Workday',
       description: 'Log in to start your working session',
-      icon: <LogIn size={15} />,
+      icon: <LogIn size={16} />,
       category: 'workday',
       onClick: () => router.push('/dashboard'),
     },
@@ -182,7 +183,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <TopBar onOpenMenu={() => setMobileNavOpen(true)} menuOpen={mobileNavOpen} />
         {/* While the viewer's own review timer runs (from the ledger), on every page */}
         <ActiveReviewBanner />
-        <main id="apex-main-content" className="flex-1 overflow-y-auto p-3 sm:p-6">{children}</main>
+        <main id="apex-main-content" className="flex-1 overflow-y-auto p-4 sm:p-6">{children}</main>
       </div>
       <ColdStartBanner />
       {/* New command palette — Alt+K */}
@@ -196,6 +197,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <WorkPauseGuard />
       <MeetingInviteCenter />
       <AnnouncementOverlayGuard />
+      <BreakWarningCenter />
     </div>
   );
 }

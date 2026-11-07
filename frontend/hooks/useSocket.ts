@@ -11,6 +11,7 @@ export interface SocketEvents {
   onTicketStatusChanged?: (data: { ticketId: string; newStatus: string; updatedBy: string }) => void;
   onNotificationNew?: (data: { notification: any }) => void;
   onLeaveStatusChanged?: (data: { leaveId: string; status: string }) => void;
+  onBreakWarningChanged?: (data: { breakLogId: string }) => void;
 }
 
 export function useSocket(events: SocketEvents = {}) {
@@ -40,6 +41,7 @@ export function useSocket(events: SocketEvents = {}) {
     socket.on('ticket:status_changed', (data) => eventsRef.current.onTicketStatusChanged?.(data));
     socket.on('notification:new', (data) => eventsRef.current.onNotificationNew?.(data));
     socket.on('leave:status_changed', (data) => eventsRef.current.onLeaveStatusChanged?.(data));
+    socket.on('break-warning:changed', (data) => eventsRef.current.onBreakWarningChanged?.(data));
 
     socket.on('connect_error', (err) => {
       console.debug('[Socket] connection error:', err.message);

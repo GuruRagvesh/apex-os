@@ -36,7 +36,7 @@ export function TimingTicker({ ticket, showLabel = false, className = '' }: Timi
   // ticket keeps its frozen work budget; "blocked" only changes the state text.
   const badge = budget ? workBudgetBadge(ticket, now) : null;
   if (badge) {
-    const color = badge.tone === 'over' ? 'text-red-600' : badge.tone === 'running' ? 'text-green-600' : 'text-amber-600';
+    const color = badge.tone === 'over' ? 'text-red-600' : badge.tone === 'running' ? 'text-green-700' : 'text-amber-700';
     return (
       <span className={`inline-flex items-center gap-1 text-xs font-medium ${color} ${className}`} title={badge.tooltip}>
         <span>{badge.icon}</span>

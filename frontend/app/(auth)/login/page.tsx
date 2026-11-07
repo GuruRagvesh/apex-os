@@ -80,7 +80,7 @@ function LoginForm() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900 flex items-center justify-center p-4">
       {/* Home link */}
-      <Link href="/" className="absolute top-5 left-5 flex items-center gap-2 text-slate-400 hover:text-white text-sm transition-colors">
+      <Link href="/" className="absolute top-5 left-5 flex items-center gap-2 text-slate-500 hover:text-white text-sm transition-colors">
         ← Home
       </Link>
       <div className="w-full max-w-md">
@@ -93,7 +93,7 @@ function LoginForm() {
             <span className="text-white text-2xl font-bold">A</span>
           </div>
           <h1 className="text-3xl font-bold text-white">Apex OS</h1>
-          <p className="text-slate-400 mt-1 text-sm">AI-Powered Business OS · TechnoEdge</p>
+          <p className="text-slate-500 mt-1 text-sm">AI-Powered Business OS · TechnoEdge</p>
         </div>
 
         {/* Card */}

@@ -65,12 +65,12 @@ export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowPr
       <Link href={ticketHref} className="flex items-center gap-3 px-4 py-3 hover:bg-slate-50 transition-colors">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
-            <CopyId ticketId={ticket.ticketId} className="text-xs text-slate-400" />
+            <CopyId ticketId={ticket.ticketId} className="text-xs text-slate-500" />
             <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
               {REQUEST_TYPE_LABELS[ticket.type] ?? 'Task'}
             </span>
             {ticket.isOverdue && (
-              <span className="flex items-center gap-0.5 text-[10px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
+              <span className="flex items-center gap-0.5 text-caption font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
                 <AlertTriangle size={9} />
                 OVERDUE
               </span>
@@ -112,12 +112,12 @@ export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowPr
       {/* Ticket col-span-5 */}
       <div className="md:col-span-5 min-w-0">
         <div className="flex items-center gap-2 mb-1 flex-wrap">
-          <CopyId ticketId={ticket.ticketId} className="text-xs text-slate-400 font-medium" />
+          <CopyId ticketId={ticket.ticketId} className="text-xs text-slate-500 font-medium" />
           {ticket.project && (
-            <span className="text-xs text-slate-400 font-medium">· Project: {ticket.project.projectId}</span>
+            <span className="text-xs text-slate-500 font-medium">· Project: {ticket.project.projectId}</span>
           )}
           {ticket.isOverdue && (
-            <span className="flex items-center gap-0.5 text-[10px] font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
+            <span className="flex items-center gap-0.5 text-caption font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">
               <AlertTriangle size={9} />
               OVERDUE
             </span>
@@ -129,7 +129,7 @@ export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowPr
         </div>
         
         {/* Richer Operational Subtitle */}
-        <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-gray-500 mt-1 flex-wrap font-medium">
+        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-gray-500 mt-1 flex-wrap font-medium">
           {ticket.createdBy && (
             <span>By {ticket.createdBy.name}</span>
           )}
@@ -155,7 +155,7 @@ export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowPr
         )}
 
         {ticket.scheduledStartAt && ticket.scheduledEndAt && (
-          <p className="text-xs text-slate-400 dark:text-gray-500 mt-1 font-medium">
+          <p className="text-xs text-slate-500 dark:text-gray-500 mt-1 font-medium">
             📅 {new Date(ticket.scheduledStartAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} → {new Date(ticket.scheduledEndAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </p>
         )}
@@ -208,14 +208,14 @@ export function TicketRow({ ticket, compact, onStatusChange, href }: TicketRowPr
         ) : (
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-7 h-7 bg-slate-200 dark:bg-gray-700 rounded-full flex items-center justify-center flex-shrink-0" title="Unassigned">
-              <span className="text-slate-400 text-xs font-semibold">?</span>
+              <span className="text-slate-500 text-xs font-semibold">?</span>
             </div>
-            <span className="text-xs text-slate-400 font-medium">Unassigned</span>
+            <span className="text-xs text-slate-500 font-medium">Unassigned</span>
           </div>
         )}
         {(ticket.estimatedMinutes || ticket.estimatedTime) && (
-          <div className="flex items-center gap-1 text-xs text-slate-400 hidden xl:flex flex-shrink-0 ml-1">
-            <Clock size={11} />
+          <div className="flex items-center gap-1 text-xs text-slate-500 hidden xl:flex flex-shrink-0 ml-1">
+            <Clock size={12} />
             {ticket.estimatedMinutes ? `${ticket.estimatedMinutes}m` : `${ticket.estimatedTime}h`}
           </div>
         )}

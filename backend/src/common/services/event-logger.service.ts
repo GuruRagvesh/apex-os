@@ -137,6 +137,7 @@ export class EventLoggerService {
     metadata?: Record<string, any>;
     ip?: string;
     device?: string;
+    actorContext?: string;
     // Present on OperationalEvent since before AR-1, but never exposed here.
     // A correction has to record what the official fact was and what it became.
     beforeValue?: Record<string, any> | null;

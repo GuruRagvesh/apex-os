@@ -150,7 +150,7 @@ export function DayDetailDrawer({
                   ) : (
                     <p className="apex-text text-xs font-semibold">Something looks wrong?</p>
                   )}
-                  <p className="apex-text-muted mt-0.5 text-[11px]">
+                  <p className="apex-text-muted mt-0.5 text-caption">
                     {pending
                       ? 'Your submitted correction is already in review.'
                       : 'Attendance changes are submitted for review; the recorded day is not edited directly.'}
@@ -319,7 +319,7 @@ function EvidenceRow({ item }: { item: OwnPunchEvidence }) {
         {item.accuracyMeters !== null ? (
           <p>GPS accuracy ±{Math.round(item.accuracyMeters)} m</p>
         ) : (
-          <p className="text-amber-500">GPS accuracy unavailable — sent for HR review</p>
+          <p className="text-amber-700">GPS accuracy unavailable — sent for HR review</p>
         )}
         {item.altitudeMeters !== null && item.altitudeMeters !== undefined ? (
           <p>Altitude {Math.round(item.altitudeMeters)} m</p>
@@ -327,14 +327,14 @@ function EvidenceRow({ item }: { item: OwnPunchEvidence }) {
           <p>Altitude unavailable</p>
         )}
         {item.policyContextStatus === 'POLICY_SETUP_PENDING' ? (
-          <p className="text-amber-500">Attendance policy setup pending — raw punch recorded for review</p>
+          <p className="text-amber-700">Attendance policy setup pending — raw punch recorded for review</p>
         ) : null}
         <p>
           Device: {item.deviceLabel || 'Not recorded'}
           {item.captureChannel === 'PHONE_HANDOFF' ? ' · Phone handoff' : item.captureChannel === 'CURRENT_DEVICE' ? ' · This device' : ''}
         </p>
         {item.deviceType === 'UNKNOWN' ? (
-          <p className="text-amber-500">Device ID unavailable — kept for HR review; punch remains recorded</p>
+          <p className="text-amber-700">Device ID unavailable — kept for HR review; punch remains recorded</p>
         ) : null}
         {item.distanceFromLocationMeters !== null ? (
           <p>{Math.round(item.distanceFromLocationMeters)} m from the registered location</p>

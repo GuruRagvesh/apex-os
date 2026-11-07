@@ -17,7 +17,7 @@ export function LinkifiedText({ text }: { text: string | null | undefined }) {
             href={segment.href}
             target="_blank"
             rel="noopener noreferrer"
-            style={{ color: 'var(--accent)', textDecoration: 'underline', wordBreak: 'break-all' }}
+            style={{ color: 'var(--accent-text)', textDecoration: 'underline', wordBreak: 'break-all' }}
           >
             {segment.text}
           </a>

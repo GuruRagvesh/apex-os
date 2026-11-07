@@ -56,7 +56,7 @@ export function WorkdayStatusBox() {
       <div className="flex items-center gap-2">
         <span className={`apex-hero-status-dot ${onBreak ? 'is-break' : status === 'WORKING' ? '' : 'is-inactive'}`} aria-hidden="true" />
         <span className="apex-hero-status-title">{statusLabel}</span>
-        <span className="apex-hero-status-value"><Timer size={15} aria-hidden="true" />{isLoading || isError ? '—' : hm(worked)}</span>
+        <span className="apex-hero-status-value"><Timer size={16} aria-hidden="true" />{isLoading || isError ? '—' : hm(worked)}</span>
       </div>
       <div className="apex-hero-status-line"><Coffee size={14} aria-hidden="true" />Break <strong>{isLoading || isError ? '—' : hm(breaks)}</strong></div>
       <div className="apex-hero-status-line"><LogIn size={14} aria-hidden="true" />{startedAt ? <>Punched in at <strong>{clock(startedAt)}</strong></> : 'No punch-in today'}</div>

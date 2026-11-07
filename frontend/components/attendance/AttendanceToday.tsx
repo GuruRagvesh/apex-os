@@ -88,12 +88,12 @@ function Stat({
       <dt className="apex-text-subtle text-xs font-medium">{label}</dt>
       <dd
         className={`mt-0.5 text-sm font-semibold ${
-          tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'apex-text'
+          tone === 'warn' ? 'text-amber-700 dark:text-amber-400' : 'apex-text'
         }`}
       >
         {value}
       </dd>
-      {hint && <p className="apex-text-subtle mt-0.5 text-[11px]">{hint}</p>}
+      {hint && <p className="apex-text-subtle mt-0.5 text-caption">{hint}</p>}
     </div>
   );
 }
@@ -112,16 +112,16 @@ function EvidenceRow({ evidence }: { evidence: OwnPunchEvidence }) {
         {evidence.type === 'PUNCH_IN' ? 'Punch in' : 'Punch out'}
       </span>
       <span
-        className={`text-[11px] ${
+        className={`text-caption ${
           location.tone === 'warn'
-            ? 'text-amber-600 dark:text-amber-400'
+            ? 'text-amber-700 dark:text-amber-400'
             : 'apex-text-muted'
         }`}
       >
         {location.headline}
         {location.detail && ` · ${location.detail}`}
       </span>
-      <span className="apex-text-subtle text-[11px]">
+      <span className="apex-text-subtle text-caption">
         Photo {photoOk ? '✓' : '—'}
       </span>
     </li>
@@ -293,8 +293,8 @@ export function AttendanceToday() {
       {presence.evidenceMismatch && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-900/20">
           <AlertTriangle
-            size={13}
-            className="mt-0.5 flex-shrink-0 text-amber-600 dark:text-amber-400"
+            size={14}
+            className="mt-0.5 flex-shrink-0 text-amber-700 dark:text-amber-400"
           />
           <p className="text-xs text-amber-800 dark:text-amber-300">
             <span className="font-semibold">Evidence coverage: {presence.coverage.toLowerCase()}.</span>{' '}
@@ -311,20 +311,20 @@ export function AttendanceToday() {
       {/* Location, in the agreed terminology: accuracy and distance apart. */}
       {firstPunch && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-lg border border-[var(--border-secondary)] px-3 py-2">
-          <span className="apex-text-subtle inline-flex items-center gap-1 text-[11px]">
-            <MapPin size={11} />
+          <span className="apex-text-subtle inline-flex items-center gap-1 text-caption">
+            <MapPin size={12} />
             {punchInLocation.headline}
           </span>
           {firstPunch.distanceFromLocationMeters !== null && (
-            <span className="apex-text-muted text-[11px]">
+            <span className="apex-text-muted text-caption">
               Distance {Math.round(firstPunch.distanceFromLocationMeters)} m
             </span>
           )}
-          <span className="apex-text-muted text-[11px]">
+          <span className="apex-text-muted text-caption">
             GPS accuracy {formatAccuracy(firstPunch.accuracyMeters)}
           </span>
           {firstPunch.geofenceRadiusMeters !== null && (
-            <span className="apex-text-subtle text-[11px]">
+            <span className="apex-text-subtle text-caption">
               Allowed {firstPunch.geofenceRadiusMeters} m
             </span>
           )}
@@ -347,20 +347,20 @@ export function AttendanceToday() {
                   key={s.id}
                   className="flex flex-wrap items-baseline gap-x-3 gap-y-1 border-l-2 border-[var(--border-secondary)] py-1 pl-3"
                 >
-                  <span className="apex-text-subtle text-[11px] font-medium">#{i + 1}</span>
+                  <span className="apex-text-subtle text-caption font-medium">#{i + 1}</span>
                   <span className="apex-text font-mono text-xs">
                     {formatTime(s.startWorkAt)} → {s.logoutAt ? formatTime(s.logoutAt) : 'open'}
                   </span>
-                  <span className="apex-text-muted text-[11px]">
+                  <span className="apex-text-muted text-caption">
                     {duration === null ? 'in progress' : formatMinutes(duration)}
                   </span>
                   {breakTotal > 0 && (
-                    <span className="apex-text-subtle text-[11px]">
+                    <span className="apex-text-subtle text-caption">
                       {formatMinutes(breakTotal)} break
                     </span>
                   )}
                   {s.autoClosed && (
-                    <span className="text-[11px] text-amber-600 dark:text-amber-400">
+                    <span className="text-caption text-amber-700 dark:text-amber-400">
                       auto-closed
                     </span>
                   )}
@@ -396,8 +396,8 @@ export function AttendanceToday() {
       {needsReview && (
         <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-900/20">
           <AlertTriangle
-            size={13}
-            className="mt-0.5 flex-shrink-0 text-amber-600 dark:text-amber-400"
+            size={14}
+            className="mt-0.5 flex-shrink-0 text-amber-700 dark:text-amber-400"
           />
           <div className="text-xs text-amber-800 dark:text-amber-300">
             <p className="font-semibold">This day needs review.</p>

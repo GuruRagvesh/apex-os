@@ -57,7 +57,7 @@ export function TeamLeadershipSection() {
   return <section className="apex-card p-5 sm:p-7">
     <div className="flex flex-col gap-3 border-b pb-5 sm:flex-row sm:items-start sm:justify-between" style={{ borderColor: 'var(--border-subtle)' }}>
       <div className="flex items-center gap-2">
-        <span className="grid h-9 w-9 place-items-center rounded-xl" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}><UsersRound size={18} /></span>
+        <span className="grid h-9 w-9 place-items-center rounded-xl" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)' }}><UsersRound size={18} /></span>
         <div><h2 className="text-lg font-semibold" style={{ color: 'var(--text-primary)' }}>Team operations</h2><p className="mt-0.5 text-sm" style={{ color: 'var(--text-secondary)' }}>Set working rules for the team you manage.</p></div>
       </div>
       <span className="inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium" style={{ backgroundColor: 'var(--bg-tertiary)', color: 'var(--text-secondary)' }}><CheckCircle2 size={14} /> Your managed team</span>
@@ -65,7 +65,7 @@ export function TeamLeadershipSection() {
 
     <div className="mt-6 grid gap-5 xl:grid-cols-2">
       <section className="rounded-2xl border p-4" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface-card)' }}>
-        <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}><CheckCircle2 size={16} /></span><h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Work assignment</h3></div>
+        <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)' }}><CheckCircle2 size={16} /></span><h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Work assignment</h3></div>
         <div className="mt-3 divide-y" style={{ borderColor: 'var(--border-subtle)' }}>
           <Rule title="Require an owner" description="Do not let work enter the team queue without one accountable owner." checked={preferences.requireAssignee} disabled={disabled} onChange={() => update('requireAssignee', !preferences.requireAssignee)} />
           <Rule title="Require a due date" description="Require a delivery date so the team can sequence work and identify delay." checked={preferences.requireDueDate} disabled={disabled} onChange={() => update('requireDueDate', !preferences.requireDueDate)} />
@@ -74,7 +74,7 @@ export function TeamLeadershipSection() {
       </section>
 
       <section className="rounded-2xl border p-4" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface-card)' }}>
-        <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}><AlertTriangle size={16} /></span><h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Capacity & escalation</h3></div>
+        <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)' }}><AlertTriangle size={16} /></span><h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Capacity & escalation</h3></div>
         <div className="mt-4 space-y-4">
           <label className="block"><span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>When a teammate is at capacity</span><span className="mt-1 block text-xs leading-5" style={{ color: 'var(--text-tertiary)' }}>Choose whether assignment is warned about or stopped for review.</span><select className="apex-input mt-2 w-full" value={preferences.workloadGuardrail} disabled={disabled} onChange={(event) => update('workloadGuardrail', event.target.value as TeamPreferences['workloadGuardrail'])}><option value="warn">Warn the assigner</option><option value="block">Block until reviewed</option></select></label>
           <label className="block"><span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Escalate unattended work after</span><span className="mt-1 block text-xs leading-5" style={{ color: 'var(--text-tertiary)' }}>Escalation reminders surface work that remains unassigned or unaddressed.</span><select className="apex-input mt-2 w-full" value={preferences.escalationWindowHours} disabled={disabled} onChange={(event) => update('escalationWindowHours', Number(event.target.value) as TeamPreferences['escalationWindowHours'])}><option value={4}>4 hours</option><option value={8}>8 hours</option><option value={24}>24 hours</option></select></label>
@@ -83,7 +83,7 @@ export function TeamLeadershipSection() {
       </section>
 
       <section className="rounded-2xl border p-4 xl:col-span-2" style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--surface-card)' }}>
-        <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent)' }}><ArrowRightLeft size={16} /></span><h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Approval routing</h3></div>
+        <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-lg" style={{ backgroundColor: 'var(--accent-subtle)', color: 'var(--accent-text)' }}><ArrowRightLeft size={16} /></span><h3 className="font-semibold" style={{ color: 'var(--text-primary)' }}>Approval routing</h3></div>
         <div className="mt-4 max-w-xl"><label className="block"><span className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>First operational approver</span><span className="mt-1 block text-xs leading-5" style={{ color: 'var(--text-tertiary)' }}>Sets the team’s preferred route. HR and organization approval authority stays unchanged.</span><select className="apex-input mt-2 w-full" value={preferences.approvalRoute} disabled={disabled} onChange={(event) => update('approvalRoute', event.target.value as TeamPreferences['approvalRoute'])}><option value="reporting_manager">Reporting manager</option><option value="team_lead">Team lead</option></select></label></div>
       </section>
     </div>

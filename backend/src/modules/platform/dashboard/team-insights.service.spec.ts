@@ -1,5 +1,5 @@
 import { TicketStatus } from '@prisma/client';
-import { averageClockMinute, canonicalTeamCalendarStatus, netSessionMinutes, TeamInsightsService, ticketOverduePhase } from './team-insights.service';
+import { averageClockMinute, canonicalTeamCalendarStatus, liveAttendanceStatus, netSessionMinutes, TeamInsightsService, ticketOverduePhase } from './team-insights.service';
 
 describe('Team Insights clock averages', () => {
   it('calculates the arithmetic average punch time in minutes after midnight', () => {
@@ -71,6 +71,30 @@ describe('Team Insights live break deduction', () => {
       { start: at(9, 0), end: at(13, 30) },
       [{ start: at(13, 0), end: at(13, 30) }],
     )).toBe(240);
+  });
+});
+
+describe('Team Insights live attendance status', () => {
+  const base = {
+    isToday: true,
+    hasApprovedLeave: false,
+    hasPunchIn: false,
+    openBreakType: null,
+    hasOpenSession: false,
+    hasPunchOut: false,
+  };
+
+  it('shows approved leave when the person has not punched in', () => {
+    expect(liveAttendanceStatus({ ...base, hasApprovedLeave: true })).toBe('ON_LEAVE');
+  });
+
+  it('shows working after a person on approved leave punches in', () => {
+    expect(liveAttendanceStatus({ ...base, hasApprovedLeave: true, hasPunchIn: true, hasOpenSession: true })).toBe('WORKING');
+  });
+
+  it('prioritizes active break and meeting states over working', () => {
+    expect(liveAttendanceStatus({ ...base, hasPunchIn: true, hasOpenSession: true, openBreakType: 'TEA' })).toBe('ON_BREAK');
+    expect(liveAttendanceStatus({ ...base, hasPunchIn: true, hasOpenSession: true, openBreakType: 'MEETING' })).toBe('IN_MEETING');
   });
 });
 

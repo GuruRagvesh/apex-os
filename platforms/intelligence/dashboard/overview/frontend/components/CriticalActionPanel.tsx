@@ -42,7 +42,7 @@ export function CriticalActionPanel({ alerts }: { alerts: CriticalAlert[] }) {
             <p style={{ fontSize: 11, color: 'var(--text-secondary)', margin: '1px 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{alert.desc}</p>
           </div>
           <button onClick={() => router.push(alert.actionUrl)} style={{
-            fontSize: 10, fontWeight: 500, padding: '3px 10px', borderRadius: 10, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap',
+            fontSize: 11, fontWeight: 500, padding: '3px 10px', borderRadius: 10, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap',
             background: 'var(--accent-subtle)', color: 'var(--accent-text)', border: '1px solid var(--accent-border)',
           }}>
             {alert.actionLabel}

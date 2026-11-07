@@ -90,19 +90,19 @@ export default function ForgotPasswordPage() {
             <span className="text-white text-2xl font-bold">A</span>
           </div>
           <h1 className="text-3xl font-bold text-white">Apex OS</h1>
-          <p className="text-slate-400 mt-1 text-sm">Password Recovery</p>
+          <p className="text-slate-500 mt-1 text-sm">Password Recovery</p>
         </div>
 
         <div className="bg-white rounded-2xl shadow-2xl p-8">
           {/* Step indicators */}
           <div className="flex items-center gap-2 mb-6">
-            <div className={`flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${step === 'email' ? 'bg-blue-600 text-white' : 'bg-green-500 text-white'}`}>
+            <div className={`flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${step === 'email' ? 'bg-blue-600 text-white' : 'bg-green-700 text-white'}`}>
               {step === 'email' ? '1' : '✓'}
             </div>
             <div className="flex-1 h-0.5 bg-slate-200">
               <div className={`h-full bg-blue-600 transition-all ${step === 'reset' ? 'w-full' : 'w-0'}`} />
             </div>
-            <div className={`flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${step === 'reset' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-400'}`}>
+            <div className={`flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${step === 'reset' ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
               2
             </div>
           </div>
@@ -115,7 +115,7 @@ export default function ForgotPasswordPage() {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">Email address</label>
                   <div className="relative">
-                    <Mail size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
                     <input
                       type="email"
                       value={email}
@@ -146,7 +146,7 @@ export default function ForgotPasswordPage() {
                 <div>
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">One-time code (OTP)</label>
                   <div className="relative">
-                    <KeyRound size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <KeyRound size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
                     <input
                       type="text"
                       value={otp}
@@ -160,7 +160,7 @@ export default function ForgotPasswordPage() {
                   </div>
                   <div className="mt-2 text-right">
                     {resendCooldown > 0 ? (
-                      <span className="text-xs text-slate-400 font-medium">
+                      <span className="text-xs text-slate-500 font-medium">
                         Resend code in {resendCooldown}s
                       </span>
                     ) : (
@@ -185,8 +185,8 @@ export default function ForgotPasswordPage() {
                       placeholder="At least 8 characters"
                       required
                     />
-                    <button type="button" onClick={() => setShowNew(!showNew)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
-                      {showNew ? <EyeOff size={15} /> : <Eye size={15} />}
+                    <button type="button" onClick={() => setShowNew(!showNew)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">
+                      {showNew ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
                 </div>
@@ -201,11 +201,11 @@ export default function ForgotPasswordPage() {
                       placeholder="Repeat password"
                       required
                     />
-                    <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">
-                      {showConfirm ? <EyeOff size={15} /> : <Eye size={15} />}
+                    <button type="button" onClick={() => setShowConfirm(!showConfirm)} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500">
+                      {showConfirm ? <EyeOff size={16} /> : <Eye size={16} />}
                     </button>
                   </div>
-                  {mismatch && <p className="text-xs text-red-500 mt-1">Passwords do not match</p>}
+                  {mismatch && <p className="text-xs text-red-600 mt-1">Passwords do not match</p>}
                 </div>
                 <div className="flex gap-3">
                   <button

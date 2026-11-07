@@ -242,14 +242,14 @@ export default function ProfileScreen() {
               {getInitials(user?.name ?? 'U')}
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-slate-800">{user?.name}</h1>
+              <h1 className="apex-page-title">{user?.name}</h1>
               <div className="flex items-center gap-2 mt-2 flex-wrap">
                 <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${ROLE_COLORS[roleName] ?? 'bg-gray-100 text-gray-700'}`}>
                   {roleName.replace('_', ' ')}
                 </span>
                 <span className="text-xs px-2.5 py-1 rounded-full bg-slate-100 text-slate-600">{deptName}</span>
               </div>
-              <p className="text-sm text-slate-400 mt-2">{user?.email}</p>
+              <p className="text-sm text-slate-500 mt-2">{user?.email}</p>
             </div>
           </div>
           <Link
@@ -286,7 +286,7 @@ export default function ProfileScreen() {
               <div className="flex justify-between"><span className="text-slate-500">Reporting To Me:</span> <span className="font-medium">{hierarchy.peopleReportingToMe?.length || 0} person(s)</span></div>
             </div>
           ) : (
-            <div className="text-slate-400 text-sm">Unavailable</div>
+            <div className="text-slate-500 text-sm">Unavailable</div>
           )}
         </div>
 
@@ -301,7 +301,7 @@ export default function ProfileScreen() {
                 <div key={req.id} className="py-3 text-sm">
                   <div className="flex justify-between items-start mb-1">
                     <span className="font-semibold text-slate-700">{REQUEST_TYPES.find(r => r.value === req.requestType)?.label || req.requestType}</span>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${req.status === 'APPROVED' ? 'bg-green-100 text-green-700' : req.status === 'REJECTED' ? 'bg-red-100 text-red-700' : req.status === 'CANCELLED' ? 'bg-slate-100 text-slate-700' : 'bg-blue-100 text-blue-700'}`}>
+                    <span className={`text-caption px-2 py-0.5 rounded-full font-medium ${req.status === 'APPROVED' ? 'bg-green-100 text-green-700' : req.status === 'REJECTED' ? 'bg-red-100 text-red-700' : req.status === 'CANCELLED' ? 'bg-slate-100 text-slate-700' : 'bg-blue-100 text-blue-700'}`}>
                       {STATUS_LABELS[req.status] || req.status}
                     </span>
                   </div>
@@ -314,14 +314,14 @@ export default function ProfileScreen() {
                   </div>
                   {req.status.startsWith('PENDING') && (
                     <div className="flex justify-between items-center mt-2">
-                      <span className="text-xs text-slate-400">Approver: {req.currentApprover?.name || 'Admin'}</span>
-                      <button onClick={() => cancelRequest.mutate(req.id)} className="text-red-500 text-xs font-medium hover:underline">Cancel</button>
+                      <span className="text-xs text-slate-500">Approver: {req.currentApprover?.name || 'Admin'}</span>
+                      <button onClick={() => cancelRequest.mutate(req.id)} className="text-red-600 text-xs font-medium hover:underline">Cancel</button>
                     </div>
                   )}
                 </div>
               ))
             ) : (
-              <div className="text-center text-slate-400 text-sm py-4">No requests found</div>
+              <div className="text-center text-slate-500 text-sm py-4">No requests found</div>
             )}
           </div>
         </div>
@@ -339,7 +339,7 @@ export default function ProfileScreen() {
             ) : Array.isArray(activity) && activity.length > 0 ? (
               activity.map((item) => <ActivityItem key={item.id} item={item} />)
             ) : (
-              <div className="p-6 text-center text-slate-400 text-sm">No recent activity</div>
+              <div className="p-6 text-center text-slate-500 text-sm">No recent activity</div>
             )}
           </div>
         </div>
@@ -353,7 +353,7 @@ export default function ProfileScreen() {
                 <h3 className="text-lg font-bold text-slate-800">Request Hierarchy Change</h3>
                 <p className="text-xs text-slate-500 mt-0.5">Changes apply only after approval from your Team Lead, Manager, or Admin.</p>
               </div>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 p-1.5 rounded-full transition-colors">
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-500 hover:text-slate-700 bg-slate-100 hover:bg-slate-200 p-1.5 rounded-full transition-colors">
                 <X size={18} />
               </button>
             </div>
@@ -423,7 +423,7 @@ export default function ProfileScreen() {
                           setMultiChanges(newArr);
                         }) : <input disabled className="w-full border border-slate-200 bg-slate-100 rounded p-2 text-sm" placeholder="..." />}
                       </div>
-                      <button onClick={() => setMultiChanges(multiChanges.filter((_, i) => i !== idx))} className="text-red-500 hover:bg-red-50 p-2 rounded">
+                      <button onClick={() => setMultiChanges(multiChanges.filter((_, i) => i !== idx))} className="text-red-600 hover:bg-red-50 p-2 rounded">
                         <X size={16} />
                       </button>
                     </div>
@@ -455,7 +455,7 @@ export default function ProfileScreen() {
                       <div className="flex items-center gap-3 text-sm">
                         <span className="font-medium text-slate-700 w-32">{currentTypeInfo?.label}:</span>
                         <span className="px-2.5 py-1 bg-slate-200 text-slate-600 rounded text-xs line-through">{getCurrentValueLabel(currentTypeInfo!.field)}</span>
-                        <ArrowRight size={14} className="text-slate-400" />
+                        <ArrowRight size={14} className="text-slate-500" />
                         <span className="px-2.5 py-1 bg-indigo-100 text-indigo-700 font-medium rounded text-xs">{getNewValueLabel(currentTypeInfo!.field, formData.newValue)}</span>
                       </div>
                     )}
@@ -463,7 +463,7 @@ export default function ProfileScreen() {
                       <div key={idx} className="flex items-center gap-3 text-sm">
                         <span className="font-medium text-slate-700 w-32">{MULTI_FIELDS.find(f => f.value === mc.field)?.label}:</span>
                         <span className="px-2.5 py-1 bg-slate-200 text-slate-600 rounded text-xs line-through">{getCurrentValueLabel(mc.field)}</span>
-                        <ArrowRight size={14} className="text-slate-400" />
+                        <ArrowRight size={14} className="text-slate-500" />
                         <span className="px-2.5 py-1 bg-indigo-100 text-indigo-700 font-medium rounded text-xs">{getNewValueLabel(mc.field, mc.newValue)}</span>
                       </div>
                     ))}

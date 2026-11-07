@@ -1,6 +1,6 @@
 import { formatInTimeZone } from 'date-fns-tz';
 
-// How long a WORKING/ON_BREAK session gets to respond to the auto-close
+// How long a WORKING session gets to respond to the auto-close
 // prompt before the backend treats it as abandoned and force-closes it.
 // Keyed off User.lastActiveAt, which startWork/endBreak/resumeWork/
 // continueWorking all refresh — so a user who is genuinely still present
@@ -68,12 +68,21 @@ export function shouldPolicyAutoStop(
     return { shouldStop: false };
   }
 
+  // A break is an explicit, user-owned pause. Its planned duration is a
+  // reminder, not permission to resume or end the workday on the person's
+  // behalf. Keep current-day breaks open until the user resumes/ends the day;
+  // the scheduler's next-business-day stale-session branch remains the safety
+  // net for abandoned sessions that cross the date boundary.
+  if (session.status === 'ON_BREAK') {
+    return { shouldStop: false };
+  }
+
   // Past cutoff. Do not silently kill a session the user is demonstrably still
-  // in (WORKING/ON_BREAK with a recent activity signal) — give them the grace
+  // in (WORKING with a recent activity signal) — give them the grace
   // window to see the frontend consent prompt and respond. A session with no
   // activity signal inside the window (or not WORKING/ON_BREAK at all, e.g.
   // already IDLE) is treated as abandoned and closes exactly as before.
-  if (['WORKING', 'ON_BREAK'].includes(session.status)) {
+  if (session.status === 'WORKING') {
     const lastActiveMs = user?.lastActiveAt ? new Date(user.lastActiveAt).getTime() : 0;
     const isRecentlyActive = now.getTime() - lastActiveMs < AUTO_CLOSE_GRACE_MINUTES * 60000;
     if (isRecentlyActive) {

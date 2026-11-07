@@ -17,8 +17,8 @@ function MetricCard({ label, value, sub, color, url }: MetricCardProps) {
       onMouseEnter={e => { if (url) { (e.currentTarget as HTMLElement).style.boxShadow = 'var(--shadow-md)'; (e.currentTarget as HTMLElement).style.borderColor = 'var(--accent-border)'; } }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.boxShadow = ''; (e.currentTarget as HTMLElement).style.borderColor = ''; }}
     >
-      <p style={{ fontSize: 10, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--text-tertiary)', margin: 0 }}>{label}</p>
-      <p style={{ fontSize: 26, fontWeight: 600, color: color ?? 'var(--text-primary)', margin: '4px 0 0', lineHeight: 1 }}>{value}</p>
+      <p style={{ fontSize: 11, fontWeight: 500, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--text-tertiary)', margin: 0 }}>{label}</p>
+      <p style={{ fontSize: 24, fontWeight: 600, color: color ?? 'var(--text-primary)', margin: '4px 0 0', lineHeight: 1 }}>{value}</p>
       {sub && <p style={{ fontSize: 11, color: 'var(--text-tertiary)', margin: '3px 0 0' }}>{sub}</p>}
     </div>
   );
@@ -34,14 +34,14 @@ export function MetricCards({ metrics, role }: { metrics: any; role?: string }) 
       { label: 'Open', value: metrics.open ?? 0, url: '/tickets?status=OPEN' },
       { label: 'In Progress', value: metrics.inProgress ?? 0, url: '/tickets?status=IN_PROGRESS' },
       { label: 'In Review', value: metrics.inReview ?? 0, url: '/tickets?status=REVIEW' },
-      { label: 'Done This Week', value: metrics.doneThisWeek ?? 0, color: 'var(--color-success)', url: '/tickets?status=DONE' },
+      { label: 'Done This Week', value: metrics.doneThisWeek ?? 0, color: 'var(--success-text)', url: '/tickets?status=DONE' },
     );
   } else if (role === 'TEAM_LEAD') {
     cards.push(
       { label: 'Team Tickets', value: metrics.total ?? 0, url: '/tickets' },
       { label: 'Overdue', value: metrics.overdue ?? 0, color: metrics.overdue > 0 ? 'var(--color-danger)' : undefined, url: '/tickets?overdue=true' },
-      { label: 'Pending Reviews', value: metrics.inReview ?? 0, color: 'var(--accent)', url: '/tickets?status=REVIEW' },
-      { label: 'Team Online', value: metrics.teamOnline ?? 0, color: 'var(--color-success)', url: '/team' },
+      { label: 'Pending Reviews', value: metrics.inReview ?? 0, color: 'var(--accent-text)', url: '/tickets?status=REVIEW' },
+      { label: 'Team Online', value: metrics.teamOnline ?? 0, color: 'var(--success-text)', url: '/team' },
     );
   } else if (role === 'MANAGER') {
     cards.push(
@@ -53,7 +53,7 @@ export function MetricCards({ metrics, role }: { metrics: any; role?: string }) 
   } else {
     // ADMIN / SUPER_ADMIN
     cards.push(
-      { label: 'Active Today', value: metrics.activeToday ?? 0, color: 'var(--color-success)', url: '/team' },
+      { label: 'Active Today', value: metrics.activeToday ?? 0, color: 'var(--success-text)', url: '/team' },
       { label: 'Open Tickets', value: metrics.totalTickets ?? 0, url: '/tickets' },
       { label: 'Overdue', value: metrics.overdue ?? 0, color: metrics.overdue > 0 ? 'var(--color-danger)' : undefined, url: '/tickets?overdue=true' },
       { label: 'Pending Leave', value: metrics.pendingLeave ?? 0, color: metrics.pendingLeave > 0 ? 'var(--color-warning)' : undefined, url: '/leave' },

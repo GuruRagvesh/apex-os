@@ -65,7 +65,7 @@ const labelFor = (type: RequestType, key: keyof typeof COMMON_LABELS) =>
 
 const PRIORITIES = ['LOW', 'MEDIUM', 'HIGH', 'URGENT'];
 const PRIORITY_COLORS: Record<string, string> = {
-  LOW: 'text-slate-500', MEDIUM: 'text-blue-600', HIGH: 'text-orange-600', URGENT: 'text-red-600',
+  LOW: 'text-slate-500', MEDIUM: 'text-blue-600', HIGH: 'text-orange-700', URGENT: 'text-red-600',
 };
 const EST_MINUTE_STEPS = [0, 5, 10, 15, 20, 30, 45];
 
@@ -645,24 +645,24 @@ export default function CreateTicketsPage() {
           <ArrowLeft size={18} style={{ color: 'var(--text-secondary)' }} />
         </button>
         <div className="flex-1">
-          <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Create Tickets</h2>
+          <h2 className="apex-page-title">Create Tickets</h2>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <button type="button" onClick={() => setShowTicketDefaults((value) => !value)} className="flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium" style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }} aria-expanded={showTicketDefaults}><Settings2 size={14} /> My ticket defaults</button>
           <button type="button" onClick={() => defaultTicketsRef.current?.openCreate()}
             className="apex-btn-primary flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg transition-colors">
-            <Plus size={13} /> Create Default Tickets
+            <Plus size={14} /> Create Default Tickets
           </button>
           <button type="button" onClick={downloadTemplate}
             className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border transition-colors"
             style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}>
-            <Download size={13} /> Download Excel Template
+            <Download size={14} /> Download Excel Template
           </button>
           <button type="button" onClick={() => fileInputRef.current?.click()} disabled={importing || !canCreate}
             title={!canCreate ? creationGate.reason ?? undefined : undefined}
             className="flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg border transition-colors disabled:opacity-50"
             style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}>
-            {importing ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />} Import from Excel
+            {importing ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />} Import from Excel
           </button>
           <input ref={fileInputRef} id="ticket-import-file" name="ticketImportFile" aria-label="Import tickets from an Excel file" type="file" accept=".xlsx,.xls" className="hidden" onChange={onFilePicked} />
         </div>
@@ -672,7 +672,7 @@ export default function CreateTicketsPage() {
 
       {!canCreate && creationGate.reason && (
         <div role="status" className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm mb-3"
-          style={{ backgroundColor: 'var(--color-warning-bg, rgba(245,158,11,0.1))', border: '1px solid rgba(245,158,11,0.35)', color: 'var(--color-warning, #b45309)' }}>
+          style={{ backgroundColor: 'var(--color-warning-bg, rgba(245,158,11,0.1))', border: '1px solid rgba(245,158,11,0.35)', color: 'var(--warning-text)' }}>
           <Clock size={14} />
           <span>{creationGate.reason}</span>
         </div>
@@ -680,7 +680,7 @@ export default function CreateTicketsPage() {
 
       {preselectedProjectName && (
         <div className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm mb-3"
-          style={{ backgroundColor: 'var(--color-info-bg)', border: '1px solid rgba(59,130,246,0.3)', color: 'var(--color-info)' }}>
+          style={{ backgroundColor: 'var(--color-info-bg)', border: '1px solid rgba(59,130,246,0.3)', color: 'var(--info-text)' }}>
           <span>New tickets will link to project: <strong>{preselectedProjectName}</strong></span>
         </div>
       )}
@@ -721,13 +721,13 @@ export default function CreateTicketsPage() {
                     className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md transition-colors" style={{ color: 'var(--text-tertiary)' }}
                     onMouseEnter={(e) => { e.currentTarget.style.backgroundColor = 'var(--bg-tertiary)'; }}
                     onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}>
-                    <Copy size={13} /> Duplicate This Ticket
+                    <Copy size={14} /> Duplicate This Ticket
                   </button>
                   <button type="button" onClick={() => removeRow(row.key)} disabled={rows.length <= 1} title="Remove"
-                    className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-red-500"
+                    className="flex items-center gap-1 text-xs px-2 py-1.5 rounded-md transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-red-600"
                     onMouseEnter={(e) => { if (rows.length > 1) e.currentTarget.style.backgroundColor = 'var(--color-danger-bg)'; }}
                     onMouseLeave={(e) => { e.currentTarget.style.backgroundColor = 'transparent'; }}>
-                    <Trash2 size={13} /> Remove
+                    <Trash2 size={14} /> Remove
                   </button>
                 </div>
               </div>
@@ -855,7 +855,7 @@ export default function CreateTicketsPage() {
                       <label htmlFor={fid('priority')} className="text-sm font-medium" style={{ color: 'var(--text-primary)' }}>Priority *</label>
                       <button type="button" onClick={() => suggestPriority(row.key)} disabled={row.aiBusy || !row.title.trim()}
                         className="flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-md border border-indigo-200 text-indigo-600 hover:bg-indigo-50 disabled:opacity-40 disabled:cursor-not-allowed">
-                        {row.aiBusy ? <><Loader2 size={11} className="animate-spin" /> …</> : <><Sparkles size={11} /> Suggest</>}
+                        {row.aiBusy ? <><Loader2 size={12} className="animate-spin" /> …</> : <><Sparkles size={12} /> Suggest</>}
                       </button>
                     </div>
                     <select id={fid('priority')} name={fid('priority')} value={row.priority} onChange={(e) => setRowField(row.key, 'priority', e.target.value)} className={cn(inputCls, 'font-medium', PRIORITY_COLORS[row.priority])}>
@@ -930,7 +930,7 @@ export default function CreateTicketsPage() {
                 <div className="border rounded-lg overflow-hidden" style={{ borderColor: 'var(--border-subtle)' }}>
                   <button type="button" onClick={() => patchRow(row.key, { showAdvanced: !row.showAdvanced })}
                     className="w-full flex items-center justify-between px-3 py-2 text-xs font-medium" style={{ color: 'var(--text-secondary)' }}>
-                    <span className="flex items-center gap-2"><Clock size={13} style={{ color: 'var(--text-tertiary)' }} /> Advanced Scheduling</span>
+                    <span className="flex items-center gap-2"><Clock size={14} style={{ color: 'var(--text-tertiary)' }} /> Advanced Scheduling</span>
                     <span style={{ color: 'var(--text-tertiary)' }}>{row.showAdvanced ? '▲' : '▼'}</span>
                   </button>
                   {row.showAdvanced && (
@@ -987,7 +987,7 @@ export default function CreateTicketsPage() {
 
                 {/* Row errors */}
                 {row.errors.length > 0 && (
-                  <div className="px-3 py-2 rounded-lg text-xs" style={{ backgroundColor: 'var(--color-danger-bg)', color: 'var(--color-danger)' }}>
+                  <div className="px-3 py-2 rounded-lg text-xs" style={{ backgroundColor: 'var(--color-danger-bg)', color: 'var(--danger-text)' }}>
                     {row.errors.map((er, i) => <p key={i}>⚠ {er}</p>)}
                   </div>
                 )}
@@ -1042,7 +1042,7 @@ function LeaveWarning({ assigneeIds }: { assigneeIds: string[] }) {
   return (
     <div className="mt-2 p-2 bg-amber-50 border border-amber-200 rounded-lg">
       {onLeave.map((m: any) => (
-        <p key={m.id} className="text-xs text-amber-700"><span className="text-amber-500">⚠</span> <strong>{m.name}</strong> is on approved leave today.</p>
+        <p key={m.id} className="text-xs text-amber-700"><span className="text-amber-700">⚠</span> <strong>{m.name}</strong> is on approved leave today.</p>
       ))}
     </div>
   );
@@ -1086,7 +1086,7 @@ function ImportPreview({ preview, submitting, onClose, onCreate }: {
                 <tr key={row.row} className="border-t align-top" style={{ borderColor: 'var(--border-subtle)' }}>
                   <td className="py-2 pr-3" style={{ color: 'var(--text-tertiary)' }}>{row.row}</td>
                   <td className="py-2 pr-3" style={{ color: 'var(--text-secondary)' }}>{row.display.type}</td>
-                  <td className="py-2 pr-3" style={{ color: 'var(--text-primary)' }}>{row.display.title || <span style={{ color: 'var(--color-danger)' }}>—</span>}</td>
+                  <td className="py-2 pr-3" style={{ color: 'var(--text-primary)' }}>{row.display.title || <span style={{ color: 'var(--danger-text)' }}>—</span>}</td>
                   <td className="py-2 pr-3" style={{ color: 'var(--text-secondary)' }}>{row.display.department || '—'}</td>
                   <td className="py-2 pr-3" style={{ color: 'var(--text-secondary)' }}>{row.display.taskType || '—'}</td>
                   <td className="py-2 pr-3" style={{ color: 'var(--text-secondary)' }}>{row.display.assignee || '—'}</td>
@@ -1094,8 +1094,8 @@ function ImportPreview({ preview, submitting, onClose, onCreate }: {
                   <td className="py-2 pr-3" style={{ color: 'var(--text-secondary)' }}>{row.display.dueDate || '—'}</td>
                   <td className="py-2 pr-3">
                     {row.valid
-                      ? <span className="text-xs font-medium text-green-600">✓ Ready</span>
-                      : <span className="text-xs font-medium" style={{ color: 'var(--color-danger)' }}>⚠ {row.error}</span>}
+                      ? <span className="text-xs font-medium text-green-700">✓ Ready</span>
+                      : <span className="text-xs font-medium" style={{ color: 'var(--danger-text)' }}>⚠ {row.error}</span>}
                   </td>
                 </tr>
               ))}

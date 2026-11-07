@@ -166,7 +166,7 @@ export function MultiSelect({
             {opt.avatar ? (
               <img src={opt.avatar} alt="" className="w-4 h-4 rounded-full object-cover" />
             ) : (
-              <span aria-hidden="true" className="w-4 h-4 rounded-full bg-indigo-500 text-white flex items-center justify-center text-[9px] font-bold flex-shrink-0">
+              <span aria-hidden="true" className="w-4 h-4 rounded-full bg-indigo-500 text-white flex items-center justify-center text-caption font-bold flex-shrink-0">
                 {getInitials(opt.label)}
               </span>
             )}
@@ -196,13 +196,13 @@ export function MultiSelect({
           onKeyDown={onTriggerKey}
           className={cn('flex flex-1 items-center gap-1.5 min-w-[6rem] text-left outline-none', disabled ? 'cursor-not-allowed' : 'cursor-pointer')}
         >
-          <span className={cn('flex-1 text-sm', selected.length === 0 ? 'text-slate-400' : 'sr-only')}>
+          <span className={cn('flex-1 text-sm', selected.length === 0 ? 'text-slate-500' : 'sr-only')}>
             {selected.length === 0 ? placeholder : `${selected.length} selected`}
           </span>
           <ChevronDown
             size={14}
             aria-hidden="true"
-            className={cn('ml-auto text-slate-400 flex-shrink-0 transition-transform', open && 'rotate-180')}
+            className={cn('ml-auto text-slate-500 flex-shrink-0 transition-transform', open && 'rotate-180')}
           />
         </button>
       </div>
@@ -212,7 +212,7 @@ export function MultiSelect({
         <div className="absolute z-50 mt-1 w-full bg-white dark:bg-gray-800 border border-slate-200 dark:border-gray-600 rounded-lg shadow-lg overflow-hidden">
           {/* Search */}
           <div className="flex items-center gap-2 px-3 py-2 border-b border-slate-100 dark:border-gray-700">
-            <Search size={13} aria-hidden="true" className="text-slate-400 flex-shrink-0" />
+            <Search size={14} aria-hidden="true" className="text-slate-500 flex-shrink-0" />
             <input
               autoFocus
               id={searchId}
@@ -242,7 +242,7 @@ export function MultiSelect({
             className="max-h-52 overflow-y-auto py-1"
           >
             {filtered.length === 0 ? (
-              <li role="presentation" className="px-3 py-2 text-xs text-slate-400 dark:text-gray-500 text-center">No results</li>
+              <li role="presentation" className="px-3 py-2 text-xs text-slate-500 dark:text-gray-500 text-center">No results</li>
             ) : (
               filtered.map((opt, i) => {
                 const isSelected = value.includes(opt.value);
@@ -266,14 +266,14 @@ export function MultiSelect({
                     {opt.avatar ? (
                       <img src={opt.avatar} alt="" className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
                     ) : (
-                      <div aria-hidden="true" className="w-7 h-7 rounded-full bg-indigo-500 text-white flex items-center justify-center text-[10px] font-bold flex-shrink-0">
+                      <div aria-hidden="true" className="w-7 h-7 rounded-full bg-indigo-500 text-white flex items-center justify-center text-caption font-bold flex-shrink-0">
                         {getInitials(opt.label)}
                       </div>
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium text-slate-800 dark:text-gray-200 truncate">{opt.label}</p>
                       {opt.sublabel && (
-                        <p className="text-[10px] text-slate-400 dark:text-gray-500 truncate">{opt.sublabel}</p>
+                        <p className="text-caption text-slate-500 dark:text-gray-500 truncate">{opt.sublabel}</p>
                       )}
                     </div>
                     {isSelected && <Check size={14} aria-hidden="true" className="text-indigo-600 flex-shrink-0" />}

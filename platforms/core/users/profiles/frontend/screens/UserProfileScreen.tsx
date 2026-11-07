@@ -608,7 +608,7 @@ export default function UserProfileScreen() {
                     <button
                       onClick={handleSaveCorrection}
                       disabled={adminCorrectionMutation.isPending || !correctionEmail.trim() || !correctionReason.trim()}
-                      className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white text-sm font-medium rounded-xl disabled:opacity-50"
+                      className="px-4 py-2 bg-amber-700 hover:bg-amber-800 text-white text-sm font-medium rounded-xl disabled:opacity-50"
                     >
                       {adminCorrectionMutation.isPending ? 'Saving…' : 'Save Correction'}
                     </button>
@@ -689,7 +689,7 @@ export default function UserProfileScreen() {
                     >
                       <div className="flex items-start justify-between gap-3">
                         <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-700 dark:bg-blue-950/60 dark:text-blue-300"><Package className="h-5 w-5" /></span>
-                        <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 font-mono text-[11px] font-bold text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-200">{allocation.asset?.assetCode ?? 'NO ID'}</span>
+                        <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 font-mono text-caption font-bold text-blue-800 dark:border-blue-800 dark:bg-blue-950/50 dark:text-blue-200">{allocation.asset?.assetCode ?? 'NO ID'}</span>
                       </div>
                       <p className="mt-4 text-base font-bold text-[var(--text-primary)]">{allocation.asset?.assetType?.name ?? 'Asset'}</p>
                       <p className="mt-1 text-sm font-medium text-[var(--text-secondary)]">{allocation.asset?.brandModel || 'Brand / model not recorded'}</p>
@@ -741,7 +741,7 @@ export default function UserProfileScreen() {
                         ['Allocation Remarks', selectedAsset.remarks],
                       ].map(([label, value]) => (
                         <div key={label} className="rounded-xl border border-[var(--border-primary)] bg-[var(--surface-sunken)] px-4 py-3">
-                          <p className="text-[11px] font-bold uppercase tracking-wide text-[var(--text-tertiary)]">{label}</p>
+                          <p className="text-caption font-bold uppercase tracking-wide text-[var(--text-tertiary)]">{label}</p>
                           <p className="mt-1 break-words text-sm font-semibold text-[var(--text-primary)]">{fmtAssetValue(value)}</p>
                         </div>
                       ))}
@@ -1022,30 +1022,30 @@ export default function UserProfileScreen() {
                       <p className="apex-profile-label text-xs font-medium text-center">{docType.label}</p>
                       {uploaded ? (
                         <>
-                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${vsColor}`}>
+                          <span className={`text-caption font-bold px-2 py-0.5 rounded-full border ${vsColor}`}>
                             {uploaded.verificationStatus === 'VERIFIED' ? '✓ Verified' :
                              uploaded.verificationStatus === 'REJECTED' ? '✗ Rejected' : 'Pending Review'}
                           </span>
                           <div className="flex gap-1 flex-wrap justify-center">
                             <a href={uploaded.fileUrl} target="_blank" rel="noreferrer"
-                              className="text-[10px] text-blue-400 hover:underline">View</a>
+                              className="text-caption text-blue-400 hover:underline">View</a>
                             {canEditAll && uploaded.verificationStatus !== 'VERIFIED' && (
                               <button onClick={() => handleVerifyDoc(uploaded.id, 'VERIFIED')}
-                                className="text-[10px] text-green-400 hover:underline">Verify</button>
+                                className="text-caption text-green-700 hover:underline">Verify</button>
                             )}
                             {canEditAll && uploaded.verificationStatus !== 'REJECTED' && (
                               <button onClick={() => handleVerifyDoc(uploaded.id, 'REJECTED', 'Document unclear')}
-                                className="text-[10px] text-red-400 hover:underline">Reject</button>
+                                className="text-caption text-red-600 hover:underline">Reject</button>
                             )}
                             {canEditAll && (
                               <button onClick={() => handleDeleteDoc(uploaded.id)}
-                                className="text-[10px] text-[var(--text-secondary)] hover:text-red-600 dark:hover:text-red-400 hover:underline ml-1">Delete</button>
+                                className="text-caption text-[var(--text-secondary)] hover:text-red-600 dark:hover:text-red-400 hover:underline ml-1">Delete</button>
                             )}
                           </div>
                         </>
                       ) : (
                         <label className="cursor-pointer text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1">
-                          <Upload size={11} />
+                          <Upload size={12} />
                           {uploading === docType.type ? 'Uploading…' : 'Upload'}
                           <input
                             type="file"

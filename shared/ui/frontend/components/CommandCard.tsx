@@ -32,18 +32,18 @@ export default function CommandCard({
     switch (severity) {
       case 'urgent':
         return {
-          badge: 'bg-red-500 text-white font-mono',
-          iconColor: 'text-red-500 group-hover:text-blue-500',
+          badge: 'bg-red-600 text-white font-mono',
+          iconColor: 'text-red-600 group-hover:text-blue-500',
         };
       case 'warning':
         return {
-          badge: 'bg-amber-500 text-white font-mono',
-          iconColor: 'text-amber-500 group-hover:text-blue-500',
+          badge: 'bg-amber-700 text-white font-mono',
+          iconColor: 'text-amber-700 group-hover:text-blue-500',
         };
       case 'success':
         return {
-          badge: 'bg-emerald-500 text-white font-mono',
-          iconColor: 'text-emerald-500 group-hover:text-blue-500',
+          badge: 'bg-emerald-700 text-white font-mono',
+          iconColor: 'text-emerald-700 group-hover:text-blue-500',
         };
       default:
         return {
@@ -76,7 +76,7 @@ export default function CommandCard({
         {/* Header row */}
         <div className="flex items-center justify-between w-full">
           <div className="flex items-center gap-3">
-            <div className={`p-2 rounded-xl transition-colors duration-200 ${isHovered ? 'bg-[#EFF6FF] dark:bg-blue-950/40 text-blue-600 dark:text-blue-400' : 'bg-slate-50 dark:bg-slate-900 text-slate-400 dark:text-slate-500'}`}>
+            <div className={`p-2 rounded-xl transition-colors duration-200 ${isHovered ? 'bg-[#EFF6FF] dark:bg-blue-950/40 text-blue-600 dark:text-blue-400' : 'bg-slate-50 dark:bg-slate-900 text-slate-500 dark:text-slate-500'}`}>
               <Icon className="w-5 h-5 transition-transform duration-200 group-hover:scale-110" />
             </div>
             <span className="font-sans font-extrabold text-[#0B1220] dark:text-slate-100 text-base leading-tight tracking-tight group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors">
@@ -97,7 +97,7 @@ export default function CommandCard({
         {/* Inline preview rows — always visible when items exist */}
         {previewItems.length > 0 && (
           <div className="mt-2.5 pt-2.5 border-t border-slate-100 dark:border-slate-800">
-            <p className="text-[9px] font-black text-slate-400 dark:text-slate-500 font-mono uppercase tracking-widest leading-none mb-2">
+            <p className="text-caption font-black text-slate-500 dark:text-slate-500 font-mono uppercase tracking-widest leading-none mb-2">
               Top Items
             </p>
             <div className="space-y-1.5">
@@ -109,11 +109,11 @@ export default function CommandCard({
                     severity === 'success' ? 'bg-emerald-500' :
                     'bg-blue-500'
                   }`} />
-                  <span className="text-[10.5px] text-slate-600 dark:text-slate-400 font-medium truncate">{item}</span>
+                  <span className="text-caption text-slate-600 dark:text-slate-400 font-medium truncate">{item}</span>
                 </div>
               ))}
               {previewItems.length > 2 && (
-                <p className="text-[9.5px] text-slate-400 dark:text-slate-500 font-semibold pl-2.5">
+                <p className="text-caption text-slate-500 dark:text-slate-500 font-semibold pl-2.5">
                   +{previewItems.length - 2} more — click to view all
                 </p>
               )}
@@ -124,7 +124,7 @@ export default function CommandCard({
 
       {/* Mini CTA row indicator */}
       <div className="mt-auto pt-3 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end w-full transition-colors">
-        <ArrowUpRight className="w-3.5 h-3.5 text-slate-300 group-hover:text-blue-600 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
+        <ArrowUpRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-blue-600 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" />
       </div>
     </button>
   );

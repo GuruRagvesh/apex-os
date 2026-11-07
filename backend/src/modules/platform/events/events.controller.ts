@@ -97,6 +97,14 @@ const EVENT_CATEGORIES: Record<string, string[]> = {
   system: ['EXPORT_PERFORMED'],
 };
 
+// The activity-log UI presents attendance and leave as one operational
+// subsection. Keep the underlying categories distinct for event badges and
+// summaries, while allowing the API filter to paginate over both together.
+EVENT_CATEGORIES.attendance_leave = [
+  ...EVENT_CATEGORIES.attendance,
+  ...EVENT_CATEGORIES.leave,
+];
+
 const CRITICAL_ACTIONS = new Set([
   'TICKET_DELETED', 'PROJECT_DELETED', 'USER_DEACTIVATED', 'ADMIN_USER_EMAIL_CORRECTED',
   'SENSITIVE_DATA_EDITED', 'ATTENDANCE_CONFIGURATION_ERROR', 'LEAD_DELETED',

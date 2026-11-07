@@ -11,7 +11,7 @@ export default function PayrollPage() {
   if (!(user as any).isHR && role !== 'ADMIN' && role !== 'SUPER_ADMIN') return <p role="alert" className="p-4">You do not have access to payroll.</p>;
   return (
     <div className="mx-auto max-w-5xl space-y-4 px-4 py-4">
-      <h1 className="text-xl font-semibold">Payroll</h1>
+      <h1 className="apex-page-title">Payroll</h1>
       <PayrollMonthClose />
     </div>
   );

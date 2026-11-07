@@ -91,7 +91,7 @@ export function RequestCorrectionForm({
 
       <div className="mt-3 space-y-3">
         <div>
-          <label className="apex-text-subtle text-[11px] uppercase tracking-wide">
+          <label className="apex-text-subtle text-caption uppercase tracking-wide">
             What needs correcting
           </label>
           <select
@@ -111,7 +111,7 @@ export function RequestCorrectionForm({
         {(showPunchIn || showPunchOut) && <div className="grid grid-cols-2 gap-3">
           {showPunchIn &&
           <div>
-            <label className="apex-text-subtle text-[11px] uppercase tracking-wide">
+            <label className="apex-text-subtle text-caption uppercase tracking-wide">
               Punch in (optional)
             </label>
             <input
@@ -124,7 +124,7 @@ export function RequestCorrectionForm({
           }
           {showPunchOut &&
           <div>
-            <label className="apex-text-subtle text-[11px] uppercase tracking-wide">
+            <label className="apex-text-subtle text-caption uppercase tracking-wide">
               Punch out (optional)
             </label>
             <input
@@ -138,7 +138,7 @@ export function RequestCorrectionForm({
         </div>}
 
         <div>
-          <label className="apex-text-subtle text-[11px] uppercase tracking-wide">
+          <label className="apex-text-subtle text-caption uppercase tracking-wide">
             Reason
           </label>
           <textarea

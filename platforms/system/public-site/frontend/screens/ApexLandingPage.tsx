@@ -158,7 +158,7 @@ export function ApexLandingPage({ showPreviewBanner = false }: { showPreviewBann
             </div>
             <div className="leading-none">
               <p className="font-bold text-sm text-white">APEX OS</p>
-              <p className="text-[9px] font-mono uppercase tracking-widest" style={{ color: '#64748b' }}>Execution OS</p>
+              <p className="text-caption font-mono uppercase tracking-widest" style={{ color: '#64748b' }}>Execution OS</p>
             </div>
           </Link>
 
@@ -208,7 +208,7 @@ export function ApexLandingPage({ showPreviewBanner = false }: { showPreviewBann
                 className="inline-flex items-center gap-2 text-sm font-semibold px-6 py-3 rounded-xl transition-transform hover:scale-[1.02]"
                 style={{ background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)', color: '#fff', boxShadow: '0 8px 24px rgba(37,99,235,0.35)' }}
               >
-                Open Apex OS <ArrowRight size={15} />
+                Open Apex OS <ArrowRight size={16} />
               </Link>
               <a
                 href="#platform"
@@ -295,7 +295,7 @@ export function ApexLandingPage({ showPreviewBanner = false }: { showPreviewBann
                       <div className="w-10 h-10 rounded-xl flex items-center justify-center" style={{ background: `${w.accent}22` }}>
                         <w.icon size={18} style={{ color: w.badgeColor }} />
                       </div>
-                      <span className="text-[9px] font-mono uppercase tracking-widest px-2 py-1 rounded-full" style={{ backgroundColor: `${w.accent}22`, color: w.badgeColor }}>
+                      <span className="text-caption font-mono uppercase tracking-widest px-2 py-1 rounded-full" style={{ backgroundColor: `${w.accent}22`, color: w.badgeColor }}>
                         {w.badge}
                       </span>
                     </div>
@@ -307,7 +307,7 @@ export function ApexLandingPage({ showPreviewBanner = false }: { showPreviewBann
                       <div key={it.label} className="flex items-center justify-between gap-2">
                         <span className="text-xs" style={{ color: '#94a3b8' }}>{it.label}</span>
                         <span
-                          className="text-[9px] font-mono uppercase tracking-widest px-1.5 py-0.5 rounded flex-shrink-0"
+                          className="text-caption font-mono uppercase tracking-widest px-1.5 py-0.5 rounded flex-shrink-0"
                           style={{
                             backgroundColor: it.live ? 'rgba(16,185,129,0.12)' : 'rgba(148,163,184,0.12)',
                             color: it.live ? '#34d399' : '#94a3b8',
@@ -440,7 +440,7 @@ export function ApexLandingPage({ showPreviewBanner = false }: { showPreviewBann
                 className="inline-flex items-center gap-2 text-sm font-semibold px-6 py-3 rounded-xl transition-transform hover:scale-[1.02]"
                 style={{ background: 'linear-gradient(135deg, #2563eb 0%, #4f46e5 100%)', color: '#fff' }}
               >
-                Open Apex OS <ArrowRight size={15} />
+                Open Apex OS <ArrowRight size={16} />
               </Link>
               <Link href="/login" className="text-sm font-semibold px-6 py-3" style={{ color: '#e2e8f0' }}>
                 Login

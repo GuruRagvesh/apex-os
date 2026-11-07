@@ -35,7 +35,7 @@ export function ClassificationBadge({ value }: { value: string }) {
   const tone = p?.tone ?? 'muted';
   return (
     <span
-      className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-medium ${TONE_BADGE[tone]}`}
+      className={`inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-caption font-medium ${TONE_BADGE[tone]}`}
       title={p?.meaning}
     >
       {p?.label ?? value}
@@ -118,7 +118,7 @@ export function ImportRowTable({ rows }: { rows: ImportRow[] }) {
     <div className="overflow-x-auto">
       <table className="w-full min-w-[46rem] text-left text-sm">
         <thead>
-          <tr className="apex-text-subtle border-b border-[var(--border)] text-[11px] uppercase tracking-wide">
+          <tr className="apex-text-subtle border-b border-[var(--border)] text-caption uppercase tracking-wide">
             <th className="py-2 pr-3 font-medium">Employee</th>
             <th className="py-2 pr-3 font-medium">Date</th>
             <th className="py-2 pr-3 font-medium">Current → Proposed</th>

@@ -87,10 +87,10 @@ export class PushNotificationService {
     return !quiet;
   }
 
-  async deliver(notification: any): Promise<boolean> {
+  async deliver(notification: any, forceDelivery = false): Promise<boolean> {
     if (!this.configured || notification.pushDeliveredAt || notification.isRead) return false;
     const now = this.tva.now();
-    if (!(await this.pushAllowed(notification.userId, now))) return false;
+    if (!forceDelivery && !(await this.pushAllowed(notification.userId, now))) return false;
     const subscriptions = await this.prisma.pushSubscription.findMany({
       where: { userId: notification.userId, disabledAt: null },
     });

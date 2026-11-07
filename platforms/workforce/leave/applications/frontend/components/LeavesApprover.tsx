@@ -59,7 +59,7 @@ export default function LeavesApprover({
           <div className="p-8 text-center bg-slate-50 dark:bg-slate-900/20 border rounded-xl border-dashed border-slate-200 dark:border-slate-800 space-y-2">
             <div className="text-2xl">🎉</div>
             <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200">Roster Fully Approved</h4>
-            <p className="text-xs text-slate-400 dark:text-slate-500 font-medium font-sans">
+            <p className="text-xs text-slate-500 dark:text-slate-500 font-medium font-sans">
               No leave requests are waiting in the queue bounds.
             </p>
           </div>
@@ -72,15 +72,15 @@ export default function LeavesApprover({
               {/* Header info */}
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs font-bold text-slate-400 dark:text-slate-500 group-hover:text-blue-500 transition-colors">
+                  <span className="font-mono text-xs font-bold text-slate-500 dark:text-slate-500 group-hover:text-blue-500 transition-colors">
                     {req.id}
                   </span>
-                  <span className="px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/40 text-indigo-700 dark:text-indigo-400 font-mono text-[9px] font-bold rounded uppercase tracking-wider">
+                  <span className="px-2 py-0.5 bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-900/40 text-indigo-700 dark:text-indigo-400 font-mono text-caption font-bold rounded uppercase tracking-wider">
                     {getType(req)}
                   </span>
                 </div>
 
-                <span className="text-[10px] font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-2 py-0.5 rounded">
+                <span className="text-caption font-bold bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 px-2 py-0.5 rounded">
                   Pending Approval
                 </span>
               </div>
@@ -88,11 +88,11 @@ export default function LeavesApprover({
               {/* Title / Name */}
               <div className="space-y-1">
                 <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
-                  <User className="w-4 h-4 text-slate-400 dark:text-slate-500 shrink-0" />
+                  <User className="w-4 h-4 text-slate-500 dark:text-slate-500 shrink-0" />
                   <span>{getEmployeeName(req)}</span>
                 </h4>
                 <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 font-semibold pl-6">
-                  <Calendar className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500" />
+                  <Calendar className="w-3.5 h-3.5 text-slate-500 dark:text-slate-500" />
                   <span>Dates: {getDates(req)}</span>
                 </div>
               </div>
@@ -116,7 +116,7 @@ export default function LeavesApprover({
                 </button>
                 <button
                   onClick={() => onApprove(req.id)}
-                  className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-sm cursor-pointer transition-colors"
+                  className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-sm cursor-pointer transition-colors"
                 >
                   <Check className="w-3.5 h-3.5" />
                   <span>Approve Leave</span>
@@ -129,7 +129,7 @@ export default function LeavesApprover({
 
       {/* Footer controls */}
       <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between">
-        <span className="text-xs text-slate-400 dark:text-slate-500 font-bold font-mono">
+        <span className="text-xs text-slate-500 dark:text-slate-500 font-bold font-mono">
           {pendingRequestList.length} Awaiting Review
         </span>
         {onViewAllLeaves && (

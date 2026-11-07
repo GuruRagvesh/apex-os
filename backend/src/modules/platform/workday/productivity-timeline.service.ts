@@ -5,6 +5,32 @@ import { BusinessCalendarService } from '../attendance/calendar/business-calenda
 
 type Interval = { start: Date; end: Date };
 
+export const PRODUCTIVITY_TIMELINE_DAY_WINDOW = Object.freeze({
+  startMinute: 0,
+  endMinute: 24 * 60,
+  startLabel: '12:00 AM',
+  endLabel: '12:00 AM',
+});
+
+const DEFAULT_TIMELINE_VIEWPORT_START_MINUTE = 9 * 60;
+const TIMELINE_VIEWPORT_ROUNDING_MINUTES = 30;
+
+/**
+ * Keeps storage and calculations on a complete 24-hour day while suggesting a
+ * useful initial viewport for the UI. The suggestion is the person's average
+ * first recorded activity, rounded down so the first item is never clipped.
+ */
+export function suggestedTimelineViewportStart(firstActivityMinutes: number[]): number {
+  const validMinutes = firstActivityMinutes.filter((minute) =>
+    Number.isFinite(minute) && minute >= PRODUCTIVITY_TIMELINE_DAY_WINDOW.startMinute && minute < PRODUCTIVITY_TIMELINE_DAY_WINDOW.endMinute);
+  if (!validMinutes.length) return DEFAULT_TIMELINE_VIEWPORT_START_MINUTE;
+  const average = validMinutes.reduce((sum, minute) => sum + minute, 0) / validMinutes.length;
+  return Math.max(
+    PRODUCTIVITY_TIMELINE_DAY_WINDOW.startMinute,
+    Math.floor(average / TIMELINE_VIEWPORT_ROUNDING_MINUTES) * TIMELINE_VIEWPORT_ROUNDING_MINUTES,
+  );
+}
+
 export type TimelineSegmentType =
   | 'TICKET'
   | 'REWORK'
@@ -509,6 +535,13 @@ export class ProductivityTimelineService {
     });
 
     const sum = (key: keyof (typeof dayRows)[number]['kpis']) => dayRows.reduce((total, day) => total + day.kpis[key], 0);
+    const firstActivityMinutes = dayRows.flatMap((day) => {
+      const recorded = day.segments.filter((segment) =>
+        segment.endMinute > segment.startMinute
+        && segment.type !== 'OVERDUE_EXECUTION'
+        && segment.type !== 'OVERDUE_REVIEW');
+      return recorded.length ? [Math.min(...recorded.map((segment) => segment.startMinute))] : [];
+    });
     const ticketTotals = new Map<string, { ticketDbId: string; ticketId: string; title: string; seconds: number; benchmarkMinutes: number | null }>();
     for (const segment of raw.filter((item) => item.ticketStage && item.ticketDbId)) {
       const current = ticketTotals.get(segment.ticketDbId!) ?? {
@@ -536,6 +569,11 @@ export class ProductivityTimelineService {
       },
       month,
       timezone: this.tva.companyTimezone(),
+      timelineWindow: {
+        ...PRODUCTIVITY_TIMELINE_DAY_WINDOW,
+        durationMinutes: PRODUCTIVITY_TIMELINE_DAY_WINDOW.endMinute - PRODUCTIVITY_TIMELINE_DAY_WINDOW.startMinute,
+        suggestedViewportStartMinute: suggestedTimelineViewportStart(firstActivityMinutes),
+      },
       rangePages: [{ from: 1, to: Math.min(10, bounds.days) }, { from: 11, to: Math.min(20, bounds.days) }, { from: 21, to: bounds.days }],
       days: dayRows,
       ledger: {

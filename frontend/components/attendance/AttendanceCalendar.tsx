@@ -152,12 +152,12 @@ export function AttendanceCalendar() {
                   >
                     <span className="apex-text text-xs font-semibold">{dayNumber}</span>
                     {day?.status && (
-                      <span className="apex-text-muted mt-1 line-clamp-2 text-[10px] leading-tight">
+                      <span className="apex-text-muted mt-1 line-clamp-2 text-caption leading-tight">
                         {look.label}
                       </span>
                     )}
                     {day?.requiresReview && (
-                      <span className="mt-auto text-[10px] font-medium text-orange-600 dark:text-orange-400">
+                      <span className="mt-auto text-caption font-medium text-orange-700 dark:text-orange-400">
                         ● review
                       </span>
                     )}

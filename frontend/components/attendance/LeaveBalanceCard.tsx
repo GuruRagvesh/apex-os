@@ -44,7 +44,7 @@ function Row({
           {available === null ? '—' : available}
         </span>
         {(used !== undefined || pending !== undefined) && (
-          <span className="apex-text-subtle text-[11px] tabular-nums">
+          <span className="apex-text-subtle text-caption tabular-nums">
             {used !== undefined ? `${used} used` : ''}
             {used !== undefined && pending ? ' · ' : ''}
             {pending ? `${pending} pending` : ''}
@@ -102,7 +102,7 @@ export function LeaveBalanceCard({ compact = false }: { compact?: boolean }) {
       </dl>
 
       {nextExpiry && (
-        <p className="mt-2 text-[11px] text-amber-700 dark:text-amber-400">
+        <p className="mt-2 text-caption text-amber-700 dark:text-amber-400">
           {expiring.length === 1 ? '1 comp off expires' : `${expiring.length} comp off expire`} by{' '}
           {new Date(nextExpiry.expiresAt).toLocaleDateString([], {
             day: 'numeric',

@@ -91,7 +91,7 @@ const OUTCOME_PRESENTATION: Record<AttendanceOutcome, StatusPresentation> = {
     tint: '#F2F7FF',
     glyph: '◉',
   },
-  UNRESOLVED: { label: 'Needs review', shortLabel: 'Review', color: '#6F7F94', tint: '#F5F7FA', glyph: '⚠' },
+  UNRESOLVED: { label: 'Needs review', shortLabel: 'Review', color: '#5E6E84', tint: '#F5F7FA', glyph: '⚠' },
 };
 
 /** A day with no evaluation. Neutral, and never mistakable for a verdict. */
@@ -103,8 +103,24 @@ export const NO_RESULT_PRESENTATION: StatusPresentation = {
   glyph: '',
 };
 
+/**
+ * Theme the table colours at the point of use. In light the values come out
+ * exactly as written above; in John Wick Dark (--status-tint-keep: 0%,
+ * --status-ink-keep: 68% in globals.css) tints become a quiet tone of the status
+ * colour on the dark card and the status colour lightens enough to read.
+ */
+function themed<T extends { color: string; tint: string }>(p: T): T {
+  return {
+    ...p,
+    color: `color-mix(in srgb, ${p.color} var(--status-ink-keep, 100%), #ffffff)`,
+    tint: p.tint === 'transparent'
+      ? p.tint
+      : `color-mix(in srgb, ${p.tint} var(--status-tint-keep, 100%), color-mix(in srgb, ${p.color} 16%, #151518))`,
+  };
+}
+
 export function presentOutcome(outcome: AttendanceOutcome | null): StatusPresentation {
-  return outcome ? OUTCOME_PRESENTATION[outcome] : NO_RESULT_PRESENTATION;
+  return themed(outcome ? OUTCOME_PRESENTATION[outcome] : NO_RESULT_PRESENTATION);
 }
 
 /**
@@ -156,7 +172,8 @@ const MODIFIER_TONE: Partial<Record<AttendanceModifier, { color: string; tint: s
 };
 
 export function modifierTone(m: AttendanceModifier): { color: string; tint: string } | null {
-  return MODIFIER_TONE[m] ?? null;
+  const tone = MODIFIER_TONE[m];
+  return tone ? themed(tone) : null;
 }
 
 /**
@@ -283,7 +300,7 @@ export function presentDay(day: MyAttendanceDayV2): StatusPresentation {
   // the canonical outcome in the payload and day detail, but use the
   // fluorescent-green timeline treatment required by the audit.
   if (day.modifiers.includes('REGULARIZED')) {
-    return { label: 'Regularized', shortLabel: 'Regularized', color: '#218B52', tint: '#F0FAF4', glyph: '✓' };
+    return themed({ label: 'Regularized', shortLabel: 'Regularized', color: '#218B52', tint: '#F0FAF4', glyph: '✓' });
   }
   const base = presentOutcome(day.outcome);
   if (day.outcome !== 'PRESENT') return base;
@@ -293,5 +310,5 @@ export function presentDay(day: MyAttendanceDayV2): StatusPresentation {
   // Orange has two meanings in the audit. Name both when both are true rather
   // than making an employee infer the second reason from the same colour.
   const label = late && shortHours ? `${late} · short hours` : late ?? (shortHours ? 'Short hours' : null);
-  return label ? { ...base, label, shortLabel: label, color: '#C45C0A', tint: '#FFF7EE', glyph: '◷' } : base;
+  return label ? themed({ ...base, label, shortLabel: label, color: '#C45C0A', tint: '#FFF7EE', glyph: '◷' }) : base;
 }

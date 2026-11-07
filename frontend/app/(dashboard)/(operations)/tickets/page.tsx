@@ -93,7 +93,7 @@ function DateFilterPopover({
         aria-expanded={open}
         title={active ? `Created ${dateFrom} to ${dateTo}` : 'Filter by created date'}
       >
-        <CalendarDays size={17} aria-hidden="true" />
+        <CalendarDays size={16} aria-hidden="true" />
       </button>
 
       {open && (
@@ -303,8 +303,8 @@ export default function TicketsPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 flex-wrap">
-            <h2 className="apex-page-title text-xl" style={{ color: 'var(--text-primary)' }}>Tickets</h2>
-            <span className="text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full dark:bg-slate-800 dark:text-slate-400">
+            <h2 className="apex-page-title">Tickets</h2>
+            <span className="text-caption font-bold uppercase tracking-wider bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full dark:bg-slate-800 dark:text-slate-400">
               {scopeText}
             </span>
           </div>
@@ -332,7 +332,7 @@ export default function TicketsPage() {
             className="apex-btn apex-btn-secondary"
             title="Export CSV"
           >
-            <Download size={15} />
+            <Download size={16} />
             Export
           </button>
           <CreateTicketLink className="apex-btn-new-ticket">
@@ -374,7 +374,7 @@ export default function TicketsPage() {
       >
         <div className="flex items-center gap-3 flex-wrap">
           <div className="relative flex-1 min-w-48">
-            <Search size={15} className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
+            <Search size={16} className="pointer-events-none absolute left-3 top-1/2 z-10 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
             <input
               type="text"
               placeholder="Search tickets..."
@@ -493,7 +493,7 @@ export default function TicketsPage() {
                 router.replace(pathname, { scroll: false });
               }}
               className="text-xs font-medium"
-              style={{ color: 'var(--color-danger)' }}
+              style={{ color: 'var(--danger-text)' }}
             >
               Clear filters
             </button>
@@ -538,7 +538,7 @@ export default function TicketsPage() {
             </div>
             <p className="apex-empty-title">No tickets found</p>
             <p className="apex-empty-desc">Try adjusting your filters or create a new ticket.</p>
-            <CreateTicketLink className="mt-3 text-sm font-medium" style={{ color: 'var(--accent)' }}>
+            <CreateTicketLink className="mt-3 text-sm font-medium" style={{ color: 'var(--accent-text)' }}>
               Create one →
             </CreateTicketLink>
           </div>

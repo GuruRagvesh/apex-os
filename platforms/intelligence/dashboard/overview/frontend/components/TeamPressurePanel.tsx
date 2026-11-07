@@ -101,12 +101,12 @@ export function TeamPressurePanel() {
         style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--bg-secondary)' }}
       >
         <div className="flex items-center gap-2.5">
-          <Users size={15} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+          <Users size={16} style={{ color: 'var(--accent-text)', flexShrink: 0 }} />
           <div>
             <h3 className="text-sm font-bold leading-none" style={{ color: 'var(--text-primary)' }}>
               Team Pressure
             </h3>
-            <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+            <p className="text-caption mt-0.5" style={{ color: 'var(--text-secondary)' }}>
               Workload and workday status for your scope
             </p>
           </div>
@@ -130,7 +130,7 @@ export function TeamPressurePanel() {
           style={{ borderRight: '1px solid var(--border-subtle)' }}
         >
           <p
-            className="text-[10px] font-black uppercase tracking-widest mb-3 leading-none"
+            className="text-caption font-black uppercase tracking-widest mb-3 leading-none"
             style={{ color: 'var(--text-tertiary)' }}
           >
             Workload by Member
@@ -163,7 +163,7 @@ export function TeamPressurePanel() {
                     <p className="text-xs font-semibold truncate leading-none" style={{ color: 'var(--text-primary)' }}>
                       {m.name}
                     </p>
-                    <p className="text-[10px] mt-0.5 leading-none" style={{ color: 'var(--text-tertiary)' }}>
+                    <p className="text-caption mt-0.5 leading-none" style={{ color: 'var(--text-tertiary)' }}>
                       {m.department ? `${m.role} · ${m.department}` : m.role}
                     </p>
                   </div>
@@ -177,12 +177,12 @@ export function TeamPressurePanel() {
                   {/* Ticket counts */}
                   <div className="flex items-center gap-1 flex-shrink-0">
                     {m.urgent > 0 && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400">
+                      <span className="text-caption font-bold px-1.5 py-0.5 rounded bg-red-100 dark:bg-red-900/30 text-red-600 dark:text-red-400">
                         {m.urgent}U
                       </span>
                     )}
                     {m.high > 0 && (
-                      <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-orange-100 dark:bg-orange-900/30 text-orange-600 dark:text-orange-400">
+                      <span className="text-caption font-bold px-1.5 py-0.5 rounded bg-orange-100 dark:bg-orange-900/30 text-orange-700 dark:text-orange-400">
                         {m.high}H
                       </span>
                     )}
@@ -202,9 +202,9 @@ export function TeamPressurePanel() {
 
                   {/* Arrow affordance */}
                   <ArrowUpRight
-                    size={11}
+                    size={12}
                     className="flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-                    style={{ color: 'var(--accent)' }}
+                    style={{ color: 'var(--accent-text)' }}
                   />
                 </div>
               ))}
@@ -225,7 +225,7 @@ export function TeamPressurePanel() {
         {/* ── Workday status breakdown (1 col) ────────────────────────────────── */}
         <div className="p-4">
           <p
-            className="text-[10px] font-black uppercase tracking-widest mb-3 leading-none"
+            className="text-caption font-black uppercase tracking-widest mb-3 leading-none"
             style={{ color: 'var(--text-tertiary)' }}
           >
             Workday Status
@@ -275,7 +275,7 @@ export function TeamPressurePanel() {
                   className="mt-2 pt-2 border-t"
                   style={{ borderColor: 'var(--border-subtle)' }}
                 >
-                  <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
+                  <p className="text-caption" style={{ color: 'var(--text-tertiary)' }}>
                     {notStarted} member{notStarted > 1 ? 's' : ''}{' '}
                     {notStarted > 1 ? 'have' : 'has'} not started their workday
                   </p>
@@ -291,21 +291,21 @@ export function TeamPressurePanel() {
         className="px-5 py-2.5 border-t flex items-center gap-4 flex-wrap"
         style={{ borderColor: 'var(--border-subtle)', backgroundColor: 'var(--bg-secondary)' }}
       >
-        <p className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
+        <p className="text-caption" style={{ color: 'var(--text-tertiary)' }}>
           Ticket count = open + in-progress assigned to each member
         </p>
         <div className="flex items-center gap-3 ml-auto flex-wrap">
-          <span className="flex items-center gap-1 text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
-            <span className="w-2 h-2 rounded inline-block bg-red-100 text-red-600 font-bold text-[9px] flex items-center justify-center">U</span>
+          <span className="flex items-center gap-1 text-caption" style={{ color: 'var(--text-tertiary)' }}>
+            <span className="w-2 h-2 rounded inline-block bg-red-100 text-red-600 font-bold text-caption flex items-center justify-center">U</span>
             = Urgent
           </span>
-          <span className="flex items-center gap-1 text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
-            <span className="w-2 h-2 rounded inline-block bg-orange-100 text-orange-600 font-bold text-[9px] flex items-center justify-center">H</span>
+          <span className="flex items-center gap-1 text-caption" style={{ color: 'var(--text-tertiary)' }}>
+            <span className="w-2 h-2 rounded inline-block bg-orange-100 text-orange-700 font-bold text-caption flex items-center justify-center">H</span>
             = High
           </span>
           <button
             onClick={() => router.push('/analytics')}
-            className="text-[10px] font-semibold transition-colors hover:opacity-70"
+            className="text-caption font-semibold transition-colors hover:opacity-70"
             style={{ color: 'var(--accent-text)' }}
           >
             Full analytics →

@@ -10,7 +10,7 @@ const roleColors: Record<string, string> = {
   MANAGER: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
   TEAM_LEAD: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
   EMPLOYEE: 'bg-green-500/20 text-green-300 border-green-500/30',
-  INTERN: 'bg-slate-500/20 text-slate-300 border-slate-500/30',
+  INTERN: 'bg-slate-500/20 text-slate-500 border-slate-500/30',
 };
 
 export default function WelcomePage() {
@@ -71,7 +71,7 @@ export default function WelcomePage() {
 
       {/* Live clock */}
       <div className="absolute top-6 right-6 text-right z-10">
-        <div className="text-slate-400 text-sm font-mono">{timeStr}</div>
+        <div className="text-slate-500 text-sm font-mono">{timeStr}</div>
       </div>
 
       {/* Main content */}
@@ -81,7 +81,7 @@ export default function WelcomePage() {
           <h1 className="text-4xl md:text-5xl font-bold text-white mb-3">
             {greeting}, {firstName}! 👋
           </h1>
-          <p className="text-slate-400 text-lg">
+          <p className="text-slate-500 text-lg">
             Welcome to Apex OS — TechnoEdge&apos;s AI-powered command centre
           </p>
         </div>
@@ -105,7 +105,7 @@ export default function WelcomePage() {
             >
               <div className="text-3xl mb-3">{card.icon}</div>
               <h3 className="text-white font-semibold mb-1">{card.title}</h3>
-              <p className="text-slate-400 text-sm">{card.desc}</p>
+              <p className="text-slate-500 text-sm">{card.desc}</p>
             </div>
           ))}
         </div>
@@ -113,7 +113,7 @@ export default function WelcomePage() {
         {/* Quick guide */}
         <div className="text-center mb-10">
           <p className="text-slate-500 text-sm mb-2">Getting started</p>
-          <div className="flex flex-col md:flex-row gap-2 md:gap-6 text-slate-400 text-sm">
+          <div className="flex flex-col md:flex-row gap-2 md:gap-6 text-slate-500 text-sm">
             <span>1️⃣ Raise a ticket for any task</span>
             <span className="hidden md:block text-slate-600">·</span>
             <span>2️⃣ Update status as you work</span>

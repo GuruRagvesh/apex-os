@@ -45,7 +45,7 @@ export default function SelectModePage() {
           <h1 className="text-3xl font-bold text-white">
             Welcome, {user?.name?.split(' ')[0]} 👋
           </h1>
-          <p className="text-slate-400 mt-2 text-sm">Choose how you'd like to work today</p>
+          <p className="text-slate-500 mt-2 text-sm">Choose how you'd like to work today</p>
         </div>
 
         {/* Mode Cards */}

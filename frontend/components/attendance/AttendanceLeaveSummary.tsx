@@ -40,7 +40,7 @@ export function AttendanceLeaveSummary() {
         )}
       </div>
       <LeaveBalanceCard compact />
-      <p className="apex-text-subtle mt-3 text-[11px]">
+      <p className="apex-text-subtle mt-3 text-caption">
         Leave balance is your personal entitlement. Company holidays are separate and appear in
         My Attendance.
       </p>

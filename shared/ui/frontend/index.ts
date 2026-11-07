@@ -5,6 +5,7 @@
 // component. That is the bar for living in this module.
 
 export { Breadcrumb } from './components/breadcrumb';
+export { PageHeader } from './components/page-header';
 export { EmptyState } from './components/empty-state';
 export { UserAvatar } from './components/user-avatar';
 export { StagingBanner } from './components/staging-banner';

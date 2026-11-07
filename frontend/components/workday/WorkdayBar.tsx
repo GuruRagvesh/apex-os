@@ -231,7 +231,7 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
   // PE-4: rendered by whichever branch owns the button that opened it. Null
   // whenever Attendance V2 punching is off, so the legacy layout is identical.
   const attendanceBadge = attendanceLine ? (
-    <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
+    <span className="ml-2 text-caption px-1.5 py-0.5 rounded-md bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400">
       Today: {attendanceLine}
     </span>
   ) : null;
@@ -264,10 +264,10 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
           <strong>{workdayLabel}</strong>
         </div>
       </div>
-      <span className="apex-hero-workday-metric"><Timer size={15} aria-hidden="true" />{formatMinutes(elapsed)}</span>
-      <span className="apex-hero-workday-metric"><Coffee size={15} aria-hidden="true" />Break {formatMinutes(liveTotalBreakMinutes)}</span>
-      <span className="apex-hero-workday-metric"><UsersRound size={15} aria-hidden="true" />Meeting {(todayData as any)?.meetingCount ?? 0} · {formatMinutes(liveMeetingMinutes)}</span>
-      <span className="apex-hero-workday-punch"><LogIn size={15} aria-hidden="true" />{punchInLabel}</span>
+      <span className="apex-hero-workday-metric"><Timer size={16} aria-hidden="true" />{formatMinutes(elapsed)}</span>
+      <span className="apex-hero-workday-metric"><Coffee size={16} aria-hidden="true" />Break {formatMinutes(liveTotalBreakMinutes)}</span>
+      <span className="apex-hero-workday-metric"><UsersRound size={16} aria-hidden="true" />Meeting {(todayData as any)?.meetingCount ?? 0} · {formatMinutes(liveMeetingMinutes)}</span>
+      <span className="apex-hero-workday-punch"><LogIn size={16} aria-hidden="true" />{punchInLabel}</span>
     </div>
   ) : null;
 
@@ -279,18 +279,18 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
     return (
       <>
         <div className="flex items-start gap-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-300 dark:border-amber-700 rounded-xl px-4 py-3 mb-4">
-          <AlertTriangle size={16} className="text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" />
+          <AlertTriangle size={16} className="text-amber-700 dark:text-amber-400 flex-shrink-0 mt-0.5" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">
               Workday from {sessionDay} was never closed
             </p>
-            <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+            <p className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">
               Your previous session is still open. End it now to keep your records accurate.
             </p>
           </div>
           <button
             onClick={() => setShowEndModal(true)}
-            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-semibold rounded-lg flex-shrink-0 transition-colors"
+            className="px-3 py-1.5 bg-amber-700 hover:bg-amber-800 text-white text-xs font-semibold rounded-lg flex-shrink-0 transition-colors"
           >
             End Session
           </button>
@@ -361,7 +361,7 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
             </span>
             {attendanceBadge}
             {session?.totalWorkMinutes != null && !isImpossible && session.totalWorkMinutes > 0 && (
-              <span className="text-xs text-gray-400 dark:text-gray-500">
+              <span className="text-xs text-slate-500 dark:text-gray-500">
                 · {formatMinutes(session.totalWorkMinutes)} worked · {breakLogs.length} breaks
               </span>
             )}
@@ -398,7 +398,7 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
               <span className={dotCls} />
               <div>
                 <p className="text-sm font-medium text-gray-700 dark:text-gray-300">Not started</p>
-                <p className="text-xs text-gray-400 dark:text-gray-500">Click to begin your workday</p>
+                <p className="text-xs text-slate-500 dark:text-gray-500">Click to begin your workday</p>
               </div>
             </div>
           )}
@@ -424,7 +424,7 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
               <span className={dotCls} />
               <div>
                 <p className="text-sm font-medium text-yellow-700 dark:text-yellow-300">Ready to start</p>
-                <p className="text-xs text-yellow-600 dark:text-yellow-500">You're logged in — no work time is being tracked yet</p>
+                <p className="text-xs text-yellow-700 dark:text-yellow-500">You're logged in — no work time is being tracked yet</p>
               </div>
             </div>
           )}
@@ -457,7 +457,7 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
                 <p className={`text-sm font-medium ${isMeeting ? 'text-blue-800' : 'text-orange-700 dark:text-orange-300'}`}>
                   {isMeeting ? 'In Meeting' : `On Break${breakTypeLabel ? ` · ${breakTypeLabel}` : ''}`}
                 </p>
-                <p className={`text-xs ${isMeeting ? 'text-blue-600' : 'text-orange-500 dark:text-orange-400'}`}>
+                <p className={`text-xs ${isMeeting ? 'text-blue-600' : 'text-orange-700 dark:text-orange-400'}`}>
                   {breakElapsed > 0 ? `${breakElapsed} min so far` : 'Just started'}
                   {plannedMins && ` · ${plannedMins} min planned`}
                   {elapsed > 0 && ` · ${formatMinutes(elapsed)} worked today`}
@@ -468,7 +468,7 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
           <button
             onClick={handleEndBreak}
             disabled={loading === 'endBreak'}
-            className={hero ? 'apex-hero-workday-action' : 'px-4 py-2 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-lg disabled:opacity-50'}
+            className={hero ? 'apex-hero-workday-action' : 'px-4 py-2 bg-green-700 hover:bg-green-800 text-white text-sm font-medium rounded-lg disabled:opacity-50'}
           >
             {loading === 'endBreak' ? 'Ending...' : 'Resume Work'}
           </button>
@@ -499,7 +499,7 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
           </div>
           <div className="flex items-center gap-2">
             <button onClick={handleStartMeeting} disabled={!!loading} className="px-3 py-1.5 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50">Meeting</button>
-            <button onClick={() => setShowBreakModal(true)} disabled={!!loading} className="px-3 py-1.5 bg-orange-500 text-white text-sm rounded-lg hover:bg-orange-600 disabled:opacity-50">Take Break</button>
+            <button onClick={() => setShowBreakModal(true)} disabled={!!loading} className="px-3 py-1.5 bg-orange-700 text-white text-sm rounded-lg hover:bg-orange-800 disabled:opacity-50">Take Break</button>
             <button onClick={openEndDay} disabled={!!loading} className="px-3 py-1.5 bg-gray-500 text-white text-sm rounded-lg hover:bg-gray-600 disabled:opacity-50">End Day</button>
           </div>
         </div>
@@ -541,7 +541,7 @@ export function WorkdayBar({ hero = false }: { hero?: boolean }) {
           {!hero && <button
             onClick={() => setShowBreakModal(true)}
             disabled={!!loading}
-            className="px-3 py-1.5 text-sm font-medium border border-orange-300 dark:border-orange-700 text-orange-600 dark:text-orange-400 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors disabled:opacity-50"
+            className="px-3 py-1.5 text-sm font-medium border border-orange-300 dark:border-orange-700 text-orange-700 dark:text-orange-400 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-900/20 transition-colors disabled:opacity-50"
           >
             Break
           </button>}

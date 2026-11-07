@@ -14,7 +14,7 @@ const BAR: CSSProperties = {
 };
 const BUTTON: CSSProperties = {
   fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 8,
-  border: '1px solid #c084fc', backgroundColor: '#ffffff', color: '#6b21a8', cursor: 'pointer',
+  border: '1px solid #c084fc', backgroundColor: 'var(--surface-card)', color: 'var(--review-text)', cursor: 'pointer',
 };
 
 /** The caller's running clock, from the ledger. Shared with the ticket page. */

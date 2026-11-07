@@ -183,8 +183,8 @@ export default function HomePage({ personalPanel }: { personalPanel?: ReactNode 
         <div className="mb-4 px-4 py-3 rounded-xl text-sm flex items-center gap-3"
           style={{ backgroundColor: 'color-mix(in srgb, var(--color-warning) 8%, transparent)', border: '1px solid color-mix(in srgb, var(--color-warning) 25%, transparent)' }}
         >
-          <AlertTriangle size={15} style={{ color: 'var(--color-warning)', flexShrink: 0 }} />
-          <span style={{ color: 'var(--color-warning)', fontWeight: 600 }}>Dashboard data could not be loaded.</span>
+          <AlertTriangle size={16} style={{ color: 'var(--warning-text)', flexShrink: 0 }} />
+          <span style={{ color: 'var(--warning-text)', fontWeight: 600 }}>Dashboard data could not be loaded.</span>
           <span style={{ color: 'var(--text-secondary)', fontSize: 12 }}>Refresh to retry.</span>
         </div>
       )}

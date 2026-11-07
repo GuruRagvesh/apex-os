@@ -107,7 +107,7 @@ export function PayrollMonthClose() {
             </p>
           </div>
           <div>
-            <label className="apex-text-subtle mb-1 block text-[11px] uppercase tracking-wide">
+            <label className="apex-text-subtle mb-1 block text-caption uppercase tracking-wide">
               Month
             </label>
             <input
@@ -234,7 +234,7 @@ export function PayrollMonthClose() {
           </dl>
           {close.data.reportDataFingerprint && (
             <p
-              className="apex-text-subtle mt-3 break-all text-[11px]"
+              className="apex-text-subtle mt-3 break-all text-caption"
               title="Identifies the Attendance data this month was finalized from. It is not a checksum of the Excel file — the same attendance re-rendered produces different file bytes."
             >
               Attendance data fingerprint:{' '}
@@ -389,10 +389,10 @@ function Fact({
 }) {
   return (
     <div>
-      <dt className="apex-text-subtle text-[11px] uppercase tracking-wide">{label}</dt>
+      <dt className="apex-text-subtle text-caption uppercase tracking-wide">{label}</dt>
       <dd
         className={`mt-0.5 text-sm font-medium ${
-          tone === 'warn' ? 'text-amber-600 dark:text-amber-400' : 'apex-text'
+          tone === 'warn' ? 'text-amber-700 dark:text-amber-400' : 'apex-text'
         }`}
       >
         {value}

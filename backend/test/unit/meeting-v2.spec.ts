@@ -6,7 +6,8 @@ import { MeetingV2Service } from '../../src/modules/platform/workday/meeting-v2.
  * approves. Prisma, the hierarchy, notifications and the workday are doubles.
  */
 const user = (id: string, role: string, departmentId: string | null = 'd1') => ({
-  id, name: id.toUpperCase(), role: { name: role }, departmentId, department: departmentId ? { id: departmentId, name: departmentId } : null, managedDepts: [], isActive: true,
+  id, name: id.toUpperCase(), role: { name: role }, departmentId, department: departmentId ? { id: departmentId, name: departmentId } : null,
+  managedDepts: [], teamsLed: [], teamMemberships: [], departmentMemberships: [], roleAssignments: [], isActive: true,
 });
 
 function build(people: any[], chain: any[] = [{ id: 'tl', name: 'TL', tier: 'TEAM_LEAD' }, { id: 'mgr', name: 'MGR', tier: 'MANAGER' }, { id: 'adm', name: 'ADM', tier: 'ADMIN' }]) {
@@ -21,7 +22,15 @@ function build(people: any[], chain: any[] = [{ id: 'tl', name: 'TL', tier: 'TEA
         ? where.id.in.map((id: string) => byId.get(id)).filter(Boolean)
         : where?.role?.name?.in
           ? allPeople.filter((person) => where.role.name.in.includes(person.role.name))
-          : []),
+          : where?.id?.not
+            ? allPeople.filter((person) => person.id !== where.id.not)
+            : allPeople),
+    },
+    department: {
+      findMany: jest.fn(async () => [...new Map(allPeople
+        .flatMap((person) => [person.department, ...(person.teamsLed ?? []).map((team: any) => team.department)])
+        .filter(Boolean)
+        .map((department: any) => [department.id, department])).values()]),
     },
     leaveRequest: { findMany: jest.fn(async () => []) },
     breakLog: { findMany: jest.fn(async () => []), update: jest.fn(async () => ({})) },
@@ -47,6 +56,78 @@ function build(people: any[], chain: any[] = [{ id: 'tl', name: 'TL', tier: 'TEA
 }
 
 describe('MeetingV2Service.start', () => {
+  it('lists a Team Leader assigned through a team in the employee meeting picker', async () => {
+    const lead = {
+      ...user('lead', 'TEAM_LEAD', null),
+      teamsLed: [{ departmentId: 'd1', department: { id: 'd1', name: 'Accounts' } }],
+    };
+    const { service } = build([user('me', 'EMPLOYEE', 'd1'), lead]);
+    const options = await service.options('me');
+    const listedLead = options.people.find((person: any) => person.id === 'lead');
+    expect(listedLead).toMatchObject({ role: 'TEAM_LEAD', departmentId: 'd1', departmentIds: ['d1'] });
+  });
+
+  it('accepts a Team Leader assigned through a team in an Internal meeting', async () => {
+    const lead = {
+      ...user('lead', 'TEAM_LEAD', null),
+      teamsLed: [{ departmentId: 'd1', department: { id: 'd1', name: 'Accounts' } }],
+    };
+    const { service, created } = build([user('me', 'EMPLOYEE', 'd1'), lead]);
+    await service.start('me', { agenda: 'Team coaching', type: 'INTERNAL', format: 'ONE_ON_ONE', participantIds: ['lead'] });
+    expect(created[0].participants.create.map((person: any) => person.userId)).toContain('lead');
+  });
+
+  it('uses managed-department access for a Manager Internal meeting', async () => {
+    const manager = { ...user('me', 'MANAGER', null), managedDepts: [{ departmentId: 'd1' }] };
+    const { service, created } = build([manager, user('p1', 'EMPLOYEE', 'd1')]);
+    await service.start('me', { agenda: 'Department review', type: 'INTERNAL', format: 'GROUP', participantIds: ['p1'] });
+    expect(created[0].meetingType).toBe('INTERNAL');
+  });
+
+  it('allows an Admin to hold an Internal meeting across company departments', async () => {
+    const { service, created } = build([user('me', 'ADMIN', null), user('p1', 'EMPLOYEE', 'd2')]);
+    await service.start('me', { agenda: 'Company coaching', type: 'INTERNAL', format: 'ONE_ON_ONE', participantIds: ['p1'] });
+    expect(created[0]).toMatchObject({ meetingType: 'INTERNAL', meetingFormat: 'ONE_ON_ONE' });
+  });
+
+  it.each(['EMPLOYEE', 'INTERN', 'TEAM_LEAD', 'MANAGER', 'ADMIN'])(
+    'supports Internal group and one-on-one meetings for a %s',
+    async (role) => {
+      for (const format of ['GROUP', 'ONE_ON_ONE']) {
+        const { service, created } = build([user('me', role), user('p1', 'TEAM_LEAD')]);
+        await service.start('me', { agenda: `${role} internal`, type: 'INTERNAL', format, participantIds: ['p1'] });
+        expect(created[0]).toMatchObject({ meetingType: 'INTERNAL', meetingFormat: format });
+        expect(created[0].isDepartmental).toBe(role === 'EMPLOYEE' || role === 'INTERN');
+      }
+    },
+  );
+
+  it.each(['EMPLOYEE', 'INTERN', 'TEAM_LEAD', 'MANAGER', 'ADMIN'])(
+    'supports External group and one-on-one meetings for a %s',
+    async (role) => {
+      for (const format of ['GROUP', 'ONE_ON_ONE']) {
+        const { service, created } = build([user('me', role, 'd1'), user('p2', 'EMPLOYEE', 'd2')]);
+        await service.start('me', { agenda: `${role} external`, type: 'EXTERNAL', format, participantIds: ['p2'] });
+        expect(created[0]).toMatchObject({ meetingType: 'EXTERNAL', meetingFormat: format });
+      }
+    },
+  );
+
+  it.each(['EMPLOYEE', 'INTERN', 'TEAM_LEAD', 'MANAGER', 'ADMIN'])(
+    'supports Custom group meetings for a %s',
+    async (role) => {
+      const { service, created } = build([user('me', role), user('p1', 'EMPLOYEE')]);
+      await service.start('me', { agenda: `${role} custom`, type: 'CUSTOM', format: 'GROUP', participantIds: ['p1'] });
+      expect(created[0]).toMatchObject({ meetingType: 'CUSTOM', meetingFormat: 'GROUP' });
+    },
+  );
+
+  it('rejects a one-on-one format for Custom meetings', async () => {
+    const { service } = build([user('me', 'MANAGER'), user('p1', 'EMPLOYEE')]);
+    await expect(service.start('me', { agenda: 'Invalid custom format', type: 'CUSTOM', format: 'ONE_ON_ONE', participantIds: ['p1'] }))
+      .rejects.toThrow('Custom meetings use the group format');
+  });
+
   it('lets an employee start Internal only as a departmental meeting, approved by their Team Lead', async () => {
     const { service, created } = build([user('me', 'EMPLOYEE'), user('p1', 'EMPLOYEE')]);
     await service.start('me', { agenda: 'Sprint sync', type: 'INTERNAL', participantIds: ['p1'] });
@@ -81,6 +162,31 @@ describe('MeetingV2Service.start', () => {
   it('rejects a one-on-one with more than one person', async () => {
     const { service } = build([user('me', 'EMPLOYEE'), user('p1', 'EMPLOYEE'), user('p2', 'EMPLOYEE')]);
     await expect(service.start('me', { agenda: 'Chat', type: 'ONE_ON_ONE', participantIds: ['p1', 'p2'] })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('stores one-on-one as a format within an Internal meeting', async () => {
+    const { service, created } = build([user('me', 'EMPLOYEE'), user('p1', 'INTERN')]);
+    await service.start('me', { agenda: 'Coaching', type: 'INTERNAL', format: 'ONE_ON_ONE', participantIds: ['p1'] });
+    expect(created[0].meetingType).toBe('INTERNAL');
+    expect(created[0].meetingFormat).toBe('ONE_ON_ONE');
+  });
+
+  it('allows an External one-on-one with one person in another department', async () => {
+    const { service, created } = build([
+      user('me', 'EMPLOYEE', 'd1'),
+      user('p1', 'EMPLOYEE', 'd2'),
+      user('tl-a', 'TEAM_LEAD', 'd1'),
+      user('tl-b', 'TEAM_LEAD', 'd2'),
+    ], []);
+    await service.start('me', {
+      agenda: 'Cross-team coaching',
+      type: 'EXTERNAL',
+      format: 'ONE_ON_ONE',
+      participantIds: ['p1'],
+      approverIds: ['tl-a', 'tl-b'],
+    });
+    expect(created[0].meetingType).toBe('EXTERNAL');
+    expect(created[0].meetingFormat).toBe('ONE_ON_ONE');
   });
 
   it('routes a client meeting to the direct manager', async () => {

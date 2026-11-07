@@ -94,12 +94,12 @@ export function MyAttendanceInsights({ month, overview, onMonthChange, onSelect,
         </div>
       </header>
       <div className={s.periodLine}>
-        <span><CalendarDays size={15} /><strong>{rangeLabel}</strong></span>
+        <span><CalendarDays size={16} /><strong>{rangeLabel}</strong></span>
         {effectiveScope === 'month' ? <label className={s.periodInput}>Change month<input aria-label="Dashboard month" type="month" value={month} max={companyDate.slice(0, 7)} onChange={event => { if (event.target.value && event.target.value <= companyDate.slice(0, 7)) onMonthChange(event.target.value); }} /></label> :
           <span className={s.periodInput} aria-label="Financial year">FY {fiscalYear!.label}</span>}
       </div>
 
-          {incomplete && <div className={s.notice} role="alert"><CircleAlert size={17} /><span>Some months could not be loaded. Period totals are unavailable; the chart shows only the records received.</span><button onClick={() => annual.refetch()}><RefreshCw size={14} />Retry</button></div>}
+          {incomplete && <div className={s.notice} role="alert"><CircleAlert size={16} /><span>Some months could not be loaded. Period totals are unavailable; the chart shows only the records received.</span><button onClick={() => annual.refetch()}><RefreshCw size={14} />Retry</button></div>}
           <div className={s.stats} aria-busy={loading}>
             <Stat icon={<CheckCircle2 />} label="Present" value={count('PRESENT')} note="Recorded days, including late" tone="green" loading={loading} />
             <Stat icon={<Clock3 />} label="Late flags" value={late} note="Recorded assessments · exemptions included" tone="orange" loading={loading} />
@@ -139,7 +139,7 @@ export function MyAttendanceInsights({ month, overview, onMonthChange, onSelect,
             <p>Select the attendance day you want reviewed.</p>
             {correctionDays.length ? correctionDays.map(day => <button key={day.date} className={s.correctionRow} onClick={() => { setCorrectionPickerOpen(false); requestAnimationFrame(() => onRequestCorrection(day.date)); }}>
               <span><b>{new Date(day.date + 'T12:00:00Z').toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}</b><small>{presentDay(day).label}{day.reason ? ` · ${day.reason}` : ''}</small></span>
-              <ChevronRight size={15} />
+              <ChevronRight size={16} />
             </button>) : <p>No attendance days in this period are currently eligible for correction.</p>}
           </div>
         </AttendanceDialog>}
@@ -162,9 +162,9 @@ function Attention({ days, incomplete, onSelect }: { days: MyAttendanceDayV2[]; 
   const ordered = [...days].sort((a, b) => b.date.localeCompare(a.date));
   return <aside className={s.attention}>
     <div><h3><CircleAlert size={19} />Needs a second look</h3><p>{incomplete ? 'Review coverage is incomplete. Retry the missing months.' : ordered.length ? ordered.length + ' days have review flags.' : 'No closed-day review flags returned.'}</p><p>Check the record before requesting a change. A review flag is not an absence verdict.</p></div>
-    {ordered.length > 0 && <button className={s.actionButton} onClick={() => setOpen(true)}>View all {ordered.length} flagged days <ChevronRight size={17} /></button>}
+    {ordered.length > 0 && <button className={s.actionButton} onClick={() => setOpen(true)}>View all {ordered.length} flagged days <ChevronRight size={16} /></button>}
     {open && <AttendanceDialog title="Flagged days" onClose={() => setOpen(false)}><div className={s.flaggedList}>
-      {ordered.map(day => <button key={day.date} onClick={() => { setOpen(false); requestAnimationFrame(() => onSelect(day.date)); }}><span className={s.attentionDate}>{new Date(day.date + 'T12:00:00Z').toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}</span><span><strong>{day.exceptions.length ? exceptionCopy(day.exceptions[0]).title : 'Attendance needs review'}</strong><small>Review day details</small></span><ChevronRight size={17} /></button>)}
+      {ordered.map(day => <button key={day.date} onClick={() => { setOpen(false); requestAnimationFrame(() => onSelect(day.date)); }}><span className={s.attentionDate}>{new Date(day.date + 'T12:00:00Z').toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' })}</span><span><strong>{day.exceptions.length ? exceptionCopy(day.exceptions[0]).title : 'Attendance needs review'}</strong><small>Review day details</small></span><ChevronRight size={16} /></button>)}
     </div></AttendanceDialog>}
   </aside>;
 }
@@ -175,6 +175,6 @@ function CorrectionList({ rows, failed, loading, onSelect, retry }: { rows?: Reg
   return <div className={s.correctionBody}>
     <div className={s.smallTabs} aria-label="Correction request status">{['all', 'pending', 'approved', 'rejected'].map(value => <button key={value} aria-pressed={filter === value} onClick={() => setFilter(value)}>{value[0].toUpperCase() + value.slice(1)}</button>)}</div>
     {failed ? <p role="alert">Requests could not be loaded. <button onClick={retry}>Try again</button></p> : loading ? <p>Loading requests…</p> :
-      filtered.length ? [...filtered].sort((a, b) => b.date.localeCompare(a.date)).map(row => <div key={row.id}><button className={s.correctionRow} onClick={() => onSelect(row.date.slice(0, 10))}><span><b>{row.date.slice(0, 10)}</b><small>{row.reason || 'Open request details'}{row.decidedBy?.name ? ` · ${row.status === 'REJECTED' ? 'Rejected' : 'Approved'} by ${row.decidedBy.name}${row.decidedByRole ? ` (${row.decidedByRole.replaceAll('_', ' ')})` : ''}` : ''}{row.decisionReason ? ` · ${row.decisionReason}` : ''}</small></span><span>{stageLabel(row.status, row.applicationStatus)}</span><ChevronRight size={15} /></button><CorrectionScreenshots requestId={row.id} files={row.screenshots ?? []} /></div>) : <p>No {filter === 'all' ? '' : filter + ' '}correction requests in this period.</p>}
+      filtered.length ? [...filtered].sort((a, b) => b.date.localeCompare(a.date)).map(row => <div key={row.id}><button className={s.correctionRow} onClick={() => onSelect(row.date.slice(0, 10))}><span><b>{row.date.slice(0, 10)}</b><small>{row.reason || 'Open request details'}{row.decidedBy?.name ? ` · ${row.status === 'REJECTED' ? 'Rejected' : 'Approved'} by ${row.decidedBy.name}${row.decidedByRole ? ` (${row.decidedByRole.replaceAll('_', ' ')})` : ''}` : ''}{row.decisionReason ? ` · ${row.decisionReason}` : ''}</small></span><span>{stageLabel(row.status, row.applicationStatus)}</span><ChevronRight size={16} /></button><CorrectionScreenshots requestId={row.id} files={row.screenshots ?? []} /></div>) : <p>No {filter === 'all' ? '' : filter + ' '}correction requests in this period.</p>}
   </div>;
 }

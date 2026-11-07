@@ -10,11 +10,13 @@ import { pollWhileHealthy } from '@apex/shared-auth';
 
 const MEETING_ACCENT = '#2563EB';
 const TYPE_LABEL: Record<string, string> = { ONE_ON_ONE: 'One-on-one', INTERNAL: 'Internal', EXTERNAL: 'External', CUSTOM: 'Custom' };
+const FORMAT_LABEL: Record<string, string> = { ONE_ON_ONE: 'One-on-one', GROUP: 'Group' };
 const PURPOSE_LABEL: Record<string, string> = { REVIEW: 'Review', PLANNING: 'Planning', TRAINING: 'Training / knowledge share', CLIENT: 'Client', STATUS_UPDATE: 'Status update', OTHER: 'Other' };
 
 function meetingLine(meeting: any) {
   return [
     meeting.isDepartmental ? 'Departmental' : TYPE_LABEL[meeting.type] ?? meeting.type,
+    meeting.format ? FORMAT_LABEL[meeting.format] ?? meeting.format : null,
     meeting.purpose ? PURPOSE_LABEL[meeting.purpose] ?? meeting.purpose : null,
     meeting.clientName ? `Client: ${meeting.clientName}` : null,
   ].filter(Boolean).join(' · ');
@@ -93,7 +95,7 @@ export function MeetingInviteCenter() {
                 <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-white/15 text-white"><UsersRound size={16} /></div>
                 <div className="flex-1">
                   <h2 id="meeting-invite-title" className="text-base font-semibold text-white">Join the meeting?</h2>
-                  <p className="mt-0.5 text-xs text-slate-400">{invites.length > 1 ? `${invites.length} invites waiting` : 'You have been added to a meeting'}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{invites.length > 1 ? `${invites.length} invites waiting` : 'You have been added to a meeting'}</p>
                 </div>
               </div>
               <div id="meeting-invite-body" className="space-y-3 px-6 py-5">
@@ -102,7 +104,7 @@ export function MeetingInviteCenter() {
                 {invite.attendees?.length > 0 && (
                   <div className="flex flex-wrap gap-1.5">
                     {invite.attendees.map((person: any) => (
-                      <span key={person.userId ?? person.name} className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${person.status === 'ACCEPTED' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
+                      <span key={person.userId ?? person.name} className={`rounded-full px-2.5 py-1 text-caption font-semibold ${person.status === 'ACCEPTED' ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600'}`}>
                         {person.name}{person.status === 'ACCEPTED' ? ' · joined' : person.status === 'REJECTED' ? ' · declined' : ''}
                       </span>
                     ))}
@@ -111,8 +113,8 @@ export function MeetingInviteCenter() {
                 <p className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-600">If you approve, your work pauses and your meeting time is recorded from now. If you reject, nothing is recorded for you.</p>
               </div>
               <div className="flex items-center justify-end gap-2 rounded-b-3xl border-t border-slate-200 bg-slate-50 px-6 py-4">
-                <button type="button" disabled={busy === invite.id} onClick={() => respond(invite.id, false)} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-50"><X size={15} />Reject</button>
-                <button type="button" disabled={busy === invite.id} onClick={() => respond(invite.id, true)} autoFocus className="inline-flex items-center gap-1.5 rounded-xl px-5 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50" style={{ backgroundColor: '#168763' }}><Check size={15} />Approve &amp; join</button>
+                <button type="button" disabled={busy === invite.id} onClick={() => respond(invite.id, false)} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 disabled:opacity-50"><X size={16} />Reject</button>
+                <button type="button" disabled={busy === invite.id} onClick={() => respond(invite.id, true)} autoFocus className="inline-flex items-center gap-1.5 rounded-xl px-5 py-2 text-sm font-semibold text-white transition-colors disabled:opacity-50" style={{ backgroundColor: '#168763' }}><Check size={16} />Approve &amp; join</button>
               </div>
             </section>
           </div>
@@ -123,7 +125,7 @@ export function MeetingInviteCenter() {
         <ModalPortal>
           <aside className="fixed bottom-4 right-4 z-[9990] w-[min(380px,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl" aria-label="Meetings waiting for your approval">
             <header className="flex items-center gap-2 bg-gradient-to-r from-blue-700 to-blue-600 px-4 py-3">
-              <ClipboardCheck size={15} className="text-white" />
+              <ClipboardCheck size={16} className="text-white" />
               <p className="text-sm font-semibold text-white">{approvals.length} meeting{approvals.length === 1 ? '' : 's'} to approve</p>
             </header>
             <ul className="max-h-72 divide-y divide-slate-100 overflow-y-auto">

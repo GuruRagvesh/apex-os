@@ -29,9 +29,9 @@ function useDebounce<T>(value: T, delay: number): T {
 }
 
 const GROUP_ICONS: Record<string, React.ReactNode> = {
-  Tickets:  <Ticket size={13} className="text-blue-500" />,
-  Projects: <FolderKanban size={13} className="text-indigo-500" />,
-  People:   <Users size={13} className="text-emerald-500" />,
+  Tickets:  <Ticket size={14} className="text-blue-500" />,
+  Projects: <FolderKanban size={14} className="text-indigo-500" />,
+  People:   <Users size={14} className="text-emerald-500" />,
 };
 
 interface CommandPaletteProps {
@@ -285,7 +285,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                     {/* Group header */}
                     <div className="flex items-center gap-2 px-4 py-1.5 mt-1">
                       {GROUP_ICONS[group]}
-                      <span className="text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
+                      <span className="text-caption font-semibold tracking-wider text-slate-400 uppercase">
                         {group}
                       </span>
                     </div>
@@ -317,7 +317,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
                             )}
                           </div>
                           {result.badge && (
-                            <span className="flex-shrink-0 text-[10px] font-semibold px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded uppercase tracking-wide">
+                            <span className="flex-shrink-0 text-caption font-semibold px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded uppercase tracking-wide">
                               {result.badge}
                             </span>
                           )}
@@ -335,7 +335,7 @@ export function CommandPalette({ open, onClose }: CommandPaletteProps) {
         </div>
 
         {/* Footer hint */}
-        <div className="px-4 py-2 border-t border-slate-100 flex items-center gap-4 text-[11px] text-slate-400">
+        <div className="px-4 py-2 border-t border-slate-100 flex items-center gap-4 text-caption text-slate-400">
           <span><kbd className="font-mono bg-slate-100 px-1 rounded">↑↓</kbd> navigate</span>
           <span><kbd className="font-mono bg-slate-100 px-1 rounded">↵</kbd> open</span>
           <span><kbd className="font-mono bg-slate-100 px-1 rounded">Esc</kbd> close</span>
