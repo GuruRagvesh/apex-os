@@ -109,6 +109,8 @@ export interface ArchivePreflight {
   canArchive: boolean;
   state: 'ACTIVE' | 'DEACTIVATED' | 'ARCHIVED';
   blockers: Record<string, number>;
+  /** Links the archive will cut, by kind (see connectionPlan). */
+  connections: Record<string, number>;
   activeWork: {
     soleTickets: number;
     sharedTickets: number;
@@ -202,62 +204,102 @@ export class UserLifecycleService {
   }
 
   /** Live responsibilities that block archival (never re-assigned automatically). */
-  async responsibilityBlockers(db: any, userId: string, employeeId: string | null, now: Date): Promise<Record<string, number>> {
-    const [
-      reports, teamMembersLed, teamsLed, managedDepts,
-      pendingLeaveMgr, pendingLeaveHr, pendingTicketApprovals,
-      pendingProfileChanges, pendingCorrections, openLeads, colleagueProfiles, awaitingApproval, openApprovalReportingLines, openOrganizationReportingLines,
-    ] = await Promise.all([
-      employeeId ? db.user.count({ where: { id: { not: userId }, isActive: true, reportingManager: employeeId } }) : 0,
-      employeeId ? db.user.count({ where: { id: { not: userId }, isActive: true, teamLeadName: employeeId } }) : 0,
-      db.team.count({ where: { teamLeadId: userId, isActive: true, members: { some: { userId: { not: userId } } } } }),
-      db.managerDeptAccess.count({ where: { managerId: userId } }),
-      db.leaveRequest.count({ where: { managerApprovedById: userId, status: 'PENDING', userId: { not: userId } } }),
-      db.leaveRequest.count({ where: { hrApprovedById: userId, status: 'PENDING', userId: { not: userId } } }),
-      db.ticket.count({ where: { approverId: userId, approvalState: 'PENDING' } }),
-      db.employeeProfileChangeRequest.count({
-        where: {
-          targetUserId: { not: userId },
-          status: { startsWith: 'PENDING' },
-          OR: [{ currentApproverId: userId }, { tlApproverId: userId }, { managerApproverId: userId }, { adminApproverId: userId }],
-        },
-      }),
-      db.attendanceRegularization.count({
-        where: { userId: { not: userId }, status: { in: ['PENDING', 'MANAGER_APPROVED'] }, OR: [{ managerApproverId: userId }, { hrApproverId: userId }] },
-      }),
-      db.lead.count({ where: { ownerId: userId, leadStage: { notIn: OPEN_LEAD_EXCLUDED_STAGES } } }),
-      db.employeeAttendanceProfile.count({
-        where: {
-          userId: { not: userId },
-          user: { isActive: true },
-          OR: [{ reportingManagerId: userId }, { hrReviewerId: userId }],
-          AND: [{ OR: [{ effectiveTo: null }, { effectiveTo: { gt: now } }] }],
-        },
-      }),
-      db.ticket.count({ where: { status: 'PENDING_APPROVAL', OR: [{ assignedToId: userId }, { assignees: { some: { userId } } }] } }),
-      // Approval routing and the organization chart are deliberately separate.
-      // Neither kind of active report may be silently orphaned by archival.
-      db.hierarchyAssignment.count({ where: { assigneeUserId: userId, effectiveTo: null } }),
-      db.organizationReportingLine.count({ where: { supervisorId: userId, subjectUserId: { not: userId } } }),
-    ]);
-    // Phase 4 (D8): an exit still running, or cleared with F&F unreleased.
+  /**
+   * What still stops an archive. Since 2026-11-06 (owner rule) every link to
+   * the person is cut by the archive itself (see connectionPlan), so only an
+   * exit still running, or cleared with F&F unreleased, blocks: that is money
+   * owed to the person, not a link.
+   */
+  async responsibilityBlockers(db: any, userId: string, _employeeId: string | null, _now: Date): Promise<Record<string, number>> {
     const openExit = await countOpenExitCases(db, userId);
-    const out: Record<string, number> = {};
-    const add = (k: string, n: number) => { if (n > 0) out[k] = n; };
-    add('DIRECT_REPORTS', reports);
-    add('TEAM_MEMBERS_LED', teamMembersLed);
-    add('ACTIVE_TEAM_LEAD', teamsLed);
-    add('MANAGED_DEPARTMENTS', managedDepts);
-    add('PENDING_LEAVE_APPROVALS', pendingLeaveMgr + pendingLeaveHr);
-    add('PENDING_TICKET_APPROVALS', pendingTicketApprovals);
-    add('PENDING_PROFILE_CHANGE_APPROVALS', pendingProfileChanges);
-    add('PENDING_ATTENDANCE_CORRECTION_APPROVALS', pendingCorrections);
-    add('OPEN_CRM_LEADS', openLeads);
-    add('ACTIVE_COLLEAGUE_ATTENDANCE_PROFILES', colleagueProfiles);
-    add('TICKETS_AWAITING_APPROVAL', awaitingApproval);
-    add('OPEN_REPORTING_LINES', openApprovalReportingLines + openOrganizationReportingLines);
-    add('OPEN_EXIT_CASE', openExit);
-    return out;
+    return openExit > 0 ? { OPEN_EXIT_CASE: openExit } : {};
+  }
+
+  /**
+   * Every link other people and records have to this user. Archiving cuts all
+   * of them, so the archived account is tied to nothing until someone makes a
+   * new connection. Records of decisions they already made (approved leave,
+   * decided corrections) are history and are never rewritten.
+   */
+  async connectionPlan(db: any, user: { id: string; employeeId?: string | null; name?: string | null }, at: Date, leadOwnerId: string) {
+    const userId = user.id;
+    // Reporting lines are free text holding an employee ID or, in older rows,
+    // the person's name. The name is only used when nobody else shares it.
+    const namesake = user.name ? await db.user.count({ where: { id: { not: userId }, name: user.name } }) : 1;
+    const keys = [user.employeeId, namesake === 0 ? user.name : null].filter((k): k is string => !!k);
+    const byId = { orderBy: { id: 'asc' } };
+    const current = { OR: [{ effectiveTo: null }, { effectiveTo: { gt: at } }] };
+    const [reports, teamLeadLinks, teamsLed, memberships, departmentAccess, approvalLines, orgLines, profiles, ticketApprovals, pendingTickets, changeRequests, leads] = await Promise.all([
+      keys.length ? db.user.findMany({ where: { id: { not: userId }, reportingManager: { in: keys } }, select: { id: true }, ...byId }) : [],
+      keys.length ? db.user.findMany({ where: { id: { not: userId }, teamLeadName: { in: keys } }, select: { id: true }, ...byId }) : [],
+      db.team.findMany({ where: { teamLeadId: userId }, select: { id: true }, ...byId }),
+      db.teamMember.findMany({ where: { userId }, select: { id: true }, ...byId }),
+      db.managerDeptAccess.findMany({ where: { managerId: userId }, select: { id: true }, ...byId }),
+      db.hierarchyAssignment.findMany({ where: { effectiveTo: null, OR: [{ assigneeUserId: userId }, { subjectUserId: userId }] }, select: { id: true }, ...byId }),
+      db.organizationReportingLine.findMany({ where: { OR: [{ supervisorId: userId }, { subjectUserId: userId }] }, select: { id: true }, ...byId }),
+      db.employeeAttendanceProfile.findMany({ where: { userId: { not: userId }, OR: [{ reportingManagerId: userId }, { hrReviewerId: userId }], AND: [current] }, select: { id: true, reportingManagerId: true, hrReviewerId: true }, ...byId }),
+      db.ticket.findMany({ where: { approverId: userId, approvalState: 'PENDING' }, select: { id: true }, ...byId }),
+      db.ticket.findMany({ where: { status: 'PENDING_APPROVAL', OR: [{ assignedToId: userId }, { assignees: { some: { userId } } }] }, select: { id: true, assignedToId: true }, ...byId }),
+      db.employeeProfileChangeRequest.findMany({
+        where: { status: { startsWith: 'PENDING' }, OR: [{ currentApproverId: userId }, { tlApproverId: userId }, { managerApproverId: userId }, { adminApproverId: userId }] },
+        select: { id: true, status: true, currentApproverId: true, tlApproverId: true, managerApproverId: true, adminApproverId: true }, ...byId,
+      }),
+      db.lead.findMany({ where: { ownerId: userId, leadStage: { notIn: OPEN_LEAD_EXCLUDED_STAGES } }, select: { id: true }, ...byId }),
+    ]);
+    const ids = (rows: any[]) => rows.map((r) => r.id as string);
+    const effectiveAt = at.toISOString();
+    const row = (action: string, entity: string, id: string, detail: string) => ({ action, entity, id, detail, effectiveAt });
+    const rows = [
+      ...ids(reports).map((id) => row('REPORTING_MANAGER_UNLINKED', 'User', id, 'reportingManager cleared')),
+      ...ids(teamLeadLinks).map((id) => row('TEAM_LEAD_UNLINKED', 'User', id, 'teamLeadName cleared')),
+      ...ids(teamsLed).map((id) => row('TEAM_LEAD_REMOVED', 'Team', id, 'teamLeadId cleared')),
+      ...ids(memberships).map((id) => row('TEAM_MEMBERSHIP_REMOVED', 'TeamMember', id, 'removed')),
+      ...ids(departmentAccess).map((id) => row('DEPARTMENT_ACCESS_REMOVED', 'ManagerDeptAccess', id, 'removed')),
+      ...ids(approvalLines).map((id) => row('APPROVAL_LINE_ENDED', 'HierarchyAssignment', id, 'effectiveTo set')),
+      ...ids(orgLines).map((id) => row('ORG_REPORTING_LINE_REMOVED', 'OrganizationReportingLine', id, 'removed')),
+      ...ids(profiles).map((id) => row('ATTENDANCE_PROFILE_APPROVER_UNLINKED', 'EmployeeAttendanceProfile', id, 'reportingManagerId / hrReviewerId cleared')),
+      ...ids(ticketApprovals).map((id) => row('TICKET_APPROVER_CLEARED', 'Ticket', id, 'back to the default approvers')),
+      ...ids(pendingTickets).map((id) => row('PENDING_TICKET_UNASSIGNED', 'Ticket', id, 'assignee removed while awaiting approval')),
+      ...ids(changeRequests).map((id) => row('CHANGE_REQUEST_REROUTED', 'EmployeeProfileChangeRequest', id, 'approver cleared; Admin approval if it was waiting on them')),
+      ...ids(leads).map((id) => row('LEAD_REASSIGNED', 'Lead', id, `owner moved to ${leadOwnerId}`)),
+    ];
+    const counts: Record<string, number> = {};
+    for (const r of rows) counts[r.action] = (counts[r.action] ?? 0) + 1;
+    return { reports, teamLeadLinks, teamsLed, memberships, departmentAccess, approvalLines, orgLines, profiles, ticketApprovals, pendingTickets, changeRequests, leads, leadOwnerId, at, rows, counts };
+  }
+
+  /** Applies a connection plan inside the archive transaction. */
+  private async applyConnectionPlan(tx: any, userId: string, plan: Awaited<ReturnType<UserLifecycleService['connectionPlan']>>) {
+    const ids = (rows: any[]) => rows.map((r) => r.id as string);
+    if (plan.reports.length) await tx.user.updateMany({ where: { id: { in: ids(plan.reports) } }, data: { reportingManager: null } });
+    if (plan.teamLeadLinks.length) await tx.user.updateMany({ where: { id: { in: ids(plan.teamLeadLinks) } }, data: { teamLeadName: null } });
+    if (plan.teamsLed.length) await tx.team.updateMany({ where: { id: { in: ids(plan.teamsLed) } }, data: { teamLeadId: null } });
+    if (plan.memberships.length) await tx.teamMember.deleteMany({ where: { id: { in: ids(plan.memberships) } } });
+    if (plan.departmentAccess.length) await tx.managerDeptAccess.deleteMany({ where: { id: { in: ids(plan.departmentAccess) } } });
+    if (plan.approvalLines.length) await tx.hierarchyAssignment.updateMany({ where: { id: { in: ids(plan.approvalLines) } }, data: { effectiveTo: plan.at } });
+    if (plan.orgLines.length) await tx.organizationReportingLine.deleteMany({ where: { id: { in: ids(plan.orgLines) } } });
+    for (const p of plan.profiles) {
+      await tx.employeeAttendanceProfile.update({
+        where: { id: p.id },
+        data: { ...(p.reportingManagerId === userId ? { reportingManagerId: null } : {}), ...(p.hrReviewerId === userId ? { hrReviewerId: null } : {}) },
+      });
+    }
+    if (plan.ticketApprovals.length) await tx.ticket.updateMany({ where: { id: { in: ids(plan.ticketApprovals) } }, data: { approverId: null } });
+    if (plan.pendingTickets.length) {
+      await tx.ticket.updateMany({ where: { id: { in: ids(plan.pendingTickets) }, assignedToId: userId }, data: { assignedToId: null } });
+      await tx.ticketAssignee.deleteMany({ where: { ticketId: { in: ids(plan.pendingTickets) }, userId } });
+    }
+    for (const c of plan.changeRequests) {
+      const data: Record<string, unknown> = {};
+      for (const f of ['tlApproverId', 'managerApproverId', 'adminApproverId'] as const) if (c[f] === userId) data[f] = null;
+      if (c.currentApproverId === userId) {
+        data.currentApproverId = null;
+        // Same fallback as a new request with no Team Lead or Manager: Admin approval.
+        if (c.status === 'PENDING_TL_APPROVAL' || c.status === 'PENDING_MANAGER_APPROVAL') data.status = 'PENDING_ADMIN_APPROVAL';
+      }
+      await tx.employeeProfileChangeRequest.update({ where: { id: c.id }, data });
+    }
+    if (plan.leads.length) await tx.lead.updateMany({ where: { id: { in: ids(plan.leads) } }, data: { ownerId: plan.leadOwnerId } });
   }
 
   private async activeWork(db: any, userId: string) {
@@ -424,6 +466,7 @@ export class UserLifecycleService {
     const op = await this.inflight(this.prisma, userId);
     const blockers = await this.responsibilityBlockers(this.prisma, userId, user!.employeeId ?? null, this.ports.now());
     const work = await this.activeWork(this.prisma, userId);
+    const connections = archived ? {} : (await this.connectionPlan(this.prisma, user!, this.ports.now(), actor.id)).counts;
     const inv = await collectInventory(this.prisma, userId, { systemUserId: DELETED_ACCOUNT.id, operationId: null, now: this.ports.now() });
     const backupRequired = !classifyNoHistory(inv).noHistory;
     const state = archived ? 'ARCHIVED' : user!.isActive ? 'ACTIVE' : 'DEACTIVATED';
@@ -438,6 +481,7 @@ export class UserLifecycleService {
       state,
       canArchive: state !== 'ARCHIVED' && !op && Object.keys(blockers).length === 0,
       blockers,
+      connections,
       activeWork: work.summary,
       operationInProgress,
       archiveCleanupPending: op?.state === OPERATION_STATE.ARCHIVE_CLEANUP_PENDING,
@@ -746,7 +790,7 @@ export class UserLifecycleService {
       const inv = await collectInventory(this.prisma, userId, ctx);
       const history = classifyNoHistory(inv);
       const backupFingerprint = dataFingerprint(inv);
-      const closures = await this.closurePlan(this.prisma, userId, now);
+      const closures = await this.closurePlan(this.prisma, user!, now, actor.id);
       const previous = await this.prisma.userArchiveSnapshot.aggregate({ where: { userId }, _max: { version: true } });
       const version = (previous._max.version ?? 0) + 1;
       const archiveRef = opaqueId();
@@ -771,7 +815,7 @@ export class UserLifecycleService {
         }
         const changed = () => new LifecycleRefusal(REASON.ARCHIVE_DATA_CHANGED, 'This user\'s data changed while the archive was being written. Nothing was changed; try again.');
         if (dataFingerprint(await collectInventory(tx, userId, ctx)) !== backupFingerprint) throw changed();
-        const plan = await this.closurePlan(tx, userId, now);
+        const plan = await this.closurePlan(tx, locked, now, actor.id);
         if (plan.sha256 !== closures.sha256) throw changed();
 
         const fromState = locked.isActive ? 'ACTIVE' : 'DEACTIVATED';
@@ -809,7 +853,8 @@ export class UserLifecycleService {
           });
         }
         await tx.pushSubscription.deleteMany({ where: { userId } });
-        const closureCounts = { ...ticketResult.counts, sessionsEnded: plan.sessions.length, leaveCancelled: plan.leave.length };
+        await this.applyConnectionPlan(tx, userId, plan.connections);
+        const closureCounts = { ...ticketResult.counts, sessionsEnded: plan.sessions.length, leaveCancelled: plan.leave.length, ...plan.connections.counts };
         await this.writeEvent(tx, { actorId: actor.id, entityType: 'User', entityId: userId, action: LIFECYCLE_EVENT.ACTIVE_WORK_CLOSED_FOR_ARCHIVE, fromState, toState: fromState, reasonCode: REASON.USER_ARCHIVED, operationId: op.id, counts: closureCounts });
         await tx.user.update({ where: { id: userId }, data: { isActive: false, currentStatus: 'LOGGED_OUT', sessionsRevokedAt: now } });
         // Phase 3: the attendance profile ends on the archive date, so no
@@ -899,8 +944,10 @@ export class UserLifecycleService {
    * into the workbook before anything changes and re-derived under the row
    * lock; the two must hash the same or the archive is refused.
    */
-  private async closurePlan(db: any, userId: string, at: Date) {
+  private async closurePlan(db: any, user: { id: string; employeeId?: string | null; name?: string | null }, at: Date, actorId: string) {
+    const userId = user.id;
     const { plan: tickets } = await this.activeWork(db, userId);
+    const connections = await this.connectionPlan(db, user, at, actorId);
     const sessions = (await db.workSession.findMany({ where: { userId, logoutAt: null, status: { notIn: ['LOGGED_OUT', 'AUTO_CLOSED'] } }, select: { id: true }, orderBy: { id: 'asc' } })).map((s: any) => s.id as string);
     const breaks = (await db.breakLog.findMany({ where: { userId, endAt: null }, select: { id: true }, orderBy: { id: 'asc' } })).map((b: any) => b.id as string);
     const leave = (await db.leaveRequest.findMany({ where: { userId, status: 'PENDING' }, select: { id: true }, orderBy: { id: 'asc' } })).map((l: any) => l.id as string);
@@ -915,10 +962,11 @@ export class UserLifecycleService {
       ...breaks.map((id: string) => ({ action: 'BREAK_ENDED', entity: 'BreakLog', id, detail: 'reason USER_ARCHIVED', effectiveAt })),
       ...leave.map((id: string) => ({ action: 'LEAVE_CANCELLED', entity: 'LeaveRequest', id, detail: 'PENDING to CANCELLED', effectiveAt })),
       ...(pushSubscriptions > 0 ? [{ action: 'PUSH_SUBSCRIPTIONS_DELETED', entity: 'PushSubscription', id: '', detail: `${pushSubscriptions} removed`, effectiveAt }] : []),
+      ...connections.rows,
       { action: 'USER_DEACTIVATED_AND_SIGNED_OUT', entity: 'User', id: '', detail: 'isActive false, sessions revoked', effectiveAt },
     ];
     const sha256 = createHash('sha256').update(canonical(rows)).digest('hex');
-    return { tickets, sessions, leave, rows, sha256 };
+    return { tickets, sessions, leave, connections, rows, sha256 };
   }
 
   /** Removes an unverified archive folder after a failure. Returns true when removal could not be confirmed. */

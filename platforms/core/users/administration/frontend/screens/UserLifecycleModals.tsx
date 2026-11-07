@@ -44,6 +44,22 @@ export const BLOCKER_LABELS: Record<string, string> = {
   OPEN_EXIT_CASE: 'An exit still in progress (notice, clearance or unreleased F&F)',
 };
 
+// Links the archive cuts automatically (owner rule, 2026-11-06).
+const CONNECTION_LABELS: Record<string, string> = {
+  REPORTING_MANAGER_UNLINKED: 'People whose reporting manager is them',
+  TEAM_LEAD_UNLINKED: 'People whose team lead is them',
+  TEAM_LEAD_REMOVED: 'Teams they lead (left without a lead)',
+  TEAM_MEMBERSHIP_REMOVED: 'Teams they belong to',
+  DEPARTMENT_ACCESS_REMOVED: 'Departments they manage',
+  APPROVAL_LINE_ENDED: 'Approval lines to or from them',
+  ORG_REPORTING_LINE_REMOVED: 'Org chart lines to or from them',
+  ATTENDANCE_PROFILE_APPROVER_UNLINKED: 'Colleagues whose attendance profile names them',
+  TICKET_APPROVER_CLEARED: 'Ticket approvals waiting on them (back to the usual approvers)',
+  PENDING_TICKET_UNASSIGNED: 'Tickets awaiting approval assigned to them (unassigned)',
+  CHANGE_REQUEST_REROUTED: 'Profile changes waiting on them (sent to Admin approval)',
+  LEAD_REASSIGNED: 'Open CRM leads they own (moved to you)',
+};
+
 const WORK_LABELS: Record<string, string> = {
   soleTickets: 'Tickets or tasks only they are assigned to (will be closed)',
   sharedTickets: 'Shared tickets where they are the main assignee (next assignee takes over)',
@@ -115,6 +131,7 @@ export function ArchiveUserModal({ user, onClose, onArchived }: { user: any; onC
 
   const p = preflight.data;
   const blockers = Object.entries(p?.blockers ?? {}) as [string, number][];
+  const connections = (Object.entries(p?.connections ?? {}) as [string, number][]).filter(([, n]) => n > 0);
   const work = (Object.entries(p?.activeWork ?? {}) as [string, number][]).filter(([, n]) => n > 0);
   const hasWork = work.length > 0;
 
@@ -131,6 +148,7 @@ export function ArchiveUserModal({ user, onClose, onArchived }: { user: any; onC
           <ul className="list-disc space-y-1 pl-5">
             <li><strong>{user.name}</strong> will be archived, not permanently deleted, and will move to Archived Users.</li>
             <li>Active work assigned to them will be closed or removed.</li>
+            <li>Every connection to them is cut, and stays empty until someone makes a new one.</li>
             <li>{p.backupRequired ? 'A complete backup will be taken and verified before archiving.' : 'They have no history, so no backup file is needed; this is verified and recorded.'}</li>
             <li>Every change appears in the lifecycle audit trail.</li>
           </ul>
@@ -141,6 +159,12 @@ export function ArchiveUserModal({ user, onClose, onArchived }: { user: any; onC
             <div>
               <p className="mb-2 font-semibold" style={{ color: 'var(--text-primary)' }}>Hand these over before archiving:</p>
               <CountList entries={blockers} labels={BLOCKER_LABELS} />
+            </div>
+          )}
+          {blockers.length === 0 && connections.length > 0 && (
+            <div>
+              <p className="mb-2" style={{ color: 'var(--text-primary)' }}>These connections will be unlinked:</p>
+              <CountList entries={connections} labels={CONNECTION_LABELS} />
             </div>
           )}
           {blockers.length === 0 && hasWork && (

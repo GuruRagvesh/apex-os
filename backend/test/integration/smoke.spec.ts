@@ -479,14 +479,19 @@ describe('API Smoke Tests', () => {
         .send({ content: 'This is a test comment' })
         .expect(201);
 
-      const eventsRes = await request(app.getHttpServer())
-        .get('/api/events?limit=50')
-        .set('Authorization', adminToken)
-        .expect(200);
-
-      const commentEvent = eventsRes.body.find(
-        (e: any) => e.entityType === 'Ticket' && e.entityId === ticketId && e.action === 'COMMENT_ADDED'
-      );
+      // The comment's audit event is written in the background (not awaited by
+      // the request), so give it a moment instead of racing it.
+      let commentEvent: any;
+      for (let attempt = 0; attempt < 15 && !commentEvent; attempt++) {
+        if (attempt) await new Promise((resolve) => setTimeout(resolve, 200));
+        const eventsRes = await request(app.getHttpServer())
+          .get('/api/events?limit=50')
+          .set('Authorization', adminToken)
+          .expect(200);
+        commentEvent = eventsRes.body.find(
+          (e: any) => e.entityType === 'Ticket' && e.entityId === ticketId && e.action === 'COMMENT_ADDED'
+        );
+      }
       expect(commentEvent).toBeDefined();
 
       await db.ticket.delete({ where: { id: ticketId } });
