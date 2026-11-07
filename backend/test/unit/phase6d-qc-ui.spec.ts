@@ -187,8 +187,11 @@ describe('boundaries', () => {
     // input class now also keeps text clear of its leading icon. The Super
     // Admin / Team Lead mode chooser is gone, so a Super Admin always gets the
     // company directory here (narrowed by their default department, if on).
-    const page = read('frontend/app/(dashboard)/(operations)/team/page.tsx');
-    expect(createHash('sha256').update(page).digest('hex')).toBe('cedcb8c67f4a18acdb9a5b109d9521ed7f33a249032487a7bde286d9bdbe14a3');
+    // Reviewed 2026-11-07: the directory's department filter locks to the
+    // top-bar department filter while one is selected (global filter).
+    // Line endings are normalised so Windows checkouts (CRLF) and CI (LF) agree.
+    const page = read('frontend/app/(dashboard)/(operations)/team/page.tsx').replace(/\r\n/g, '\n');
+    expect(createHash('sha256').update(page).digest('hex')).toBe('2e2ab932122710f2e063f7f1b83a9f2b1253ec5fe398c0ad36b5a28790128e5e');
   });
 
   it('department responses read users through the safe select, never a full-row include', () => {

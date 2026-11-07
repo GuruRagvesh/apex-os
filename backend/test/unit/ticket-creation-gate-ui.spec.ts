@@ -130,10 +130,16 @@ describe('every creation control goes through the gate', () => {
     expect(read(file)).toMatch(pattern);
   });
 
-  it('the header has no ticket-creation entry point', () => {
+  it('the header creates tickets only through the gate', () => {
+    // The top bar has a "New ticket" button; like every other entry point it
+    // must be the gated CreateTicketLink (disabled with a reason until the
+    // person may create a ticket), never a plain link or router push.
     const topbar = read('frontend/components/layout/topbar.tsx');
-    expect(topbar).not.toContain('/tickets/new');
-    expect(topbar).not.toMatch(/New Ticket/);
+    const mentions = topbar.match(/\/tickets\/new/g) ?? [];
+    const gated = topbar.match(/<CreateTicketLink\s+href="\/tickets\/new"/g) ?? [];
+    expect(gated.length).toBeGreaterThan(0);
+    expect(mentions.length).toBe(gated.length);
+    expect(topbar).not.toMatch(/router\.push\([^)]*\/tickets\/new/);
   });
 
   it('no ungated link or navigation to /tickets/new remains', () => {
