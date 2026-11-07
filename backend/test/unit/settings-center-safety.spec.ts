@@ -11,7 +11,7 @@ describe('Settings Center safety', () => {
       upsertThemeDefaults: jest.fn().mockResolvedValue(undefined),
       getCompanyWithTheme: jest.fn().mockResolvedValue({ companyName: 'TechnoEdge', defaultTheme: 'john-wick-dark' }),
     };
-    const controller = new SettingsController(settings as any, {} as any);
+    const controller = new SettingsController(settings as any, {} as any, {} as any);
     await controller.updateCompany({ defaultTheme: 'john-wick-dark' }, { user: { sub: 'admin-1' } });
     expect(settings.upsertThemeDefaults).toHaveBeenCalledWith('john-wick-dark', undefined, 'admin-1');
     expect(settings.set).not.toHaveBeenCalled();
@@ -23,13 +23,13 @@ describe('Settings Center safety', () => {
       set: jest.fn().mockResolvedValue(undefined),
       getCompanyWithTheme: jest.fn().mockResolvedValue({}),
     };
-    const controller = new SettingsController(settings as any, {} as any);
+    const controller = new SettingsController(settings as any, {} as any, {} as any);
     await controller.updateCompany({ website: 'https://www.technoedgels.com/' }, { user: { sub: 'admin-1' } });
     expect(settings.set).toHaveBeenCalledWith('company', { companyName: 'TechnoEdge', timezone: 'Asia/Kolkata', website: 'https://www.technoedgels.com/' }, 'admin-1');
   });
 
   it('rejects non-HTTPS organization websites', async () => {
-    const controller = new SettingsController({} as any, {} as any);
+    const controller = new SettingsController({} as any, {} as any, {} as any);
     await expect(controller.updateCompany({ website: 'http://technoedgels.com' }, { user: { sub: 'admin-1' } }))
       .rejects.toBeInstanceOf(BadRequestException);
   });
@@ -66,7 +66,7 @@ describe('Settings Center safety', () => {
   });
 
   it('keeps policy writes disabled until policy-version safeguards exist', () => {
-    const controller = new SettingsController({} as any, {} as any);
+    const controller = new SettingsController({} as any, {} as any, {} as any);
     expect(() => controller.updateLeavePolicy()).toThrow(BadRequestException);
     expect(() => controller.updateSla()).toThrow(BadRequestException);
     expect(() => controller.updateWorkdayPolicy()).toThrow(BadRequestException);

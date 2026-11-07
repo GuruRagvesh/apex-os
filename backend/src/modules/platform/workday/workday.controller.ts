@@ -9,7 +9,7 @@ function requestAuditContext(req: any, actorContext: string) {
   const forwarded = req?.headers?.['x-forwarded-for'];
   const forwardedIp = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0]?.trim();
   return {
-    ipAddress: forwardedIp || req?.ip || req?.socket?.remoteAddress,
+    ipAddress: req?.ip || forwardedIp || req?.socket?.remoteAddress,
     userAgent: req?.headers?.['user-agent'],
     actorContext,
   };

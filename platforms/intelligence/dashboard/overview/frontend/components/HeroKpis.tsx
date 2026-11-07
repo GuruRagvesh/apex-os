@@ -4,6 +4,14 @@ import { useRouter } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import { CalendarClock, ClipboardCheck, FileClock, FolderKanban, Ticket, Timer, type LucideIcon } from 'lucide-react';
 import { dashboardApi, type HomeKpiScope } from '../api';
+import { api, unwrap } from '@apex/shared-auth';
+
+// The admin's default department, read from the same cached preferences the Home card uses.
+function useDefaultDepartmentOn(enabled: boolean): boolean {
+  const { data } = useQuery({ queryKey: ['view-scope'], queryFn: () => unwrap(api.get('/users/me/preferences')) as Promise<any>, enabled, staleTime: 60_000 });
+  return enabled && data?.viewScope?.enabled === true;
+}
+
 
 function Tile({
   label, value, sub, icon: Icon, onClick, children,
@@ -50,6 +58,7 @@ export function HeroKpis({ isLead, userId, role = '' }: { isLead: boolean; userI
   const selected: HomeKpiScope | undefined = data?.mine;
   const show = (n: number | null | undefined) => (isError ? '–' : n ?? '…');
   const companyProjectScope = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(role);
+  const defaultDepartmentOn = useDefaultDepartmentOn(['ADMIN', 'SUPER_ADMIN'].includes(role));
 
   return (
     <div className={`grid grid-cols-2 gap-3 ${isLead ? 'md:grid-cols-3 lg:grid-cols-6' : 'md:grid-cols-4'}`}>
@@ -61,7 +70,7 @@ export function HeroKpis({ isLead, userId, role = '' }: { isLead: boolean; userI
         onClick={() => router.push(personalTicketHref('REVIEW', userId))} />
       {isLead && <Tile label="Ticket approvals" value={show(selected?.pendingTicketApprovals)} sub="waiting for your approval" icon={FileClock}
         onClick={() => router.push('/tickets?tab=approvals')} />}
-      <Tile label="Active projects" value={show(selected?.activeProjects)} sub={companyProjectScope ? 'active company projects' : 'projects you belong to'} icon={FolderKanban}
+      <Tile label="Active projects" value={show(selected?.activeProjects)} sub={defaultDepartmentOn ? 'in your default department' : companyProjectScope ? 'active company projects' : 'projects you belong to'} icon={FolderKanban}
         onClick={() => router.push('/projects?status=ACTIVE')} />
       {isLead && <Tile label="Leave approvals" value={show(selected?.leaveApprovals)} sub="waiting for your decision" icon={CalendarClock}
         onClick={() => router.push('/leave?tab=needs-action')} />}

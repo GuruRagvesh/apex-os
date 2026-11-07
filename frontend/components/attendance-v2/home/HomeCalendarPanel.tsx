@@ -1042,13 +1042,11 @@ function AttendanceSide({ monthLabel: selectedMonthLabel, monthDays, monthLoadin
   selectedMetric: AttendanceFilter | null;
   onSelectMetric: (filter: AttendanceKpiFilter) => void;
 }) {
-  // The Trailer belongs to the selected calendar month. Previously the owner
-  // saw a weekly average while a selected colleague saw a monthly average,
-  // even though both were looking at the same month-labelled card.
-  const firstDate = monthDays[0]?.date;
-  const lastDate = monthDays[monthDays.length - 1]?.date;
-  const current = metricsOverride ?? (firstDate && lastDate
-    ? attendanceWeek(firstDate, lastDate, byDate)
+  // Self and hierarchy views use the same selected-month window. Previously
+  // self used a week while another employee used a month, so identical records
+  // produced different figures depending on who viewed them.
+  const current = metricsOverride ?? (monthDays.length
+    ? attendanceWeek(monthDays[0].date, monthDays[monthDays.length - 1].date, byDate)
     : attendanceWeek('9999-12-31', '0000-01-01', byDate));
 
   return (

@@ -909,7 +909,7 @@ describe('AR-1 duration contract', () => {
     expect(r.status).toBe('PRESENT');
   });
 
-  it('39. one minute short of the span triggers the configured action', async () => {
+  it('39. one minute short of the span is short hours, flagged without a deduction', async () => {
     // 10:00 to 18:59 is 539 minutes of presence.
     const { service } = day('10:00', '18:59', 479, 60);
     const r = await service.evaluate('emp-1', DATE);
@@ -918,7 +918,7 @@ describe('AR-1 duration contract', () => {
     expect(r.evaluationState).toBe('CALCULATED');
     expect(r.calculationReason).toBe('REFINED_SHORT_DAY');
     expect(r.leaveDeducted).toBe(0);
-    expect(r.lwpDeducted).toBeCloseTo(1 / 3);
+    expect(r.lwpDeducted).toBe(0);
     expect(r.status).not.toBe('ABSENT');
     expect(r.status).toBe('PRESENT');
   });

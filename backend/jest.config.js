@@ -12,8 +12,11 @@ module.exports = {
   rootDir: '.',
   testEnvironment: 'node',
   transform: {
-    '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: './tsconfig.json' }],
+    '^.+\\.(t|j)s$': ['<rootDir>/test/jest-esm-transform.js', { tsconfig: './tsconfig.json' }],
   },
+  // NestJS 12 ships ES modules only. Jest runs CommonJS, so those packages are
+  // compiled to CommonJS on load (the app itself relies on Node's require(esm)).
+  transformIgnorePatterns: ['/node_modules/(?!(\\.pnpm/)?@nestjs/)'],
   testMatch: ['**/test/unit/**/*.spec.ts', '**/src/**/*.spec.ts'],
   moduleNameMapper: {
     '^src/(.*)$': '<rootDir>/src/$1',

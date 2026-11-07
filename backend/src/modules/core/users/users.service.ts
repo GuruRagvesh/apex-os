@@ -9,6 +9,7 @@ import { AttendanceCategory, PolicyStatus, Prisma } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
 import { sanitizeChannels } from '../../operations/notifications/notification-channels';
+import { VIEW_SCOPE_PREF, isAdminRole, viewDepartmentOf } from '../../../common/services/view-scope';
 import { RemediationException, buildRemediation } from '../../../common/remediation';
 import { SetupIssueCode, UserSetupIssuesService } from './user-setup-issues.service';
 import {
@@ -377,6 +378,8 @@ export class UsersService {
     }
     if (query.departmentId) where.departmentId = query.departmentId;
     if (query.roleId) where.roleId = query.roleId;
+    const viewDept = viewDepartmentOf(requester);
+    if (viewDept) where.departmentId = viewDept;
 
     if (requester && !this.accessPolicy.isHrOrAdmin(requester)) {
       const roleName = this.accessPolicy.roleName(requester);
@@ -1198,6 +1201,8 @@ export class UsersService {
   async getDirectory(requester?: any) {
     // Fetch all active users with role + dept
     const where: any = { isActive: true };
+    const viewDept = viewDepartmentOf(requester);
+    if (viewDept) where.departmentId = viewDept;
     if (requester && !this.accessPolicy.isHrOrAdmin(requester)) {
       const deptIds = await this.accessPolicy.managedDepartmentIds(requester);
       if (deptIds.length > 0) where.departmentId = { in: deptIds };
@@ -1648,9 +1653,22 @@ export class UsersService {
     return row ? (row.value as any) : {};
   }
 
-  async savePreferences(userId: string, prefs: any): Promise<any> {
+  async savePreferences(userId: string, prefs: any, actor?: any): Promise<any> {
     if (!prefs || typeof prefs !== 'object' || Array.isArray(prefs)) {
       throw new BadRequestException('Preferences must be an object');
+    }
+    if (VIEW_SCOPE_PREF in prefs) {
+      const scope = prefs[VIEW_SCOPE_PREF];
+      if (!isAdminRole(actor)) throw new ForbiddenException('Only Admins and Super Admins can set a default department');
+      if (!scope || typeof scope !== 'object' || typeof scope.enabled !== 'boolean' ||
+        !(scope.departmentId === null || typeof scope.departmentId === 'string') ||
+        (scope.enabled && !scope.departmentId)) {
+        throw new BadRequestException('Invalid default department setting');
+      }
+      if (scope.departmentId && !(await this.prisma.department.findUnique({ where: { id: scope.departmentId }, select: { id: true } }))) {
+        throw new BadRequestException('Department not found');
+      }
+      prefs = { ...prefs, [VIEW_SCOPE_PREF]: { enabled: scope.enabled, departmentId: scope.departmentId } };
     }
     // Phase 1: `channels` is validated, never stored as sent.
     if (prefs && typeof prefs === 'object' && 'channels' in prefs) {

@@ -87,16 +87,6 @@ const ADMIN_NAV     = [
 const SETTINGS_NAV  = [{ href: '/settings', label: 'Settings',      icon: Settings  }];
 const ACTIVITY_NAV  = [{ href: '/admin/activity', label: 'Activity Log', icon: Activity }];
 
-// Streamlined nav for SUPER_ADMIN in team_lead mode
-const TEAMLEAD_MODE_NAV = [
-  { href: '/dashboard', label: 'Home',          icon: LayoutDashboard },
-  { href: '/tickets',   label: 'My Team Tasks', icon: Ticket        },
-  { href: '/kanban',    label: 'Kanban Board',  icon: Kanban        },
-  { href: '/projects',  label: 'Projects',      icon: FolderKanban  },
-  { href: '/attendance', label: 'My Attendance', icon: CalendarCheck },
-  { href: '/leave',     label: 'Leave',          icon: CalendarOff   },
-];
-
 // Below Tailwind's md breakpoint (768px). False on the server and first render.
 function useIsPhone(): boolean {
   const [phone, setPhone] = useState(false);
@@ -115,7 +105,6 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
   const pathname            = usePathname();
   const router              = useRouter();
   const { user, logout, hasHydrated } = useAuthStore();
-  const [apexMode, setApexMode]       = useState<string>('super_admin');
   const [showModuleMenu, setShowModuleMenu] = useState(false);
   const moduleMenuRef = useRef<HTMLDivElement>(null);
 
@@ -152,10 +141,6 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
     }
     logout();
   };
-
-  useEffect(() => {
-    setApexMode(localStorage.getItem('apexMode') ?? 'super_admin');
-  }, [pathname]);
 
   // Read the persisted tuck/collapse preference once, after mount.
   useEffect(() => {
@@ -232,11 +217,10 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
   // in the Admin section, so it is not listed twice. Filtered out of the array
   // entirely (not just visually hidden) for roles that shouldn't see it.
   const showScopedDepartments = (isManager || isHR) && !isAdmin;
-  const mainNav = (isSuperAdmin && apexMode === 'team_lead' ? TEAMLEAD_MODE_NAV : BASE_NAV)
-    .filter((item) => item.href !== '/departments' || showScopedDepartments);
-  const showTeam      = isTeamLead && !(isSuperAdmin && apexMode === 'team_lead');
-  const showReports   = isTeamLead && !(isSuperAdmin && apexMode === 'team_lead');
-  const showAdminSect = isAdmin    && !(isSuperAdmin && apexMode === 'team_lead');
+  const mainNav = BASE_NAV.filter((item) => item.href !== '/departments' || showScopedDepartments);
+  const showTeam      = isTeamLead;
+  const showReports   = isTeamLead;
+  const showAdminSect = isAdmin;
 
   // Workspace module switcher (HRMS / Sales CRM) — separate "rooms" from the main
   // Apex OS execution workspace, gated independently of the main nav above.
@@ -494,7 +478,7 @@ export function Sidebar({ mobileOpen = false, onMobileClose }: { mobileOpen?: bo
         )}
 
         {/* Activity Log — team leads and above */}
-        {isTeamLead && !(isSuperAdmin && apexMode === 'team_lead') && (
+        {isTeamLead && (
           <>
             <SectionLabel>Workday</SectionLabel>
             {ACTIVITY_NAV.map((item) => <NavItem key={item.href} {...item} />)}

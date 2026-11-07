@@ -2,22 +2,38 @@ import { classifyRefinedAttendance } from '../../src/modules/platform/attendance
 import { defaultNoticeForEmployee } from '../../src/modules/core/users/transitions/exit/notice';
 
 describe('refined attendance policy', () => {
+  const c = (presenceMinutes: number, punchInMinutes: number, punchOutMinutes: number) =>
+    classifyRefinedAttendance({ presenceMinutes, punchInMinutes, punchOutMinutes });
+
   it('classifies a complete nine-hour workday as full day', () => {
-    expect(classifyRefinedAttendance({ presenceMinutes: 540, punchInMinutes: 600, punchOutMinutes: 1140 })).toBe('FULL_DAY');
+    expect(c(540, 600, 1140)).toBe('FULL_DAY');
   });
 
-  it('classifies every duration below nine hours as short hours', () => {
-    expect(classifyRefinedAttendance({ presenceMinutes: 270, punchInMinutes: 600, punchOutMinutes: 870 })).toBe('SHORT_DAY');
-    expect(classifyRefinedAttendance({ presenceMinutes: 330, punchInMinutes: 600, punchOutMinutes: 960 })).toBe('SHORT_DAY');
+  it('a full nine hours is never a half day, even when it starts after 1:00 PM', () => {
+    expect(c(540, 780, 1320)).toBe('FULL_DAY');
   });
 
-  it('keeps lateness separate from duration classification', () => {
-    expect(classifyRefinedAttendance({ presenceMinutes: 330, punchInMinutes: 780, punchOutMinutes: 1110 })).toBe('SHORT_DAY');
-    expect(classifyRefinedAttendance({ presenceMinutes: 320, punchInMinutes: 780, punchOutMinutes: 1109 })).toBe('SHORT_DAY');
+  it('presence of 5 hours or less is a half day', () => {
+    expect(c(240, 570, 1100)).toBe('HALF_DAY');
+    expect(c(270, 570, 1100)).toBe('HALF_DAY');
+    expect(c(300, 570, 1100)).toBe('HALF_DAY');
+    expect(c(200, 600, 800)).toBe('HALF_DAY');
+    expect(c(301, 570, 1100)).toBe('SHORT_DAY');
   });
 
-  it('classifies other work between half and full day as one-third-deduction short day', () => {
-    expect(classifyRefinedAttendance({ presenceMinutes: 400, punchInMinutes: 630, punchOutMinutes: 1080 })).toBe('SHORT_DAY');
+  it('arriving at or after 1:00 PM is a half day', () => {
+    expect(c(330, 780, 1110)).toBe('HALF_DAY');
+    expect(c(330, 779, 1109)).toBe('SHORT_DAY');
+  });
+
+  it('leaving at or before 4:00 PM is a half day', () => {
+    expect(c(390, 570, 960)).toBe('HALF_DAY');
+    expect(c(391, 570, 961)).toBe('SHORT_DAY');
+  });
+
+  it('anything else under nine hours is short hours', () => {
+    expect(c(400, 630, 1080)).toBe('SHORT_DAY');
+    expect(c(539, 570, 1109)).toBe('SHORT_DAY');
   });
 });
 

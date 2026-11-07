@@ -11,7 +11,7 @@ import { AnalyticsService } from './analytics.service';
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 
-  @Get('employee/:id?')
+  @Get('employee{/:id}')
   async getEmployeeMetrics(@CurrentUser() user: any, @Param('id') id?: string) {
     const targetUserId = id ?? user.id;
     return this.analyticsService.getEmployeeMetrics(targetUserId, user);
@@ -29,7 +29,7 @@ export class AnalyticsController {
     return this.analyticsService.getProductivity(user, { from, to, projectId: projectId || undefined, userId: userId || undefined });
   }
 
-  @Get('reviewer/:id?')
+  @Get('reviewer{/:id}')
   async getReviewerMetrics(@CurrentUser() user: any, @Param('id') id?: string) {
     const targetUserId = id ?? user.id;
     return this.analyticsService.getReviewerMetrics(targetUserId, user);

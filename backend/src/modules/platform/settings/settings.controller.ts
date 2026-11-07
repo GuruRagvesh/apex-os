@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Patch, Post, Request, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Patch, Post, Request, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../shared/guards/roles.guard';
@@ -6,6 +6,7 @@ import { Roles } from '../../../shared/decorators/roles.decorator';
 import { SettingsService } from './settings.service';
 import { ROLES } from '../../../shared/constants/roles';
 import { EmailService } from '../email/email.service';
+import { PolicyCenterService } from './policy-center.service';
 
 
 
@@ -17,7 +18,35 @@ export class SettingsController {
   constructor(
     private readonly settings: SettingsService,
     private readonly emailService: EmailService,
+    private readonly policyCenter: PolicyCenterService,
   ) {}
+
+  /** Employee-safe published policy text and the signed-in user's acknowledgements. */
+  @Get('policy-center')
+  getPolicyCenter(@Request() req: any) {
+    return this.policyCenter.getForUser(req.user.sub);
+  }
+
+  @Get('policy-center/administration')
+  getPolicyAdministration(@Request() req: any) {
+    return this.policyCenter.getAdministration(req.user);
+  }
+
+  @Post('policy-center/administration/:policyKey/draft')
+  savePolicyDraft(@Request() req: any, @Param('policyKey') policyKey: string, @Body() body: any) {
+    return this.policyCenter.saveDraft(req.user, policyKey, body);
+  }
+
+  @Post('policy-center/administration/:policyKey/publish')
+  publishPolicyDraft(@Request() req: any, @Param('policyKey') policyKey: string, @Body() body: any) {
+    return this.policyCenter.publishDraft(req.user, policyKey, body);
+  }
+
+  /** Acknowledgement never activates operational rules or changes company settings. */
+  @Post('policy-center/:policyKey/acknowledgements')
+  acknowledgePolicy(@Request() req: any, @Body() body: any, @Param('policyKey') policyKey: string) {
+    return this.policyCenter.acknowledge(req.user.sub, policyKey, body?.version);
+  }
 
   @Get('company')
   getCompany() {

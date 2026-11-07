@@ -5,6 +5,7 @@ import { LeaveAccessService } from '../../../common/services/leave-access.servic
 import { TVAService } from '../../../common/services/tva.service';
 import { addDays } from '../analytics/analytics-period';
 import { LeaveService } from '../../operations/leave/leave.service';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 
 const DONE_STATUSES = [TicketStatus.DONE, TicketStatus.CLOSED];
 const LEAD_ROLES = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'];
@@ -58,9 +59,12 @@ export class HomeInsightsService {
     const ownProjectScope = { members: { some: { userId: user.id } } };
     // Admins and managers operate across the company for this headline count.
     // Team leads and contributors see only projects they personally belong to.
-    const activeProjectScope = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName)
-      ? {}
-      : ownProjectScope;
+    const viewDept = viewDepartmentOf(user);
+    const activeProjectScope = viewDept
+      ? { OR: [ownProjectScope, { departmentId: viewDept }] }
+      : ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName)
+        ? {}
+        : ownProjectScope;
     const leaveScope = isLead ? await this.leaveAccess.buildLeaveWhereForUser({}, user) : null;
 
     const [

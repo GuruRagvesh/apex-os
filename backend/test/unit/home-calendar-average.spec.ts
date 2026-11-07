@@ -18,9 +18,7 @@ function day(overrides: Record<string, unknown> = {}) {
 
 describe('Home calendar attendance averages', () => {
   it('uses gross presence for working hours instead of deducting breaks', () => {
-    const days = new Map([['2026-10-01', day()]]);
-
-    const result = attendanceWeek('2026-10-01', '2026-10-01', days);
+    const result = attendanceWeek('2026-10-01', '2026-10-01', new Map([['2026-10-01', day()]]));
 
     expect(result.avgWorkMinutes).toBe(540);
     expect(result.totalBreakMinutes).toBe(60);

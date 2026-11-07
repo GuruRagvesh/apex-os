@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException, Injectable, NotFoundException 
 import { PrismaService } from '../../../prisma/prisma.service';
 import { TVAService } from '../../../common/services/tva.service';
 import { BusinessCalendarService } from '../attendance/calendar/business-calendar.service';
+import { OperationalHierarchyScopeService } from '../../../common/services/operational-hierarchy-scope.service';
 
 type Interval = { start: Date; end: Date };
 
@@ -117,6 +118,7 @@ export class ProductivityTimelineService {
     private readonly prisma: PrismaService,
     private readonly tva: TVAService,
     private readonly businessCalendar: BusinessCalendarService,
+    private readonly hierarchyScope: OperationalHierarchyScopeService,
   ) {}
 
   private async requesterScope(requesterId: string) {
@@ -130,43 +132,8 @@ export class ProductivityTimelineService {
       throw new ForbiddenException('Productivity timelines are available to supervisors only');
     }
 
-    let ids: string[] = [];
-    if (role === 'TEAM_LEAD') {
-      const teams = await this.prisma.team.findMany({
-        where: { teamLeadId: requester.id, isActive: true },
-        select: { members: { select: { userId: true } } },
-      });
-      ids = [requester.id, ...teams.flatMap((team) => team.members.map((member) => member.userId))];
-    } else if (role === 'MANAGER') {
-      const access = await this.prisma.managerDeptAccess.findMany({ where: { managerId: requester.id } });
-      const departmentIds = access.map((item) => item.departmentId);
-      if (!departmentIds.length && requester.departmentId) departmentIds.push(requester.departmentId);
-      if (departmentIds.length) {
-        const people = await this.prisma.user.findMany({
-          where: {
-            isActive: true,
-            isSystemAccount: false,
-            id: { not: requester.id },
-            departmentId: { in: [...new Set(departmentIds)] },
-            role: { name: { in: ['TEAM_LEAD', 'EMPLOYEE', 'INTERN'] } },
-          },
-          select: { id: true },
-        });
-        ids = people.map((person) => person.id);
-      }
-    } else {
-      const people = await this.prisma.user.findMany({
-        where: {
-          isActive: true,
-          isSystemAccount: false,
-          id: { not: requester.id },
-          role: { name: { in: ['MANAGER', 'TEAM_LEAD', 'EMPLOYEE', 'INTERN'] } },
-        },
-        select: { id: true },
-      });
-      ids = people.map((person) => person.id);
-    }
-    return { requester, role, ids: [...new Set(ids)] };
+    const scope = await this.hierarchyScope.visibleUserIds(requester, { includeSelf: role === 'TEAM_LEAD' });
+    return { requester, role, ids: scope.userIds };
   }
 
   async people(requesterId: string) {

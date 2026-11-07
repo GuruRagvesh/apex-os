@@ -1,5 +1,5 @@
-import { ThrottlerException, ThrottlerGuard, ThrottlerOptions } from '@nestjs/throttler';
-import { ExecutionContext, Injectable } from '@nestjs/common';
+import { ThrottlerException, ThrottlerGuard, ThrottlerRequest } from '@nestjs/throttler';
+import { Injectable } from '@nestjs/common';
 
 @Injectable()
 export class AppThrottlerGuard extends ThrottlerGuard {
@@ -15,29 +15,23 @@ export class AppThrottlerGuard extends ThrottlerGuard {
     return req.ip;
   }
 
-  async handleRequest(
-    context: ExecutionContext,
-    limit: number,
-    ttl: number,
-    throttler: ThrottlerOptions,
-    getTracker: (req: Record<string, any>) => Promise<string>,
-    generateKey: (context: ExecutionContext, tracker: string, throttlerName: string) => string,
-  ): Promise<boolean> {
+  async handleRequest(requestProps: ThrottlerRequest): Promise<boolean> {
+    const { context, limit, ttl, throttler, getTracker, generateKey } = requestProps;
     const { req, res } = this.getRequestResponse(context);
-    const tracker = await getTracker(req);
+    const tracker = await getTracker(req, context);
     const key = generateKey(context, tracker, throttler.name);
 
     const blockedUntil = this.blockedTrackers.get(key);
     if (blockedUntil && Date.now() < blockedUntil) {
       const timeToExpire = Math.ceil((blockedUntil - Date.now()) / 1000);
       res.header(`Retry-After${throttler.name === 'default' ? '' : `-${throttler.name}`}`, timeToExpire.toString());
-      throw new ThrottlerException(await this.getErrorMessage(context, { limit, ttl, key, tracker, totalHits: limit + 1, timeToExpire }));
+      throw new ThrottlerException(await this.getErrorMessage(context, { limit, ttl, key, tracker, totalHits: limit + 1, timeToExpire, isBlocked: true, timeToBlockExpire: timeToExpire }));
     } else if (blockedUntil && Date.now() >= blockedUntil) {
       this.blockedTrackers.delete(key);
     }
 
     try {
-      return await super.handleRequest(context, limit, ttl, throttler, getTracker, generateKey);
+      return await super.handleRequest(requestProps);
     } catch (e) {
       if (e instanceof ThrottlerException) {
         // Record the block expiration so subsequent hits don't hit the storage and extend TTL

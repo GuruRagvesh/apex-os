@@ -74,9 +74,11 @@ describe('Phase 3 correction safeguards', () => {
       attendanceRegularization: { findUnique: jest.fn().mockResolvedValue(row), update },
       dailyAttendance: { findUnique: jest.fn().mockResolvedValue(official) },
       attendanceMonthClose: { findUnique: jest.fn().mockResolvedValue(null) },
+      operationalEvent: { create: jest.fn().mockResolvedValue({}) },
     };
     const prisma: any = { $transaction: jest.fn((fn: any) => fn(tx)) };
-    const evaluator: any = { reviseForApprovedCorrection: jest.fn().mockResolvedValue({}) };
+    const revised = { ...official, revision: 1, lastRegularizationId: row.id };
+    const evaluator: any = { reviseForApprovedCorrection: jest.fn().mockResolvedValue({ before: official, after: revised }) };
     const authority: any = {
       loadActor: jest.fn().mockResolvedValue({ id: 'hr-1', isActive: true, isHR: true }),
       canViewCompany: jest.fn().mockReturnValue(true),
@@ -102,5 +104,14 @@ describe('Phase 3 correction safeguards', () => {
       },
     });
     expect(evaluator.reviseForApprovedCorrection).toHaveBeenCalledWith(tx, row.userId, '2026-10-20', row.id);
+    // The before/after audit commits inside the same transaction as the revision.
+    expect(tx.operationalEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'ATTENDANCE_OFFICIAL_REVISED',
+        actorId: 'hr-1',
+        beforeValue: expect.objectContaining({ status: 'PRESENT', revision: 0 }),
+        afterValue: expect.objectContaining({ status: 'PRESENT', revision: 1 }),
+      }),
+    });
   });
 });

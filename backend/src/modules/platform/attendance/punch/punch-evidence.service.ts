@@ -22,6 +22,7 @@ import {
   PunchNoOpenWorkdayError,
   PunchPhotoRequiredError,
   PunchValidationError,
+  POLICY_BLOCKER_PREFIX,
   SubmitPunchEvidenceInput,
 } from './punch-evidence.types';
 import { evaluateGeofence } from './geofence';
@@ -461,6 +462,9 @@ export class PunchEvidenceService {
 
       const reviewReasons = [
         policySetupPending ? 'POLICY_SETUP_PENDING' : null,
+        // The exact blockers the context reported, so HR sees which setup is
+        // missing. Review wording only: nothing reads these to decide attendance.
+        ...(policySetupPending ? context.blockingReasons.map((r) => `${POLICY_BLOCKER_PREFIX}${r}`) : []),
         input.accuracyMeters === null || input.accuracyMeters === undefined ? 'ACCURACY_UNAVAILABLE' : null,
         ...device.reviewReasons,
       ].filter((reason): reason is string => reason !== null);

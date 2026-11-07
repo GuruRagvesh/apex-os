@@ -14,6 +14,8 @@ import { AttendanceAuthorityService } from '../../../common/services/attendance-
 import { TVAService } from '../../../common/services/tva.service';
 import { isPunchedInSession, ticketCreationState } from '../../../common/services/active-workday-policy.service';
 import { CompOffService } from '../../operations/leave/comp-off.service';
+import { OperationalHierarchyScopeService } from '../../../common/services/operational-hierarchy-scope.service';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 
 // Combined daily allowance for all break types (lunch + restroom + tea + other).
 // Soft policy only — usage beyond this is reported via exceededBreakMinutes, never blocked.
@@ -69,6 +71,7 @@ export class WorkdayService {
     private attendanceAuthority: AttendanceAuthorityService,
     private tva: TVAService,
     @Optional() private compOff?: CompOffService,
+    @Optional() private hierarchyScope?: OperationalHierarchyScopeService,
   ) {}
 
   async getHistory(userId: string, requester: any) {
@@ -883,7 +886,8 @@ export class WorkdayService {
 
       const closed = await tx.breakLog.update({
         where: { id: openBreak.id },
-        data: { endAt: now, durationMinutes },
+        // Closing the break also retires its alarm, so no device rings later.
+        data: { endAt: now, durationMinutes, warningStage: 'COMPLETE', warningUpdatedAt: now },
       });
 
       await this.attendanceAuthority.updateWorkSession(session.id, {
@@ -897,11 +901,7 @@ export class WorkdayService {
           workSessionId: session.id,
           eventType: 'BREAK_END',
           source: origin === 'MEETING_CANCEL' ? 'system' : 'manual',
-          metadata: {
-            origin,
-            breakLogId: openBreak.id,
-            breakType: openBreak.breakType,
-          },
+          metadata: { origin, breakLogId: openBreak.id, breakType: openBreak.breakType },
           ipAddress: context.ipAddress,
           deviceMetadata: context.userAgent ? { userAgent: context.userAgent } : undefined,
         },
@@ -932,7 +932,6 @@ export class WorkdayService {
       actorContext: context.actorContext ?? origin,
     }).catch(() => {});
 
-    await this.saveBreakWarningState(openBreak.id, userId, 'COMPLETE', now).catch(() => undefined);
     this.notificationEventService.emitBreakWarningChanged?.(userId, openBreak.id);
 
     return { breakLog: updated, durationMinutes };
@@ -940,10 +939,7 @@ export class WorkdayService {
 
   async getActiveBreakWarning(userId: string) {
     const warning = await this.prisma.breakLog.findFirst({
-      where: {
-        userId,
-        endAt: null,
-      },
+      where: { userId, endAt: null, warningStage: { in: ['EARLY_ACTIVE', 'FINAL_ACTIVE'] } },
       orderBy: { startAt: 'desc' },
       select: {
         id: true,
@@ -951,11 +947,11 @@ export class WorkdayService {
         estimatedMinutes: true,
         plannedEndAt: true,
         startAt: true,
+        warningStage: true,
+        warningUpdatedAt: true,
       },
     });
     if (!warning) return { warning: null };
-    const state = await this.getBreakWarningState(warning.id);
-    if (!['EARLY_ACTIVE', 'FINAL_ACTIVE'].includes(state.stage)) return { warning: null };
     return {
       warning: {
         breakLogId: warning.id,
@@ -963,8 +959,8 @@ export class WorkdayService {
         estimatedMinutes: warning.estimatedMinutes,
         plannedEndAt: warning.plannedEndAt,
         startedAt: warning.startAt,
-        phase: state.stage === 'EARLY_ACTIVE' ? 'EARLY' : 'FINAL',
-        triggeredAt: state.updatedAt,
+        phase: warning.warningStage === 'EARLY_ACTIVE' ? 'EARLY' : 'FINAL',
+        triggeredAt: warning.warningUpdatedAt,
       },
     };
   }
@@ -978,35 +974,15 @@ export class WorkdayService {
     }
     const expectedStage = dto.phase === 'EARLY' ? 'EARLY_ACTIVE' : 'FINAL_ACTIVE';
     const nextStage = dto.phase === 'EARLY' ? 'FINAL_PENDING' : 'COMPLETE';
-    const now = this.tva.now();
-    const openBreak = await this.prisma.breakLog.findFirst({
-      where: { id: dto.breakLogId, userId, endAt: null },
-      select: { id: true },
+    // Conditional update: a second device pressing Later, or a break that
+    // ended meanwhile, changes nothing and is reported as no longer active.
+    const { count } = await this.prisma.breakLog.updateMany({
+      where: { id: dto.breakLogId, userId, endAt: null, warningStage: expectedStage },
+      data: { warningStage: nextStage, warningUpdatedAt: this.tva.now() },
     });
-    if (!openBreak) throw new ConflictException('This break warning is no longer active');
-    const state = await this.getBreakWarningState(dto.breakLogId);
-    if (state.stage !== expectedStage) throw new ConflictException('This break warning is no longer active');
-    await this.saveBreakWarningState(dto.breakLogId, userId, nextStage, now);
+    if (!count) throw new ConflictException('This break warning is no longer active');
     this.notificationEventService.emitBreakWarningChanged?.(userId, dto.breakLogId);
     return { ok: true, warningStage: nextStage };
-  }
-
-  private async getBreakWarningState(breakLogId: string): Promise<{ stage: string; updatedAt: Date | null }> {
-    const row = await this.prisma.appSetting.findUnique({ where: { key: `break-warning-${breakLogId}` } });
-    const value = (row?.value ?? {}) as any;
-    return {
-      stage: typeof value.stage === 'string' ? value.stage : 'PENDING',
-      updatedAt: typeof value.updatedAt === 'string' ? new Date(value.updatedAt) : null,
-    };
-  }
-
-  private async saveBreakWarningState(breakLogId: string, userId: string, stage: string, now: Date) {
-    const key = `break-warning-${breakLogId}`;
-    return this.prisma.appSetting.upsert({
-      where: { key },
-      create: { key, value: { stage, userId, updatedAt: now.toISOString() }, updatedBy: userId },
-      update: { value: { stage, userId, updatedAt: now.toISOString() }, updatedBy: userId },
-    });
   }
 
   async reportIdle(userId: string, idleDuration: number) {
@@ -1258,8 +1234,8 @@ export class WorkdayService {
 
     // Tells the frontend when to show the auto-close consent prompt. A manual
     // break is exempt from current-day policy auto-stop, so it must not show a
-    // misleading prompt; once the person resumes WORKING, the normal cutoff
-    // prompt and grace-period safety net apply again.
+    // misleading prompt; once the person resumes WORKING, normal cutoff rules
+    // apply again.
     let needsAutoCloseConsent = false;
     let autoCloseTime: string | null = null;
     // Auto-close is frozen while the person is in a meeting: no prompt until it ends.
@@ -1332,7 +1308,13 @@ export class WorkdayService {
 
     let userFilter: any = { isActive: true, isSystemAccount: false, id: { not: requestingUser.id } };
 
-    if (!isHR && !isAdminLevel) {
+    if (this.hierarchyScope) {
+      const scope = await this.hierarchyScope.visibleUserIds(requestingUser);
+      if (!scope.userIds.length) return [];
+      userFilter.id = { in: scope.userIds };
+    }
+
+    if (!this.hierarchyScope && !isHR && !isAdminLevel) {
       if (['EMPLOYEE', 'INTERN'].includes(roleName)) {
         return [];
       }
@@ -1361,10 +1343,15 @@ export class WorkdayService {
       }
     }
 
-    // This endpoint represents people below the viewer in the operational
-    // hierarchy, not peers or seniors who merely share a department.
+    const viewDept = viewDepartmentOf(requestingUser);
+    if (viewDept) userFilter.departmentId = viewDept;
+
+    // This endpoint represents the Team Lead's department plus people below
+    // the viewer through teams and reporting lines. It never includes seniors.
     if (roleName === 'TEAM_LEAD') {
-      userFilter.role = { name: { in: ['EMPLOYEE', 'INTERN'] } };
+      // A department head can have downstream Team Leads in nested
+      // departments, so retain those leads alongside employees and interns.
+      userFilter.role = { name: { in: ['TEAM_LEAD', 'EMPLOYEE', 'INTERN'] } };
     } else if (roleName === 'MANAGER') {
       userFilter.role = { name: { in: ['TEAM_LEAD', 'EMPLOYEE', 'INTERN'] } };
     } else if (isAdminLevel || isHR) {

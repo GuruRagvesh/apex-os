@@ -235,7 +235,8 @@ describe('PunchEvidenceService (PE-1)', () => {
       expect(created[0].policyContextStatus).toBe('POLICY_SETUP_PENDING');
       expect(created[0].locationVerification).toBe('NOT_ENFORCED');
       expect(prisma.punchEvidenceReview.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ evidenceId: 'ev-1', reasonCodes: ['POLICY_SETUP_PENDING'] }),
+        // The exact blocker rides beside the generic flag so HR sees what is missing.
+        data: expect.objectContaining({ evidenceId: 'ev-1', reasonCodes: ['POLICY_SETUP_PENDING', 'POLICY_BLOCKER:AMBIGUOUS_HOLIDAY_CALENDAR'] }),
       });
     });
 

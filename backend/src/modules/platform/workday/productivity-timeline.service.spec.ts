@@ -1,6 +1,7 @@
 import {
   firstOverdueWindow,
   PRODUCTIVITY_TIMELINE_DAY_WINDOW,
+  ProductivityTimelineService,
   segmentTypeForLedgerStage,
   subtractIntervals,
   suggestedTimelineViewportStart,
@@ -63,5 +64,25 @@ describe('productivity timeline interval calculation', () => {
     expect(suggestedTimelineViewportStart([510, 555, 600])).toBe(540);
     expect(suggestedTimelineViewportStart([465])).toBe(450);
     expect(suggestedTimelineViewportStart([])).toBe(540);
+  });
+});
+
+describe('productivity timeline hierarchy scope', () => {
+  it('uses the shared scope and includes the team lead in their own picker', async () => {
+    const prisma = {
+      user: { findUnique: jest.fn().mockResolvedValue({ id: 'lead-1', isActive: true, role: { name: 'TEAM_LEAD' }, department: null }) },
+    };
+    const hierarchyScope = {
+      visibleUserIds: jest.fn().mockResolvedValue({ userIds: ['lead-1', 'employee-1'] }),
+    };
+    const service = new ProductivityTimelineService(prisma as any, {} as any, {} as any, hierarchyScope as any);
+
+    await expect((service as any).requesterScope('lead-1')).resolves.toMatchObject({
+      role: 'TEAM_LEAD', ids: ['lead-1', 'employee-1'],
+    });
+    expect(hierarchyScope.visibleUserIds).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'lead-1' }),
+      { includeSelf: true },
+    );
   });
 });

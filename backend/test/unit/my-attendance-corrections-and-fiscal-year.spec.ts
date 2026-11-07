@@ -18,6 +18,7 @@ import { financialYearV2, mapRecoveredDay, summarizeAttendanceDays, type StoredR
 import { MyAttendanceV2Service } from '../../src/modules/platform/attendance/v2/my-attendance-v2.service';
 import { PUNCH_CORRECTION_MONTHLY_LIMIT, RegularizationService, STATUS_CORRECTION_MONTHLY_LIMIT } from '../../src/modules/platform/attendance/regularization/regularization.service';
 import { AttendanceConsoleService } from '../../src/modules/platform/attendance/console/attendance-console.service';
+import { MonthlyAttendanceReportService } from '../../src/modules/platform/attendance/console/export/monthly-attendance-report.service';
 import { makeRawSqlDouble } from '../helpers/raw-sql-double';
 import { usableFinancialYear } from '../../../frontend/components/attendance-v2/financial-year';
 
@@ -485,13 +486,20 @@ function consoleRig(users: any[], stored: any[] = []) {
     attendanceRegularization: { count: jest.fn().mockResolvedValue(0), findMany: jest.fn().mockResolvedValue([]) },
     // Phase 3: the HR register also lists punch devices.
     attendancePunchEvidence: { findMany: jest.fn().mockResolvedValue([]) },
+    employeeAttendanceProfile: { findMany: jest.fn().mockResolvedValue([]) },
+    compOffCredit: { findMany: jest.fn().mockResolvedValue([]) },
+    workSession: { findMany: jest.fn().mockResolvedValue([]) },
+    leaveRequest: { findMany: jest.fn().mockResolvedValue([]) },
   };
+  prisma.$transaction = jest.fn((fn: any) => fn(prisma));
   const calendar: any = { classifyMonth: jest.fn().mockResolvedValue({ days: [{ businessDate: '2026-08-03', isWorkingDay: true }, { businessDate: '2026-08-04', isWorkingDay: true }], workingDays: 2, sources: { weeklyOffPolicy: 'ASSIGNED' } }) };
   const service = new AttendanceConsoleService(
     prisma, tva(), { isHrOrAdmin: () => true } as any, null as any, null as any, null as any,
     { blockedFromLastRun: jest.fn().mockResolvedValue(null) } as any, calendar, { getLeaveBalance: jest.fn().mockResolvedValue({ balance: 5 }) } as any,
   );
-  return { service, userFinds };
+  // The Monthly Register is served by the report service and its assembler.
+  const reports = new MonthlyAttendanceReportService(prisma, tva(), service, calendar, { log: jest.fn().mockResolvedValue(undefined) } as any, { isHrOrAdmin: () => true } as any);
+  return { service, reports, userFinds };
 }
 const HR = { id: 'hr-1', isHR: true, role: { name: 'ADMIN' } };
 const former = { id: 'u-old', name: 'Gunjan Ranglani', employeeId: 'OWN0048', isActive: false, department: null };
@@ -499,19 +507,19 @@ const storedRow = (userId: string, date: string) => ({ userId, date: new Date(`$
 
 describe('H history includes former employees who have records', () => {
   it('H1. a past month asks for active people OR anyone with a stored row in that month', async () => {
-    const { service, userFinds } = consoleRig([former], [storedRow('u-old', '2026-08-03')]);
-    await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-31' });
-    const where = userFinds[0].where;
+    const { reports, userFinds } = consoleRig([former], [storedRow('u-old', '2026-08-03')]);
+    await reports.register(HR, { from: '2026-08-01', to: '2026-08-31' });
+    const where = userFinds.find((args) => args?.where?.isSystemAccount === false).where;
     expect(where.isActive).toBeUndefined();
-    const or = where.AND[0].OR;
-    expect(or[0]).toEqual({ isActive: true });
+    const or = where.OR;
+    expect(or[0].isActive).toBe(true);
     expect(or[1].dailyAttendanceRecords.some.date.gte).toEqual(new Date('2026-08-01T00:00:00.000Z'));
     expect(or[1].dailyAttendanceRecords.some.date.lte).toEqual(new Date('2026-08-31T00:00:00.000Z'));
   });
 
   it('H2. a former employee appears with their recorded days, marked inactive', async () => {
-    const { service } = consoleRig([former], [storedRow('u-old', '2026-08-03'), storedRow('u-old', '2026-08-04')]);
-    const out = await service.monthlyRegister(HR, { from: '2026-08-01', to: '2026-08-31' });
+    const { reports } = consoleRig([former], [storedRow('u-old', '2026-08-03'), storedRow('u-old', '2026-08-04')]);
+    const out = await reports.register(HR, { from: '2026-08-01', to: '2026-08-31' });
     expect(out.employees).toHaveLength(1);
     expect(out.employees[0]).toMatchObject({ name: 'Gunjan Ranglani', isActive: false, daysPresent: 2 });
   });

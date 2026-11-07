@@ -13,8 +13,10 @@ export class ReviewQueueController {
   constructor(private readonly queue: ReviewQueueService) {}
 
   @Get()
-  list(@CurrentUser() user: any, @Query('scope') scope?: string) {
-    return this.queue.list(user, scope === 'company' ? 'company' : 'team');
+  list(@CurrentUser() user: any, @Query('scope') scope?: string, @Query('origin') origin?: string) {
+    // Anything but an explicit `system` is the default queue, which never
+    // includes system alerts.
+    return this.queue.list(user, scope === 'company' ? 'company' : 'team', origin === 'system' ? 'system' : 'default');
   }
 
   @Get('counts')

@@ -7,6 +7,7 @@ import { BusinessCalendarModule } from '../calendar/business-calendar.module';
 import { PunchReviewService } from './punch-review.service';
 import { UnreportedAbsenceService } from '../absence/unreported-absence.service';
 import { LeaveModule } from '../../../operations/leave/leave.module';
+import { MonthlyAttendanceReportService } from './export/monthly-attendance-report.service';
 
 /**
  * HR attendance console (HC-1).
@@ -25,7 +26,7 @@ import { LeaveModule } from '../../../operations/leave/leave.module';
     LeaveModule,
   ],
   controllers: [AttendanceConsoleController],
-  providers: [AttendanceConsoleService, PunchReviewService, UnreportedAbsenceService],
+  providers: [AttendanceConsoleService, PunchReviewService, UnreportedAbsenceService, MonthlyAttendanceReportService],
   exports: [AttendanceConsoleService, PunchReviewService, UnreportedAbsenceService],
 })
 export class AttendanceConsoleModule {}

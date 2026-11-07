@@ -7,9 +7,10 @@ import { cn } from '@apex/shared-utilities';
 export const DEFAULT_BREAK_SOUND = 'apex-break';
 
 export const BREAK_SOUNDS = [
-  { id: 'apex-break', name: 'Apex Break', description: 'A clear, steady break alarm', src: '/sounds/apex-break.mp3' },
-  { id: 'chicken-call', name: 'Chicken Call', description: 'A lively, attention-grabbing alert', src: '/sounds/chicken-call.mp3' },
-  { id: 'fahhh', name: 'Fahhh', description: 'A short, playful reminder', src: '/sounds/fahhh.mp3' },
+  // seconds: length of one play; the server uses the same values to time alarm rounds.
+  { id: 'apex-break', name: 'Apex Break', description: 'A clear, steady break alarm', src: '/sounds/apex-break.mp3', seconds: 10.1 },
+  { id: 'chicken-call', name: 'Chicken Call', description: 'A lively, attention-grabbing alert', src: '/sounds/chicken-call.mp3', seconds: 5.7 },
+  { id: 'fahhh', name: 'Fahhh', description: 'A short, playful reminder', src: '/sounds/fahhh.mp3', seconds: 2.7 },
 ] as const;
 
 export type BreakSoundId = typeof BREAK_SOUNDS[number]['id'];
@@ -20,6 +21,10 @@ export function isBreakSoundId(value: unknown): value is BreakSoundId {
 
 export function breakSoundSource(value: unknown): string {
   return BREAK_SOUNDS.find((sound) => sound.id === value)?.src ?? BREAK_SOUNDS[0].src;
+}
+
+export function breakSoundSeconds(value: unknown): number {
+  return BREAK_SOUNDS.find((sound) => sound.id === value)?.seconds ?? BREAK_SOUNDS[0].seconds;
 }
 
 export function BreakSoundPicker({
@@ -66,7 +71,7 @@ export function BreakSoundPicker({
             className={cn('rounded-card border p-4 transition-colors', selected && 'ring-2 ring-offset-2')}
             style={{
               borderColor: selected ? 'var(--accent)' : 'var(--border-primary)',
-              backgroundColor: selected ? 'var(--accent-soft)' : 'var(--surface-card)',
+              backgroundColor: selected ? 'var(--accent-subtle)' : 'var(--surface-card)',
               ...(selected ? { '--tw-ring-color': 'var(--accent)', '--tw-ring-offset-color': 'var(--surface-card)' } as CSSProperties : {}),
             }}
           >

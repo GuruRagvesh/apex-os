@@ -405,14 +405,48 @@ describe('archived-user lifecycle (PostgreSQL)', () => {
     await expect(w.svc.archive(u.id, w.admin, { idempotencyKey: loser })).rejects.toMatchObject({ response: expect.objectContaining({ code: 'ALREADY_ARCHIVED' }) });
   });
 
-  it('blocks archival for live responsibilities and changes nothing', async () => {
+  it('archiving cuts a live reporting link instead of blocking (owner rule 2026-11-06)', async () => {
     const C = w.seed.employees.C;
-    await w.prisma.user.update({ where: { id: w.seed.employees.D.id }, data: { reportingManager: C.employeeId } });
+    const D = w.seed.employees.D;
+    await w.prisma.user.update({ where: { id: D.id }, data: { reportingManager: C.employeeId } });
     const pre = await w.svc.archivePreflight(C.id, w.admin);
-    expect(pre.canArchive).toBe(false);
-    expect(pre.blockers).toEqual({ DIRECT_REPORTS: 1 });
-    await expect(w.svc.archive(C.id, w.admin, { idempotencyKey: key() })).rejects.toBeDefined();
-    expect((await w.prisma.user.findUniqueOrThrow({ where: { id: C.id } })).isActive).toBe(true);
+    expect(pre.canArchive).toBe(true);
+    expect(pre.blockers).toEqual({});
+    expect(pre.connections).toEqual(expect.objectContaining({ REPORTING_MANAGER_UNLINKED: 1 }));
+    await w.svc.archive(C.id, w.admin, { idempotencyKey: key() });
+    expect((await w.prisma.user.findUniqueOrThrow({ where: { id: C.id } })).isActive).toBe(false);
+    expect((await w.prisma.user.findUniqueOrThrow({ where: { id: D.id } })).reportingManager).toBeNull();
+  });
+
+  it('archiving cuts every kind of link and reroutes work waiting on them, keeping decision history', async () => {
+    const C = w.seed.employees.C;
+    const D = w.seed.employees.D;
+    const E = w.seed.employees.E;
+    const dept = await w.prisma.department.create({ data: { name: `Unlink ${key()}` } });
+    await w.prisma.user.update({ where: { id: D.id }, data: { teamLeadName: C.employeeId } });
+    const team = await w.prisma.team.create({ data: { name: 'Unlink team', departmentId: dept.id, teamLeadId: C.id } });
+    await w.prisma.teamMember.create({ data: { teamId: team.id, userId: C.id } });
+    await w.prisma.managerDeptAccess.create({ data: { managerId: C.id, departmentId: dept.id } });
+    const supervises = await w.prisma.organizationReportingLine.create({ data: { id: key(), subjectUserId: E.id, supervisorId: C.id } });
+    const reportsTo = await w.prisma.organizationReportingLine.create({ data: { id: key(), subjectUserId: C.id, supervisorId: D.id } });
+    const ticket = await w.prisma.ticket.create({ data: { ticketId: `UNL-${key().slice(0, 8)}`, title: 'Needs approval', category: 'OPERATIONS', createdById: D.id, approverId: C.id, approvalState: 'PENDING' } });
+
+    const pre = await w.svc.archivePreflight(C.id, w.admin);
+    expect(pre.canArchive).toBe(true);
+    expect(pre.connections).toEqual(expect.objectContaining({
+      TEAM_LEAD_UNLINKED: 1, TEAM_LEAD_REMOVED: 1, TEAM_MEMBERSHIP_REMOVED: 1, DEPARTMENT_ACCESS_REMOVED: 1, ORG_REPORTING_LINE_REMOVED: 2, TICKET_APPROVER_CLEARED: 1,
+    }));
+
+    await w.svc.archive(C.id, w.admin, { idempotencyKey: key() });
+
+    expect((await w.prisma.user.findUniqueOrThrow({ where: { id: D.id } })).teamLeadName).toBeNull();
+    expect((await w.prisma.team.findUniqueOrThrow({ where: { id: team.id } })).teamLeadId).toBeNull();
+    expect(await w.prisma.teamMember.count({ where: { userId: C.id } })).toBe(0);
+    expect(await w.prisma.managerDeptAccess.count({ where: { managerId: C.id } })).toBe(0);
+    expect(await w.prisma.organizationReportingLine.count({ where: { id: { in: [supervises.id, reportsTo.id] } } })).toBe(0);
+    const after = await w.prisma.ticket.findUniqueOrThrow({ where: { id: ticket.id } });
+    expect(after.approverId).toBeNull();
+    expect(after.approvalState).toBe('PENDING'); // still waiting, now on the usual approvers
   });
 
   it('permanently deletes a NO_HISTORY_VERIFIED user, releases the email, and keeps no identifier', async () => {

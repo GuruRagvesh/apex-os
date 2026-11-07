@@ -79,7 +79,8 @@ export class ProjectsService {
       select: { id: true },
     });
     if (!existing) throw new NotFoundException('Project not found');
-    const scope = user ? await this.buildProjectScope(user) : {};
+    // The default department narrows lists only; an admin can still open any project directly.
+    const scope = user && !this.accessPolicy.isAdmin(user) ? await this.buildProjectScope(user) : {};
     const project = await this.prisma.project.findFirst({
       where: this.andWhere({ id: existing.id }, scope),
       include: {

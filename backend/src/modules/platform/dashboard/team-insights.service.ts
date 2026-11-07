@@ -7,8 +7,10 @@ import { TicketTimingService } from '../../../common/services/ticket-timing.serv
 import { TVAService } from '../../../common/services/tva.service';
 import { LeaveBalanceService } from '../../operations/leave/leave-balance.service';
 import { BusinessCalendarService } from '../attendance/calendar/business-calendar.service';
+import { OperationalHierarchyScopeService } from '../../../common/services/operational-hierarchy-scope.service';
 import { MyAttendanceV2Service } from '../attendance/v2/my-attendance-v2.service';
 import type { MyAttendanceDayV2 } from '../attendance/v2/my-attendance-v2.contract';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 
 const LEADER_ROLES = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'];
 const PERSONAL_INSIGHT_ROLES = ['INTERN', 'EMPLOYEE', 'TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'];
@@ -213,6 +215,7 @@ export class TeamInsightsService {
     @Optional() private readonly businessCalendar?: BusinessCalendarService,
     @Optional() private readonly leaveBalanceService?: LeaveBalanceService,
     @Optional() private readonly myAttendance?: MyAttendanceV2Service,
+    @Optional() private readonly hierarchyScope?: OperationalHierarchyScopeService,
   ) {}
 
   private async scheduledDates(range: Range) {
@@ -322,8 +325,14 @@ export class TeamInsightsService {
   }
 
   private async allowedScope(viewer: any, departmentId?: string) {
+    departmentId = departmentId || viewDepartmentOf(viewer) || undefined;
     const role = this.access.roleName(viewer);
     if (!LEADER_ROLES.includes(role)) throw new ForbiddenException('Team insights are available to authorized leaders only.');
+
+    if (this.hierarchyScope) {
+      const scope = await this.hierarchyScope.visibleUserIds(viewer, { departmentId });
+      return { role: scope.role, departmentId: scope.departmentId, userIds: scope.userIds };
+    }
 
     if (role === 'TEAM_LEAD') {
       const teams = await this.prisma.team.findMany({

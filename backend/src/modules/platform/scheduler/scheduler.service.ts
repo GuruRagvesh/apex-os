@@ -4,7 +4,7 @@ import { PrismaService } from '../../../prisma/prisma.service';
 import { EventsGateway } from '../gateway/events.gateway';
 import { TicketLedgerService } from '../../operations/tickets/ticket-ledger.service';
 import { NotificationEventService } from '../../operations/notifications/notification-event.service';
-import { NotificationType } from '@prisma/client';
+import { NotificationType, Prisma } from '@prisma/client';
 import { TimezoneUtil } from '../../../common/utils/timezone.util';
 import { formatInTimeZone, toZonedTime } from 'date-fns-tz';
 import { SettingsService } from '../settings/settings.service';
@@ -13,6 +13,8 @@ import { WorkdayService } from '../workday/workday.service';
 import { TVAService } from '../../../common/services/tva.service';
 import { COMPANY_CRON_TIMEZONE } from '../../../common/constants/company-time.constants';
 import { AttendanceAuthorityService } from '../../../common/services/attendance-authority.service';
+
+const EARLY_WARNING_MS = 5 * 60_000;
 
 export function resolveBreakWarningTransition(
   breakLog: { warningStage: string; estimatedMinutes: number | null; plannedEndAt: Date | null },
@@ -23,11 +25,45 @@ export function resolveBreakWarningTransition(
   const finalPhase = breakLog.warningStage === 'FINAL_PENDING' || shortEstimate;
   const dueAt = finalPhase
     ? breakLog.plannedEndAt
-    : new Date(breakLog.plannedEndAt.getTime() - 5 * 60_000);
+    : new Date(breakLog.plannedEndAt.getTime() - EARLY_WARNING_MS);
   if (dueAt.getTime() > now.getTime()) return null;
   return finalPhase
     ? { phase: 'final', activeStage: 'FINAL_ACTIVE' }
     : { phase: 'early', activeStage: 'EARLY_ACTIVE' };
+}
+
+/** Database filter matching exactly the breaks resolveBreakWarningTransition would fire. */
+export function dueBreakWarningsWhere(now: Date): Prisma.BreakLogWhereInput {
+  const earlyCutoff = new Date(now.getTime() + EARLY_WARNING_MS);
+  return {
+    endAt: null,
+    breakType: { not: 'MEETING' },
+    OR: [
+      // Over five minutes (or the 60-minute fallback): warn five minutes early.
+      { warningStage: 'PENDING', estimatedMinutes: { gt: 5 }, plannedEndAt: { lte: earlyCutoff } },
+      { warningStage: 'PENDING', estimatedMinutes: null, plannedEndAt: { lte: earlyCutoff } },
+      // Five minutes or less: a single alarm at the end.
+      { warningStage: 'PENDING', estimatedMinutes: { lte: 5 }, plannedEndAt: { lte: now } },
+      // Armed by Later on the early warning.
+      { warningStage: 'FINAL_PENDING', plannedEndAt: { lte: now } },
+    ],
+  };
+}
+
+// An unanswered alarm rings in up to three rounds: the sound plays 20 times,
+// pauses five minutes, then the next round starts. Mirrors BreakWarningCenter.
+export const BREAK_ALARM_ROUNDS = 3;
+export const BREAK_ALARM_PLAYS_PER_ROUND = 20;
+export const BREAK_ALARM_PAUSE_MS = 5 * 60_000;
+// Length of one play of each selectable sound (frontend/public/sounds).
+const BREAK_SOUND_SECONDS: Record<string, number> = { 'apex-break': 10.1, 'chicken-call': 5.7, fahhh: 2.7 };
+
+/** 0-based round of an unanswered alarm that is ringing or most recently rang, or null once all rounds are spent. */
+export function breakAlarmRound(triggeredAt: Date, sound: unknown, now: Date): number | null {
+  const seconds = BREAK_SOUND_SECONDS[String(sound)] ?? BREAK_SOUND_SECONDS['apex-break'];
+  const cycleMs = seconds * BREAK_ALARM_PLAYS_PER_ROUND * 1000 + BREAK_ALARM_PAUSE_MS;
+  const round = Math.floor((now.getTime() - triggeredAt.getTime()) / cycleMs);
+  return round >= 0 && round < BREAK_ALARM_ROUNDS ? round : null;
 }
 
 @Injectable()
@@ -88,39 +124,28 @@ export class SchedulerService {
   @Cron('* * * * *', { name: 'planned-break-overrun-reminders' })
   async plannedBreakOverrunReminders() {
     const now = this.tva.now();
-    const openBreaks = await this.prisma.breakLog.findMany({
-      where: {
-        endAt: null,
-        breakType: { not: 'MEETING' },
-        plannedEndAt: { not: null },
-      },
-      select: {
-        id: true,
-        userId: true,
-        breakType: true,
-        estimatedMinutes: true,
-        plannedEndAt: true,
-      },
+    // One indexed query returns only the alarms that are due this minute.
+    const dueBreaks = await this.prisma.breakLog.findMany({
+      where: dueBreakWarningsWhere(now),
+      select: { id: true, userId: true, estimatedMinutes: true, plannedEndAt: true, warningStage: true },
       take: 500,
     });
-    for (const breakLog of openBreaks) {
-      const stateRow = await this.prisma.appSetting.findUnique({
-        where: { key: `break-warning-${breakLog.id}` },
-      });
-      const stateValue = (stateRow?.value ?? {}) as any;
-      const warningStage = typeof stateValue.stage === 'string' ? stateValue.stage : 'PENDING';
-      const transition = resolveBreakWarningTransition({ ...breakLog, warningStage }, now);
+    for (const breakLog of dueBreaks) {
+      const transition = resolveBreakWarningTransition(breakLog, now);
       if (!transition) continue;
       const { phase, activeStage } = transition;
       try {
-        // Claim the transition before delivery so two scheduler instances cannot
-        // start two alarms. The durable popup remains recoverable even if push fails.
-        const stateKey = `break-warning-${breakLog.id}`;
-        await this.prisma.appSetting.upsert({
-          where: { key: stateKey },
-          create: { key: stateKey, value: { stage: activeStage, userId: breakLog.userId, updatedAt: now.toISOString() }, updatedBy: breakLog.userId },
-          update: { value: { stage: activeStage, userId: breakLog.userId, updatedAt: now.toISOString() }, updatedBy: breakLog.userId },
+        // Claim the alarm with a conditional update before delivery, so two
+        // scheduler instances (or a break ending meanwhile) cannot ring twice.
+        const { count } = await this.prisma.breakLog.updateMany({
+          where: { id: breakLog.id, endAt: null, warningStage: breakLog.warningStage },
+          data: {
+            warningStage: activeStage,
+            warningUpdatedAt: now,
+            ...(phase === 'early' ? { earlyWarningSentAt: now } : { finalWarningSentAt: now }),
+          },
         });
+        if (!count) continue;
         await this.notificationEventService.sendNotification(breakLog.userId, 'breakOverrun', {
           title: phase === 'early' ? 'Your break ends in 5 minutes' : 'Your planned break has ended',
           message: phase === 'early'
@@ -136,6 +161,51 @@ export class SchedulerService {
         this.notificationEventService.emitBreakWarningChanged?.(breakLog.userId, breakLog.id);
       } catch (error) {
         this.logger.error(`[scheduler] Break reminder failed for ${breakLog.id}: ${error}`);
+      }
+    }
+    await this.repeatUnansweredBreakAlarms(now);
+  }
+
+  /**
+   * Rounds 2 and 3 of an alarm nobody answered: push again so a sleeping phone
+   * or a closed tab rings and vibrates again. Later or Resume ends the rounds,
+   * because either one moves the break out of an *_ACTIVE stage.
+   */
+  private async repeatUnansweredBreakAlarms(now: Date) {
+    const ringing = await this.prisma.breakLog.findMany({
+      where: { endAt: null, warningStage: { in: ['EARLY_ACTIVE', 'FINAL_ACTIVE'] }, warningUpdatedAt: { not: null } },
+      select: { id: true, userId: true, warningStage: true, warningUpdatedAt: true, plannedEndAt: true },
+      take: 500,
+    });
+    if (!ringing.length) return;
+    const prefRows = await this.prisma.appSetting.findMany({
+      where: { key: { in: [...new Set(ringing.map((row) => `user-prefs-${row.userId}`))] } },
+      select: { key: true, value: true },
+    });
+    const soundByUser = new Map(prefRows.map((row) => [row.key.slice('user-prefs-'.length), (row.value as any)?.breakWarningSound]));
+
+    for (const breakLog of ringing) {
+      const round = breakAlarmRound(breakLog.warningUpdatedAt!, soundByUser.get(breakLog.userId), now);
+      if (!round) continue; // Round 1 was the alarm itself; null means all rounds are spent.
+      const phase = breakLog.warningStage === 'EARLY_ACTIVE' ? 'early' : 'final';
+      const dedupeKey = `break-warning:${breakLog.id}:${phase}:round${round + 1}`;
+      try {
+        const sent = await this.prisma.notification.findFirst({ where: { userId: breakLog.userId, dedupeKey }, select: { id: true } });
+        if (sent) continue;
+        const ended = !breakLog.plannedEndAt || breakLog.plannedEndAt.getTime() <= now.getTime();
+        await this.notificationEventService.sendNotification(breakLog.userId, 'breakOverrun', {
+          title: ended ? 'Your planned break has ended' : 'Your break is about to end',
+          message: `Reminder ${round + 1} of ${BREAK_ALARM_ROUNDS}. Resume work, or choose Later in Apex OS.`,
+          type: NotificationType.WARNING,
+          link: '/dashboard',
+          entityType: 'BREAK',
+          entityId: breakLog.id,
+          dedupeKey,
+          forceDelivery: true,
+        });
+        this.notificationEventService.emitBreakWarningChanged?.(breakLog.userId, breakLog.id);
+      } catch (error) {
+        this.logger.error(`[scheduler] Break reminder round failed for ${breakLog.id}: ${error}`);
       }
     }
   }

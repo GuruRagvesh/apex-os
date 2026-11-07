@@ -62,6 +62,17 @@ export function registerFileName(month: string, extension: 'xlsx' | 'csv'): stri
 }
 
 /**
+ * `Attendance_Report_September_2026.xlsx` / `Attendance_Report_September_2026_CSV.zip`
+ *
+ * The monthly attendance report's file names. Duplicated from the backend for
+ * the same reason as registerFileName(), and pinned to it by the same test.
+ */
+export function reportFileName(month: string, format: 'xlsx' | 'zip'): string {
+  const token = monthLabel(month).replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return format === 'xlsx' ? `Attendance_Report_${token}.xlsx` : `Attendance_Report_${token}_CSV.zip`;
+}
+
+/**
  * A dash, not 0%.
  *
  * An employee with no eligible working days has not scored zero; nothing has
@@ -76,4 +87,14 @@ export function formatCompletion(value: number | null | undefined): string {
 /** A missing leave balance reads as unknown rather than as none left. */
 export function formatBalance(value: number | null | undefined): string {
   return value === null || value === undefined ? '—' : String(value);
+}
+
+/** Comp-off hours, two decimals, the way the workbook and CSV print them. */
+export function formatHours(value: number | null | undefined): string {
+  return value === null || value === undefined ? '—' : value.toFixed(2);
+}
+
+/** The report's Provisional flag, worded as the downloads word it. */
+export function formatProvisional(value: boolean | null | undefined): string {
+  return value ? 'Yes' : 'No';
 }

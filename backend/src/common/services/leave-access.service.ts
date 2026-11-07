@@ -3,6 +3,7 @@ import { LeaveStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { ROLES } from '../../shared/constants/roles';
 import { AccessPolicyService } from './access-policy.service';
+import { viewDepartmentOf } from './view-scope';
 
 @Injectable()
 export class LeaveAccessService {
@@ -36,6 +37,8 @@ export class LeaveAccessService {
       select: { id: true },
     });
     if (!existing) throw new NotFoundException('Leave request not found');
+    // The default department narrows lists only; HR and admins can still open any request directly.
+    if (this.access.isHrOrAdmin(user)) return this.prisma.leaveRequest.findUnique({ where: { id }, include });
     const where = await this.buildLeaveWhereForUser({}, user);
     const allowed = await this.prisma.leaveRequest.count({
       where: this.andWhere({ id }, where),
@@ -124,6 +127,8 @@ export class LeaveAccessService {
 
   private async buildScope(user: any): Promise<any> {
     const roleName = this.access.roleName(user);
+    const viewDept = viewDepartmentOf(user);
+    if (viewDept) return { OR: [{ userId: user.id }, { user: { departmentId: viewDept } }] };
     if (this.access.isHrOrAdmin(user)) return {};
     if ([ROLES.EMPLOYEE, ROLES.INTERN].includes(roleName as any)) return { userId: user.id };
     if ([ROLES.MANAGER, ROLES.TEAM_LEAD].includes(roleName as any)) {

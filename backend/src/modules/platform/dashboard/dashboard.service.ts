@@ -5,6 +5,7 @@ import { TicketAccessService } from '../../../common/services/ticket-access.serv
 import { TicketTimingService } from '../../../common/services/ticket-timing.service';
 import { LeaveAccessService } from '../../../common/services/leave-access.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 import { calculateWorkdayRuntime } from '../workday/workday.calculation';
 import { LeaveBalanceService } from '../../operations/leave/leave-balance.service';
 import { TVAService } from '../../../common/services/tva.service';
@@ -48,6 +49,8 @@ export class DashboardService {
   /** Project visibility for the dashboard; also used by HomeInsightsService. */
   async buildProjectScope(user: any): Promise<any> {
     const roleName = this.accessPolicy.roleName(user);
+    const viewDept = viewDepartmentOf(user);
+    if (viewDept) return { OR: [{ members: { some: { userId: user.id } } }, { departmentId: viewDept }] };
     if (!user || this.accessPolicy.isAdmin(user)) return {};
     if (['EMPLOYEE', 'INTERN'].includes(roleName)) {
       return { members: { some: { userId: user.id } } };
@@ -169,7 +172,8 @@ export class DashboardService {
     const roleName = this.accessPolicy.roleName(user);
     const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(roleName);
 
-    const deptWhere = isAdmin ? {} : { id: { in: await this.accessPolicy.managedDepartmentIds(user) } };
+    const viewDept = viewDepartmentOf(user);
+    const deptWhere = viewDept ? { id: viewDept } : isAdmin ? {} : { id: { in: await this.accessPolicy.managedDepartmentIds(user) } };
     const ticketWhere = await this.ticketAccess.buildTicketWhereForUser({}, user);
 
     const departments = await this.prisma.department.findMany({
@@ -198,6 +202,8 @@ export class DashboardService {
     const isAdmin = ['ADMIN', 'SUPER_ADMIN'].includes(roleName);
 
     let whereClause: any = {};
+    const viewDept = viewDepartmentOf(user);
+    if (viewDept) whereClause = { OR: [{ userId: user.id }, { user: { departmentId: viewDept } }] };
     if (!isAdmin && user) {
       if (['MANAGER', 'TEAM_LEAD'].includes(roleName)) {
         const deptIds = await this.accessPolicy.managedDepartmentIds(user);

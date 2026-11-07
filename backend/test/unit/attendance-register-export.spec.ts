@@ -1,4 +1,3 @@
-import * as ExcelJS from 'exceljs';
 import {
   REGISTER_COLUMNS,
   formatBalance,
@@ -8,7 +7,8 @@ import {
   registerFileName,
   type RegisterResult,
 } from '../../src/modules/platform/attendance/console/register-report';
-import { buildRegisterWorkbook } from '../../src/modules/platform/attendance/console/register-workbook';
+import { packageName, workbookName } from '../../src/modules/platform/attendance/console/export/report-csv';
+import { formatCell } from '../../src/modules/platform/attendance/console/export/report-columns';
 import {
   currentMonth,
   formatBalance as feFormatBalance,
@@ -17,6 +17,8 @@ import {
   monthLabel as feMonthLabel,
   monthRange,
   registerFileName as feRegisterFileName,
+  reportFileName as feReportFileName,
+  formatHours as feFormatHours,
   shiftMonth,
 } from '../../../frontend/components/attendance/register-month';
 
@@ -82,16 +84,8 @@ describe('the register carries exactly seven fields', () => {
     );
   });
 
-  it('3. no payroll, salary, evidence or exception column reaches either export', async () => {
-    const wb = buildRegisterWorkbook(RESULT, new Date('2026-09-30T00:00:00.000Z'));
-    const sheet = wb.getWorksheet('Monthly Register')!;
-
-    const text: string[] = [];
-    sheet.eachRow((row) => {
-      row.eachCell((cell) => text.push(String(cell.value ?? '')));
-    });
-    const everything = `${text.join(' ')} ${registerCsv(RESULT)}`.toLowerCase();
-
+  it('3. no payroll, salary, evidence or exception column reaches the legacy CSV', () => {
+    const everything = registerCsv(RESULT).toLowerCase();
     for (const forbidden of [
       'salary', 'payroll', 'gross', 'net pay', 'ctc',
       'latitude', 'longitude', 'gps', 'photo', 'accuracy',
@@ -101,81 +95,9 @@ describe('the register carries exactly seven fields', () => {
     }
   });
 
-  it('4. the workbook has exactly one sheet, named for what it is', () => {
-    const wb = buildRegisterWorkbook(RESULT, new Date('2026-09-30T00:00:00.000Z'));
-    expect(wb.worksheets.map((w) => w.name)).toEqual(['Monthly Register']);
-  });
-});
-
-describe('the two exports read one result', () => {
-  const generatedAt = new Date('2026-09-30T00:00:00.000Z');
-
-  it('5. every employee figure is identical in the CSV and the workbook', () => {
-    const wb = buildRegisterWorkbook(RESULT, generatedAt);
-    const sheet = wb.getWorksheet('Monthly Register')!;
-    const csvRows = registerCsv(RESULT)
-      .replace(/^﻿/, '')
-      .split('\r\n')
-      .filter(Boolean);
-
-    RESULT.employees.forEach((e, i) => {
-      // Heading block is 4 rows, the column header is row 5, so data starts at 6.
-      const row = sheet.getRow(6 + i);
-      expect(row.getCell(2).value).toBe(e.daysPresent);
-      expect(row.getCell(3).value).toBe(e.daysAbsent);
-      expect(row.getCell(4).value).toBe(e.halfDays);
-      expect(row.getCell(6).value).toBe(e.latePunchIns);
-
-      // And the CSV line carries the same numbers.
-      const csv = csvRows[i + 1];
-      expect(csv).toContain(`,${e.daysPresent},${e.daysAbsent},${e.halfDays},`);
-    });
-  });
-
-  it('6. the completion is a real Excel percentage, not a pre-formatted string', () => {
-    const wb = buildRegisterWorkbook(RESULT, generatedAt);
-    const cell = wb.getWorksheet('Monthly Register')!.getRow(6).getCell(7);
-
-    // 0.9545 with a percent format, not 95.45 (which would render 9545%) and
-    // not "95.45%" (which nothing can average).
-    expect(cell.value).toBeCloseTo(0.9545, 6);
-    expect(cell.numFmt).toBe('0.00%');
-  });
-
-  it('7. an unmeasurable employee is blank in Excel and a dash in the CSV, never zero', () => {
-    const wb = buildRegisterWorkbook(RESULT, generatedAt);
-    const row = wb.getWorksheet('Monthly Register')!.getRow(7);
-
-    expect(row.getCell(5).value).toBeNull();
-    expect(row.getCell(7).value).toBeNull();
-
-    const csv = registerCsv(RESULT).split('\r\n')[2];
-    expect(csv).toContain('—');
-    expect(csv).not.toMatch(/,0\.00%/);
-  });
-
-  it('8. the workbook says which month and how many working days it covers', () => {
-    const wb = buildRegisterWorkbook(RESULT, generatedAt);
-    const sheet = wb.getWorksheet('Monthly Register')!;
-
-    expect(String(sheet.getRow(2).getCell(1).value)).toBe('Month: September 2026');
-    expect(String(sheet.getRow(3).getCell(1).value)).toBe('Working Days: 22');
-  });
-
-  it('9. two renders of the same result produce the same bytes', async () => {
-    const a = await buildRegisterWorkbook(RESULT, generatedAt).xlsx.writeBuffer();
-    const b = await buildRegisterWorkbook(RESULT, generatedAt).xlsx.writeBuffer();
-    expect(Buffer.from(a).equals(Buffer.from(b))).toBe(true);
-  });
-
-  it('10. the workbook actually opens', async () => {
-    const buffer = await buildRegisterWorkbook(RESULT, generatedAt).xlsx.writeBuffer();
-    const reopened = new ExcelJS.Workbook();
-    await reopened.xlsx.load(buffer as any);
-
-    const sheet = reopened.getWorksheet('Monthly Register')!;
-    expect(String(sheet.getRow(6).getCell(1).value)).toBe('Ajay Singh');
-  });
+  // The legacy seven-column workbook is gone: the console downloads the
+  // two-sheet monthly attendance report instead (monthly-attendance-report
+  // specs). Only the legacy CSV route remains, for API compatibility.
 });
 
 describe('CSV escaping', () => {
@@ -233,6 +155,20 @@ describe('the frontend copies cannot drift from the backend', () => {
       expect(feRegisterFileName(m, 'xlsx')).toBe(registerFileName(m, 'xlsx'));
       expect(feRegisterFileName(m, 'csv')).toBe(registerFileName(m, 'csv'));
     }
+  });
+
+  it('18b. the monthly report file names agree with the server', () => {
+    for (const m of months) {
+      const label = monthLabel(m);
+      expect(feReportFileName(m, 'xlsx')).toBe(workbookName(label));
+      expect(feReportFileName(m, 'zip')).toBe(packageName(label));
+    }
+    expect(feReportFileName('2026-09', 'xlsx')).toBe('Attendance_Report_September_2026.xlsx');
+    expect(feReportFileName('2026-09', 'zip')).toBe('Attendance_Report_September_2026_CSV.zip');
+  });
+
+  it('18c. comp-off hours print on screen exactly as the files print them', () => {
+    for (const v of [0, 3, 9, 4.5, 12.25]) expect(feFormatHours(v)).toBe(formatCell('hours', v));
   });
 
   it('19. the displayed percentage and balance agree', () => {

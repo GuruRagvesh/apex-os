@@ -85,7 +85,7 @@ export class UsersController {
 
   @Patch('me/preferences')
   async updatePreferences(@CurrentUser() user: any, @Body() body: any) {
-    return this.usersService.savePreferences(user.id ?? user.sub, body);
+    return this.usersService.savePreferences(user.id ?? user.sub, body, user);
   }
 
   /** Read-only setup health (Phase 1). Authority is checked in the service: Admin, Super Admin or isHR. */

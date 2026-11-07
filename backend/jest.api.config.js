@@ -15,8 +15,10 @@ module.exports = {
   rootDir: '.',
   testEnvironment: 'node',
   transform: {
-    '^.+\\.(t|j)s$': ['ts-jest', { tsconfig: './tsconfig.json' }],
+    '^.+\\.(t|j)s$': ['<rootDir>/test/jest-esm-transform.js', { tsconfig: './tsconfig.json' }],
   },
+  // NestJS 12 ships ES modules only; see test/jest-esm-transform.js.
+  transformIgnorePatterns: ['/node_modules/(?!(\\.pnpm/)?@nestjs/)'],
   testMatch: ['**/test/integration/**/*.spec.ts'],
   moduleNameMapper: { '^src/(.*)$': '<rootDir>/src/$1' },
   globalSetup: '<rootDir>/test/integration/global-setup.ts',

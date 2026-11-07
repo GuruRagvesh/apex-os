@@ -23,8 +23,7 @@ export default function WelcomePage() {
     if (!hasHydrated) return;
     if (!user) { router.push('/login'); return; }
     if (localStorage.getItem('apexWelcomeSeen') === 'true') {
-      const roleName = (user?.role as any)?.name ?? '';
-      router.push(roleName === 'SUPER_ADMIN' ? '/select-mode' : '/dashboard');
+      router.push('/dashboard');
       return;
     }
     setVisible(true);
@@ -49,7 +48,7 @@ export default function WelcomePage() {
 
   const handleEnter = () => {
     localStorage.setItem('apexWelcomeSeen', 'true');
-    router.push(roleName === 'SUPER_ADMIN' ? '/select-mode' : '/dashboard');
+    router.push('/dashboard');
   };
 
   if (!visible) {

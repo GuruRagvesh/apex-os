@@ -33,7 +33,6 @@ describe('Attendance average and break corrections — 10-case regression suite'
       ['2026-10-01', attendanceDay('2026-10-01')],
       ['2026-10-02', attendanceDay('2026-10-02', { presenceMinutes: 480, workedMinutes: 420 })],
     ];
-
     expect(metrics(records)).toEqual(metrics(records.map(([date, value]) => [date, { ...value }])));
   });
 
@@ -46,7 +45,6 @@ describe('Attendance average and break corrections — 10-case regression suite'
       ['2026-10-01', attendanceDay('2026-10-01', { presenceMinutes: 600 })],
       ['2026-10-02', attendanceDay('2026-10-02', { presenceMinutes: 300 })],
     ]);
-
     expect(first.avgWorkMinutes).toBe((540 + 480) / 2);
     expect(second.avgWorkMinutes).toBe((600 + 300) / 2);
   });
@@ -55,7 +53,6 @@ describe('Attendance average and break corrections — 10-case regression suite'
     const result = metrics([
       ['2026-10-01', attendanceDay('2026-10-01', { presenceMinutes: 555, workedMinutes: 480, breakMinutes: 75 })],
     ]);
-
     expect(result.avgWorkMinutes).toBe(555);
     expect(result.totalBreakMinutes).toBe(75);
   });
@@ -63,14 +60,8 @@ describe('Attendance average and break corrections — 10-case regression suite'
   it('4. excludes a running current day from average working hours', () => {
     const result = metrics([
       ['2026-10-01', attendanceDay('2026-10-01', { presenceMinutes: 540 })],
-      ['2026-10-02', attendanceDay('2026-10-02', {
-        isInProgress: true,
-        punchOutAt: null,
-        presenceMinutes: 20,
-        workedMinutes: 20,
-      })],
+      ['2026-10-02', attendanceDay('2026-10-02', { isInProgress: true, punchOutAt: null, presenceMinutes: 20, workedMinutes: 20 })],
     ]);
-
     expect(result.daysWorked).toBe(1);
     expect(result.avgWorkMinutes).toBe(540);
   });
@@ -79,7 +70,6 @@ describe('Attendance average and break corrections — 10-case regression suite'
     const result = metrics([
       ['2026-10-01', attendanceDay('2026-10-01', { isInProgress: true, punchOutAt: null, presenceMinutes: 15 })],
     ]);
-
     expect(result.daysWorked).toBe(0);
     expect(result.avgWorkMinutes).toBeNull();
     expect(result.totalWorkMinutes).toBe(0);
@@ -88,27 +78,16 @@ describe('Attendance average and break corrections — 10-case regression suite'
   it('6. excludes an unfinished day from average and total break time', () => {
     const result = metrics([
       ['2026-10-01', attendanceDay('2026-10-01', { breakMinutes: 45 })],
-      ['2026-10-02', attendanceDay('2026-10-02', {
-        isInProgress: true,
-        punchOutAt: null,
-        presenceMinutes: 90,
-        breakMinutes: 30,
-      })],
+      ['2026-10-02', attendanceDay('2026-10-02', { isInProgress: true, punchOutAt: null, presenceMinutes: 90, breakMinutes: 30 })],
     ]);
-
     expect(result.totalBreakMinutes).toBe(45);
   });
 
   it('7. includes a valid current-day punch-in in the punch-in clock average', () => {
     const result = metrics([
       ['2026-10-01', attendanceDay('2026-10-01', { punchInAt: '2026-10-01T09:30:00.000+05:30' })],
-      ['2026-10-02', attendanceDay('2026-10-02', {
-        isInProgress: true,
-        punchInAt: '2026-10-02T10:30:00.000+05:30',
-        punchOutAt: null,
-      })],
+      ['2026-10-02', attendanceDay('2026-10-02', { isInProgress: true, punchInAt: '2026-10-02T10:30:00.000+05:30', punchOutAt: null })],
     ]);
-
     expect(result.avgPunchInMinutes).toBe((570 + 630) / 2);
   });
 
@@ -117,7 +96,6 @@ describe('Attendance average and break corrections — 10-case regression suite'
       ['2026-10-01', attendanceDay('2026-10-01', { punchOutAt: '2026-10-01T18:30:00.000+05:30' })],
       ['2026-10-02', attendanceDay('2026-10-02', { isInProgress: true, punchOutAt: null })],
     ]);
-
     expect(result.avgPunchOutMinutes).toBe(18 * 60 + 30);
   });
 
@@ -126,7 +104,6 @@ describe('Attendance average and break corrections — 10-case regression suite'
       ['2026-10-01', attendanceDay('2026-10-01', { presenceMinutes: 540 })],
       ['2026-10-02', attendanceDay('2026-10-02', { isFuture: true, presenceMinutes: 1_000, breakMinutes: 500 })],
     ]);
-
     expect(result.daysWorked).toBe(1);
     expect(result.avgWorkMinutes).toBe(540);
     expect(result.totalBreakMinutes).toBe(60);
@@ -137,7 +114,6 @@ describe('Attendance average and break corrections — 10-case regression suite'
     const cutoff = buildCompanyDateTimeUtc('2026-10-31', '20:00', 'Asia/Kolkata');
     const now = new Date(cutoff.getTime() + (AUTO_CLOSE_GRACE_MINUTES + 60) * 60_000);
     const staleUser = { role: { name: 'EMPLOYEE' }, lastActiveAt: new Date(cutoff.getTime() - 60 * 60_000) };
-
     expect(shouldPolicyAutoStop(
       { logoutAt: null, status: 'ON_BREAK' }, staleUser, policy, now, '2026-10-31', '2026-10-31',
     ).shouldStop).toBe(false);

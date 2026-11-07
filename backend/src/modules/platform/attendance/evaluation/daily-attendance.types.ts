@@ -105,7 +105,18 @@ export type AttendanceExceptionFlag =
  * this list is what stops an approved correction from re-opening the very day
  * it just settled.
  */
-export const NON_REVIEW_FLAGS: AttendanceExceptionFlag[] = ['CORRECTED_BY_REGULARIZATION'];
+export const NON_REVIEW_FLAGS: AttendanceExceptionFlag[] = [
+  'CORRECTED_BY_REGULARIZATION',
+  // No punch on a working day is a decided ABSENT (or the three-day LWP), not
+  // an open question; a correction can still change it.
+  'NO_ATTENDANCE_EVIDENCE',
+  'UNREPORTED_ABSENCE_3_DAYS',
+  // A punch outside the office area counts normally. The location is stored
+  // and printed in the daily export for HR to see.
+  'LOCATION_OUTSIDE_GEOFENCE',
+  'LOCATION_LOW_ACCURACY',
+  'LOCATION_UNAVAILABLE',
+];
 
 /** Machine-readable summary of how the status was reached. */
 export type AttendanceCalculationReason =
