@@ -92,10 +92,25 @@ export class DepartmentsService {
       orderBy: { name: 'asc' },
     });
 
-    return departments.map((d) => ({
+    // Active tickets use the same "department's tickets" rule as the Tickets
+    // page and Kanban: filed under the department, or assigned to or created
+    // by its people. Counting only tickets filed under it disagreed with them.
+    const activeTicketCounts = await Promise.all(departments.map((d) => this.prisma.ticket.count({
+      where: {
+        status: { notIn: ['PENDING_APPROVAL', 'DONE', 'CLOSED'] },
+        OR: [
+          { departmentId: d.id },
+          { assignedTo: { departmentId: d.id } },
+          { createdBy: { departmentId: d.id } },
+          { assignees: { some: { user: { departmentId: d.id } } } },
+        ],
+      },
+    })));
+
+    return departments.map((d, index) => ({
       ...d,
       teamLead: d.users[0] ?? null,
-      activeTickets: d._count.tickets,
+      activeTickets: activeTicketCounts[index],
       managerCount: d._count.managerAccess,
       hasDepartmentHead: d._count.managerAccess > 0,
     }));

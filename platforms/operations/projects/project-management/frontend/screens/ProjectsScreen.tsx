@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { projectsApi } from '../api';
-import { departmentsApi, useTopBarDepartment } from '@apex/core-organization-departments/api';
+import { departmentsApi, lockedByTopBarHint, useTopBarDepartment } from '@apex/core-organization-departments/api';
 import { teamsApi } from '@apex/workforce-teams/api';
 import { useAuthStore } from '@apex/core-identity';
 import { PROJECT_STATUS_COLORS } from '../lib/project-status';
@@ -288,6 +288,8 @@ export default function ProjectsPage() {
             onChange={(e) => setParams({ department: e.target.value || null, page: null })}
             className="apex-select sm:w-48"
             aria-label="Filter by department"
+            disabled={Boolean(topBarDepartment)}
+            title={topBarDepartment ? lockedByTopBarHint(topBarDepartment.name) : undefined}
           >
             <option value="">All departments</option>
             {deptOptions.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}
