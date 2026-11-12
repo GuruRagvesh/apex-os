@@ -191,7 +191,7 @@ describe('boundaries', () => {
     // top-bar department filter while one is selected (global filter).
     // Line endings are normalised so Windows checkouts (CRLF) and CI (LF) agree.
     const page = read('frontend/app/(dashboard)/(operations)/team/page.tsx').replace(/\r\n/g, '\n');
-    expect(createHash('sha256').update(page).digest('hex')).toBe('2e2ab932122710f2e063f7f1b83a9f2b1253ec5fe398c0ad36b5a28790128e5e');
+    expect(createHash('sha256').update(page).digest('hex')).toBe('77849de6c1702e687c1aed5943e039a994ce4f2de3d18a9ffdde658d2168bd08');
   });
 
   it('department responses read users through the safe select, never a full-row include', () => {

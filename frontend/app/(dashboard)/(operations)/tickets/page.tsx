@@ -251,7 +251,9 @@ export default function TicketsPage() {
     enabled: canFilterByAssignee,
     staleTime: 5 * 60_000,
   });
-  const assigneeList: any[] = Array.isArray(assigneeOptions) ? assigneeOptions : assigneeOptions?.users ?? [];
+  // Active people only.
+  const assigneeList: any[] = (Array.isArray(assigneeOptions) ? assigneeOptions : assigneeOptions?.users ?? [])
+    .filter((u: any) => u.isActive !== false);
 
   const { data: stats } = useQuery({
     queryKey: ['ticket-stats'],

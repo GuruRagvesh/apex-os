@@ -8,6 +8,9 @@
 
 export const VIEW_SCOPE_PREF = 'viewScope';
 
+/** Request header (lower-case, as Node delivers it) a company-wide page sends so its requests are never narrowed. */
+export const VIEW_SCOPE_HEADER = 'x-view-scope';
+
 export interface ViewScopePreference {
   enabled: boolean;
   departmentId: string | null;

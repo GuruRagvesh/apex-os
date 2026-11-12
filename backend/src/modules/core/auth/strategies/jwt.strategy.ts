@@ -3,7 +3,7 @@ import { PassportStrategy } from '@nestjs/passport';
 import { ExtractJwt, Strategy } from 'passport-jwt';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { activeViewDepartment, isAdminRole } from '../../../../common/services/view-scope';
+import { VIEW_SCOPE_HEADER, activeViewDepartment, isAdminRole } from '../../../../common/services/view-scope';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -18,10 +18,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: configService.get<string>('JWT_SECRET'),
+      passReqToCallback: true,
     });
   }
 
-  async validate(payload: { sub: string; email: string; iat?: number }) {
+  async validate(req: any, payload: { sub: string; email: string; iat?: number }) {
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
       include: { role: true, department: true },
@@ -40,7 +41,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     const { password, ...result } = user;
     // Admins only: the default department they narrowed their view to.
     let viewDepartmentId: string | null = null;
-    if (isAdminRole(user)) {
+    // Company-wide pages (Analytics, Inventory, Payroll) send VIEW_SCOPE_HEADER
+    // and are never narrowed.
+    const companyWide = String(req?.headers?.[VIEW_SCOPE_HEADER] ?? '').toLowerCase() === 'company';
+    if (isAdminRole(user) && !companyWide) {
       const prefs = await this.prisma.appSetting.findUnique({ where: { key: `user-prefs-${user.id}` }, select: { value: true } });
       viewDepartmentId = activeViewDepartment(prefs?.value);
     }

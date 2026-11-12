@@ -17,16 +17,16 @@ describe('JWT revocation', () => {
 
   it('rejects a token issued before sessionsRevokedAt and accepts one issued after', async () => {
     const user = { id: 'u1', isActive: true, isSystemAccount: false, sessionsRevokedAt: revokedAt, password: 'h' };
-    await expect(build(user).validate({ sub: 'u1', email: 'a@x', iat: sec(revokedAt) - 60 })).rejects.toBeInstanceOf(UnauthorizedException);
-    await expect(build(user).validate({ sub: 'u1', email: 'a@x' })).rejects.toBeInstanceOf(UnauthorizedException);
-    const ok: any = await build(user).validate({ sub: 'u1', email: 'a@x', iat: sec(revokedAt) + 5 });
+    await expect(build(user).validate({ headers: {} }, { sub: 'u1', email: 'a@x', iat: sec(revokedAt) - 60 })).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(build(user).validate({ headers: {} }, { sub: 'u1', email: 'a@x' })).rejects.toBeInstanceOf(UnauthorizedException);
+    const ok: any = await build(user).validate({ headers: {} }, { sub: 'u1', email: 'a@x', iat: sec(revokedAt) + 5 });
     expect(ok.id).toBe('u1');
     expect(ok.password).toBeUndefined();
   });
 
   it('rejects the system account and a deleted user', async () => {
-    await expect(build({ id: 's', isActive: true, isSystemAccount: true }).validate({ sub: 's', email: 'x', iat: 1 })).rejects.toBeInstanceOf(UnauthorizedException);
-    await expect(build(null).validate({ sub: 'gone', email: 'x', iat: 1 })).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(build({ id: 's', isActive: true, isSystemAccount: true }).validate({ headers: {} }, { sub: 's', email: 'x', iat: 1 })).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(build(null).validate({ headers: {} }, { sub: 'gone', email: 'x', iat: 1 })).rejects.toBeInstanceOf(UnauthorizedException);
   });
 });
 

@@ -42,11 +42,21 @@ describe('list scopes', () => {
     const tickets = new TicketAccessService({} as any, policy, {} as any);
     expect(await tickets.buildTicketWhereForUser({}, superAdmin())).toEqual({});
     const where = await tickets.buildTicketWhereForUser({}, superAdmin('ai'));
-    expect(where.OR).toEqual(expect.arrayContaining([
-      { assignedToId: 'sa' },
+    // Filed under the department, or assigned to or created by its people;
+    // never the admin's own tickets elsewhere.
+    expect(where.OR).toEqual([
       { departmentId: { in: ['ai'] } },
       { assignedTo: { departmentId: { in: ['ai'] } } },
-    ]));
+      { createdBy: { departmentId: { in: ['ai'] } } },
+      { assignees: { some: { user: { departmentId: { in: ['ai'] } } } } },
+    ]);
+  });
+
+  it('tickets: the locked page department filter does not narrow below the department scope', async () => {
+    const prisma = { department: { findFirst: jest.fn(async () => ({ id: 'ai' })) } };
+    const tickets = new TicketAccessService(prisma as any, policy, {} as any);
+    const where = await tickets.buildTicketWhereForUser({ departmentId: 'ai' }, superAdmin('ai'));
+    expect(JSON.stringify(where)).not.toContain('"departmentId":"ai"');
   });
 
   it('tickets: an admin can still open any ticket directly while narrowed', async () => {

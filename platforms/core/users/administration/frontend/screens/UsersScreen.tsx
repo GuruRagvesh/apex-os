@@ -101,7 +101,8 @@ export default function UsersPage() {
   const topBarDepartment = useTopBarDepartment(isAdmin);
   const deptFilter = topBarDepartment?.id ?? pickedDeptFilter;
   const [roleFilter, setRoleFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  // Active people by default; inactive and archived ones stay one choice away.
+  const [statusFilter, setStatusFilter] = useState('active');
   const [showNew, setShowNew] = useState(false);
   const [form, setForm] = useState({ name: '', email: '', password: '', roleId: '', departmentId: '', joiningDate: '' });
   // What the email already belongs to (Phase 2). An archived person is
@@ -356,9 +357,9 @@ export default function UsersPage() {
           <option value="archived">Archived</option>
           <option value="all">All users</option>
         </select>
-        {(pickedDeptFilter || roleFilter || statusFilter) && (
+        {(pickedDeptFilter || roleFilter || statusFilter !== 'active') && (
           <button
-            onClick={() => { setDeptFilter(''); setRoleFilter(''); setStatusFilter(''); }}
+            onClick={() => { setDeptFilter(''); setRoleFilter(''); setStatusFilter('active'); }}
             className="text-xs font-medium"
             style={{ color: 'var(--danger-text)' }}
           >

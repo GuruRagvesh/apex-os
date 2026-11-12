@@ -54,7 +54,8 @@ export function TransferImpactModal({ user, onClose }: { user: { id: string; nam
   const remediation = useRemediation();
   const runner = useMemo(createRemediationActionRunner, []);
 
-  const departments = useQuery({ queryKey: ['departments-list'], queryFn: () => r<any[]>(api.get('/departments')), retry: false });
+  // Every department, whatever the top-bar filter: a transfer moves someone out of it.
+  const departments = useQuery({ queryKey: ['departments-list', 'all-company'], queryFn: () => r<any[]>(api.get('/departments', { params: { all: 'true' } })), retry: false });
   const roles = useQuery({ queryKey: ['roles-list'], queryFn: () => r<any[]>(api.get('/roles')), retry: false });
 
   const plan: TransferPlanInput = { toDepartmentId: toDepartmentId || null, toRoleId };

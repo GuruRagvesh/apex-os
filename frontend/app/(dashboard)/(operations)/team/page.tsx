@@ -194,22 +194,41 @@ function DeptSection({ name, members }: { name: string; members: any[] }) {
 // ─── Super Admin Company View ─────────────────────────────────────────────────
 function SuperAdminCompanyView({ me }: { me: any }) {
   const [search, setSearch] = useState('');
+  const [deptFilter, setDeptFilter] = useState('');
+  // The top-bar department sits above this page's own department filter: while
+  // one is selected the server sends only its people and the filter locks to it.
+  const topBarDepartment = useActiveViewDepartment();
+  useEffect(() => { setDeptFilter(''); }, [topBarDepartment?.id]);
+  const effectiveDept = topBarDepartment?.name ?? deptFilter;
 
   const { data: usersData, isLoading } = useQuery({
-    queryKey: ['all-users-team'],
+    queryKey: ['all-users-team', topBarDepartment?.id ?? null],
     queryFn: () => usersApi.getAll({ limit: 100 }) as Promise<any>,
     refetchInterval: pollWhileHealthy(60_000),
   });
 
-  const allUsers: any[] = usersData?.users ?? (Array.isArray(usersData) ? usersData : []);
+  // Active people only.
+  const allUsers: any[] = (usersData?.users ?? (Array.isArray(usersData) ? usersData : []))
+    .filter((u: any) => u.isActive !== false);
+
+  const departments = useMemo(() => {
+    const names = new Set(allUsers.map((u) => u.department?.name).filter(Boolean) as string[]);
+    if (topBarDepartment) names.add(topBarDepartment.name);
+    return Array.from(names).sort();
+  }, [allUsers, topBarDepartment]);
+
+  const inDepartment = useMemo(
+    () => (effectiveDept ? allUsers.filter((u) => u.department?.name === effectiveDept) : allUsers),
+    [allUsers, effectiveDept],
+  );
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return allUsers;
+    if (!search.trim()) return inDepartment;
     const q = search.toLowerCase();
-    return allUsers.filter(
+    return inDepartment.filter(
       (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.department?.name?.toLowerCase().includes(q),
     );
-  }, [allUsers, search]);
+  }, [inDepartment, search]);
 
   // Group by department
   const byDept = useMemo(() => {
@@ -227,23 +246,43 @@ function SuperAdminCompanyView({ me }: { me: any }) {
       <div className="flex items-start justify-between">
         <div>
           <h2 className="apex-page-title">Company Directory</h2>
-          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>All {allUsers.length} members across {byDept.length} departments</p>
+          <p className="text-sm mt-1" style={{ color: 'var(--text-secondary)' }}>
+            {effectiveDept
+              ? `${inDepartment.length} members in ${effectiveDept}`
+              : `All ${inDepartment.length} members across ${departments.length} departments`}
+          </p>
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg" style={{ backgroundColor: 'var(--accent-subtle)', border: '1px solid var(--accent-border)' }}>
           <Users size={14} className="text-indigo-600" />
-          <span className="text-sm font-semibold text-indigo-700">{allUsers.length} total</span>
+          <span className="text-sm font-semibold text-indigo-700">{inDepartment.length} total</span>
         </div>
       </div>
 
-      {/* Search */}
-      <div className="relative">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
-        <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search by name, email, or department…"
-          className="apex-input apex-search-input pr-3 py-2"
-        />
+      {/* Search and department */}
+      <div className="flex flex-col sm:flex-row gap-3">
+        <div className="relative flex-1">
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: 'var(--text-tertiary)' }} />
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search by name, email, or department…"
+            className="apex-input apex-search-input pr-3 py-2"
+          />
+        </div>
+        <div className="relative">
+          <select
+            aria-label="Department"
+            value={effectiveDept}
+            onChange={(e) => setDeptFilter(e.target.value)}
+            disabled={Boolean(topBarDepartment)}
+            title={topBarDepartment ? lockedByTopBarHint(topBarDepartment.name) : undefined}
+            className="apex-select w-full appearance-none pl-3 pr-8 py-2 sm:w-auto"
+          >
+            <option value="">All Departments</option>
+            {departments.map((d) => <option key={d} value={d}>{d}</option>)}
+          </select>
+          <ChevronDown size={14} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+        </div>
       </div>
 
       {isLoading ? (
@@ -354,6 +393,8 @@ function MyTeamView({ me }: { me: any }) {
   // The admin's top-bar department locks the department filter (the
   // directory already holds only that department's people).
   const topBarDepartment = useActiveViewDepartment();
+  useEffect(() => { setDeptFilter(''); }, [topBarDepartment?.id]);
+  const effectiveDept = topBarDepartment?.name ?? deptFilter;
   const [requestedIds, setRequestedIds] = useState<Set<string>>(new Set());
   const [loadingId, setLoadingId] = useState<string | null>(null);
 
@@ -398,13 +439,13 @@ function MyTeamView({ me }: { me: any }) {
 
   const filtered = useMemo(() => {
     let list = everyone;
-    if (deptFilter) list = list.filter((u) => u.department?.name === deptFilter);
+    if (effectiveDept) list = list.filter((u) => u.department?.name === effectiveDept);
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter((u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || u.department?.name?.toLowerCase().includes(q));
     }
     return list;
-  }, [everyone, deptFilter, search]);
+  }, [everyone, effectiveDept, search]);
 
   const pendingRequests = useMemo(
     () => directory.filter((u) => requestedIds.has(u.id)),
@@ -490,7 +531,7 @@ function MyTeamView({ me }: { me: any }) {
           <div className="relative">
             <select
               aria-label="Department"
-              value={topBarDepartment ? topBarDepartment.name : deptFilter}
+              value={effectiveDept}
               onChange={(e) => setDeptFilter(e.target.value)}
               disabled={Boolean(topBarDepartment)}
               title={topBarDepartment ? lockedByTopBarHint(topBarDepartment.name) : undefined}

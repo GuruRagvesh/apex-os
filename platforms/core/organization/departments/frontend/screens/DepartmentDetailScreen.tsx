@@ -99,8 +99,9 @@ export default function DepartmentDetailScreen() {
   });
 
   const { data: usersData } = useQuery({
-    queryKey: ['users', { limit: 100 }],
-    queryFn: () => usersApi.getAll({ limit: 100 }) as Promise<any>,
+    // Candidates come from the whole company, whatever the top-bar department.
+    queryKey: ['users', 'all-company', { limit: 100 }],
+    queryFn: () => usersApi.getAllCompany({ limit: 100 }) as Promise<any>,
     enabled: hasHydrated && isAdmin && (showAddMember || showAddManager),
   });
   const allUsers: any[] = usersData?.users ?? (Array.isArray(usersData) ? usersData : []);

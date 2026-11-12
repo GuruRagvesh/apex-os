@@ -123,16 +123,16 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
   const desktopSearchTrigger = (
     <button
       onClick={() => setPaletteOpen(true)}
-      className="hidden sm:flex w-full max-w-md items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs transition-colors"
+      className="hidden sm:flex w-full min-w-0 max-w-md items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs transition-colors"
       style={{
         backgroundColor: 'var(--bg-tertiary)',
         color: 'var(--text-secondary)',
         border: '1px solid var(--border-primary)',
       }}
     >
-      <span className="flex items-center gap-2">
-        <Search size={14} />
-        <span>Search…</span>
+      <span className="flex min-w-0 items-center gap-2">
+        <Search size={14} className="flex-shrink-0" />
+        <span className="truncate">Search…</span>
       </span>
     </button>
   );
@@ -180,7 +180,7 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
       </Link>
 
       {/* The command bar keeps global search in the visual centre on every page. */}
-      <div className="flex min-w-0 flex-1 justify-center">
+      <div className="flex min-w-0 flex-1 justify-center overflow-hidden">
         {desktopSearchTrigger}
       </div>
 
@@ -200,7 +200,8 @@ export function TopBar({ onOpenMenu, menuOpen = false }: { onOpenMenu?: () => vo
           className="hidden h-9 items-center gap-1.5 rounded-xl bg-blue-600 px-3 text-xs font-bold text-white shadow-sm transition hover:bg-blue-700 sm:inline-flex"
         >
           <Plus size={16} />
-          <span>New ticket</span>
+          {/* Icon only on narrower screens, so the search bar keeps its room. */}
+          <span className="sr-only xl:not-sr-only">New ticket</span>
         </CreateTicketLink>
         <DepartmentFilter />
         {user && <PersonalHighlightsTopbar role={typeof user.role === 'string' ? user.role : (user.role as any)?.name ?? ''} />}

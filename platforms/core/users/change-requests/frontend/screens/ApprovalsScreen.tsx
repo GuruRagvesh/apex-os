@@ -66,7 +66,8 @@ export default function ApprovalsScreen() {
     queryFn: () => changeRequestsApi.listPendingApprovals() as Promise<any[]>,
   });
 
-  const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any> });
+  // Every department, so a request naming one outside the top-bar filter still shows its name.
+  const { data: departments } = useQuery({ queryKey: ['departments', 'all-company'], queryFn: () => departmentsApi.getAllCompany() as Promise<any> });
   const { data: allUsers } = useQuery({ queryKey: ['users-list'], queryFn: () => usersApi.getAll() as Promise<any> });
   const { data: roles } = useQuery({ queryKey: ['roles'], queryFn: () => rolesApi.getAll() as Promise<any> });
 

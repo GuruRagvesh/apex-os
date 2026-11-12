@@ -5,6 +5,7 @@
 // backend/src/common/services/view-scope.ts). Saved in the user's preferences,
 // so it follows the account to every device.
 
+import { useEffect } from 'react';
 import { usePathname } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2 } from 'lucide-react';
@@ -15,11 +16,47 @@ import { departmentsApi, useTopBarDepartment, type TopBarDepartment } from '@ape
 
 type ViewScope = { enabled: boolean; departmentId: string | null };
 
-// Pages whose figures stay company-wide even with a department selected.
-// Inventory (by assigned employee) and Departments now follow the filter.
+// Pages whose figures stay company-wide even with a department selected. The
+// API client tells the server to ignore the filter on these paths
+// (COMPANY_WIDE_PATHS in @apex/shared-auth); this map only words the tooltip.
 const COMPANY_WIDE_PAGES: Record<string, string> = {
   '/attendance/payroll': 'Payroll always covers the whole company.',
+  '/analytics': 'Analytics always covers the whole company.',
+  '/assets': 'Inventory always covers the whole company.',
+  '/tickets/new': 'Creating a ticket is not affected by the department filter.',
 };
+
+// Other open tabs of the app hear about a department switch here and refetch.
+const VIEW_SCOPE_CHANNEL = 'apex-view-scope';
+
+function refetchForNewDepartment(queryClient: ReturnType<typeof useQueryClient>) {
+  // Every list and figure depends on it, so refetch everything except a
+  // single person's productivity timeline: it does not depend on the
+  // department, and refetching it before the new people list arrives would
+  // ask for a person outside the new department (403). It reloads when the
+  // panel moves to the new department's first person.
+  return queryClient.invalidateQueries({
+    predicate: (query) => query.queryKey[0] !== 'productivity-timeline',
+  });
+}
+
+/** Refetch when another tab switches the department filter. */
+function useCrossTabViewScope(enabled: boolean) {
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!enabled || typeof BroadcastChannel === 'undefined') return;
+    const channel = new BroadcastChannel(VIEW_SCOPE_CHANNEL);
+    channel.onmessage = () => { void refetchForNewDepartment(queryClient); };
+    return () => channel.close();
+  }, [enabled, queryClient]);
+}
+
+function announceViewScopeChange() {
+  if (typeof BroadcastChannel === 'undefined') return;
+  const channel = new BroadcastChannel(VIEW_SCOPE_CHANNEL);
+  channel.postMessage('changed');
+  channel.close();
+}
 
 function useIsAdmin(): boolean {
   const { user } = useAuthStore();
@@ -54,14 +91,10 @@ function useSaveViewScope() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (viewScope: ViewScope) => usersApi.updatePreferences({ viewScope }),
-    // Every list and figure depends on it, so refetch everything except a
-    // single person's productivity timeline: it does not depend on the
-    // department, and refetching it before the new people list arrives would
-    // ask for a person outside the new department (403). It reloads when the
-    // panel moves to the new department's first person.
-    onSuccess: () => queryClient.invalidateQueries({
-      predicate: (query) => query.queryKey[0] !== 'productivity-timeline',
-    }),
+    onSuccess: () => {
+      announceViewScopeChange();
+      return refetchForNewDepartment(queryClient);
+    },
     onError: (e: any) => toast.error(e?.response?.data?.message ?? 'Could not save the default department'),
   });
 }
@@ -89,6 +122,7 @@ export function DepartmentFilter() {
   const pathname = usePathname() ?? '';
   const { scope, departments, loading } = useViewScope(isAdmin);
   const save = useSaveViewScope();
+  useCrossTabViewScope(isAdmin);
   if (!isAdmin || loading) return null;
 
   const value = scope.enabled && scope.departmentId ? scope.departmentId : '';

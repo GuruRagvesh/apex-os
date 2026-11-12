@@ -52,17 +52,17 @@ export class HomeInsightsService {
     return { OR: [{ assignedToId: userId }, { assignees: { some: { userId } } }] };
   }
 
-  async getKpis(user: any) {
+  async getKpis(requester: any) {
+    // The Home hero cards are the signed-in person's own figures, so the
+    // admin's top-bar department filter never changes them.
+    const user = requester?.viewDepartmentId ? { ...requester, viewDepartmentId: null } : requester;
     const roleName = String(user?.role?.name ?? user?.role ?? '').toUpperCase();
     const isLead = LEAD_ROLES.includes(roleName);
     const mine = this.mine(user.id);
     const ownProjectScope = { members: { some: { userId: user.id } } };
     // Admins and managers operate across the company for this headline count.
     // Team leads and contributors see only projects they personally belong to.
-    const viewDept = viewDepartmentOf(user);
-    const activeProjectScope = viewDept
-      ? { OR: [ownProjectScope, { departmentId: viewDept }] }
-      : ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName)
+    const activeProjectScope = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName)
         ? {}
         : ownProjectScope;
     const leaveScope = isLead ? await this.leaveAccess.buildLeaveWhereForUser({}, user) : null;

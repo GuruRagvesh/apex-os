@@ -207,7 +207,8 @@ export function HomeCalendarPanel() {
   // instead of the signed-in admin. Clearing it returns to the admin's own view.
   const topBarDepartment = useActiveViewDepartment();
   const departmentPeople = useQuery({
-    queryKey: ['workday-team', 'attendance-name-filter', today],
+    // Keyed by department so a switch never starts from the old department's people.
+    queryKey: ['workday-team', 'attendance-name-filter', today, topBarDepartment?.id ?? null],
     queryFn: () => workdayApi.getTeam(today) as Promise<TeamMember[]>,
     enabled: canViewTeamAttendance && Boolean(topBarDepartment),
     staleTime: 60_000,
@@ -552,8 +553,9 @@ function AttendancePersonFilter({ currentUser, hideCurrentUser = false, selected
   const rootRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
+  const topBarDepartment = useActiveViewDepartment();
   const peopleQuery = useQuery({
-    queryKey: ['workday-team', 'attendance-name-filter', today],
+    queryKey: ['workday-team', 'attendance-name-filter', today, topBarDepartment?.id ?? null],
     queryFn: () => workdayApi.getTeam(today) as Promise<TeamMember[]>,
     enabled: open,
     staleTime: 60_000,

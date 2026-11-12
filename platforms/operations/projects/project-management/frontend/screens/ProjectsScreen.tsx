@@ -218,8 +218,9 @@ export default function ProjectsPage() {
   });
 
   const { data: departments } = useQuery({
-    queryKey: ['departments'],
-    queryFn: () => departmentsApi.getAll() as Promise<any[]>,
+    // Every department: forms may pick one outside the top-bar filter.
+    queryKey: ['departments', 'all-company'],
+    queryFn: () => departmentsApi.getAllCompany() as Promise<any[]>,
   });
   const selectedDepartment = (Array.isArray(departments) ? departments : []).find((d: any) => d.id === form.departmentId);
   const isContentDepartment = ['content', 'content sales'].includes(String(selectedDepartment?.name ?? '').trim().toLowerCase());

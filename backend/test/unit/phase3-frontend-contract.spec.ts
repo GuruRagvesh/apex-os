@@ -29,7 +29,7 @@ describe('Phase 3 connected frontend contract', () => {
   it('renders team/company correction queues and explicit creator confirmation', () => {
     const panel = source('frontend/components/attendance/AttendanceReviewsPanel.tsx');
     expect(panel).toContain('My team');
-    expect(panel).toContain('Company pending');
+    expect(panel).toContain('All pending');
     expect(panel).not.toContain('HR final review');
     const queue = source('frontend/components/attendance/RegularizationQueue.tsx');
     expect(queue).toContain('confirmCreatorDecision');

@@ -43,7 +43,7 @@ export function AttendanceReviewsPanel() {
             onClick={() => setScope('company')}
             className={effective === 'company' ? 'apex-btn apex-btn-primary' : 'apex-btn apex-btn-secondary'}
           >
-            Company pending{counts.data?.company != null ? ` (${counts.data.company})` : ''}
+            All pending{counts.data?.company != null ? ` (${counts.data.company})` : ''}
           </button>
         )}
       </div>

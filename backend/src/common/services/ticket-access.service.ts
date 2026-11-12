@@ -198,6 +198,12 @@ export class TicketAccessService {
 
   async buildTicketWhereForUser(filters: any = {}, user?: any): Promise<any> {
     const filterWhere = await this.buildFilterWhere(filters);
+    // Top-bar department: the page's locked department filter would match only
+    // tickets filed under the department. The scope below already means "the
+    // department's tickets" (filed under it, or assigned to or created by its
+    // people), so drop the narrower filter and every page counts the same way.
+    const viewDept = viewDepartmentOf(user);
+    if (viewDept && filterWhere.departmentId === viewDept) delete filterWhere.departmentId;
     const scopeWhere = await this.buildScopeWhere(user);
     return this.andWhere(filterWhere, scopeWhere);
   }
@@ -566,7 +572,8 @@ export class TicketAccessService {
 
     if (viewDept || roleName === ROLES.MANAGER || roleName === ROLES.TEAM_LEAD) {
       const deptIds = viewDept ? [viewDept] : await this.access.managedDepartmentIds(user);
-      const scopedOr: any[] = [
+      // Top-bar department: only the department's tickets, not the admin's own elsewhere.
+      const scopedOr: any[] = viewDept ? [] : [
         { assignedToId: user.id },
         { createdById: user.id },
         { assignees: { some: { userId: user.id } } },
