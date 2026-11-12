@@ -17,6 +17,7 @@ import {
   requireText, TRANSITION_CODE, TransitionActor,
 } from '../transitions-codes';
 import { adminIds, hrIds, notifyMany, resolveDepartmentManager, resolveTeamLead } from '../transition-support';
+import { viewDepartmentOf } from '../../../../../common/services/view-scope';
 import { companyDayStartAt, dayActivity, gatherTransferState, permissionDelta, TransferPlan, TransferState, transferFingerprint } from './transfer-state';
 
 type Tx = any;
@@ -520,6 +521,9 @@ export class TransferService {
     const where: any = status
       ? { status: { in: status } }
       : { OR: [{ status: { in: ['SCHEDULED', 'REVIEW_REQUIRED'] } }, { status: 'COMPLETED', impacts: { some: { reviewStatus: 'PENDING_REVIEW' } } }] };
+    // Admin's top-bar department: transfers into or out of it.
+    const viewDept = viewDepartmentOf({ role: actor.roleName, viewDepartmentId: actor.viewDepartmentId });
+    if (viewDept) where.AND = [{ OR: [{ fromDepartmentId: viewDept }, { toDepartmentId: viewDept }] }];
     const [total, rows] = await Promise.all([
       this.prisma.departmentTransfer.count({ where }),
       this.prisma.departmentTransfer.findMany({ where, orderBy: [{ effectiveAt: 'desc' }, { id: 'asc' }], skip: (page - 1) * take, take, select: { id: true } }),

@@ -307,7 +307,8 @@ export class TeamInsightsService {
   }
 
   private async allowedScope(viewer: any, departmentId?: string) {
-    departmentId = departmentId || viewDepartmentOf(viewer) || undefined;
+    // The admin's top-bar department locks the page's own department filter.
+    departmentId = viewDepartmentOf(viewer) || departmentId || undefined;
     const role = this.access.roleName(viewer);
     if (!LEADER_ROLES.includes(role)) throw new ForbiddenException('Team insights are available to authorized leaders only.');
 

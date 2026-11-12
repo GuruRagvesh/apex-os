@@ -22,6 +22,15 @@ export class LeaveAccessService {
       if (query.dateFrom) filters.startDate.gte = new Date(query.dateFrom);
       if (query.dateTo) filters.startDate.lte = new Date(query.dateTo);
     }
+    // Admin with a top-bar department: the department's people only, never the
+    // admin's own requests (those stay on "My requests", which asks for them).
+    const viewDept = viewDepartmentOf(user);
+    if (viewDept) {
+      const scope = query.userId && query.userId === user.id
+        ? { userId: user.id }
+        : { user: { departmentId: viewDept }, NOT: { userId: user.id } };
+      return this.andWhere(filters, scope);
+    }
     let scope = user ? await this.buildScope(user) : {};
     // Phase 3: a request's routed approver always sees it, even outside their
     // usual scope (a company fallback Manager, or HR acting at the HR tier).

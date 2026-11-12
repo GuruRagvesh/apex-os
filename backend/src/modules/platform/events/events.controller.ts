@@ -221,9 +221,11 @@ export class EventsController {
     }
 
     const viewDept = viewDepartmentOf(user);
-    if (isAdmin && viewDept && !query.userId) {
+    if (isAdmin && viewDept) {
       const people = await this.prisma.user.findMany({ where: { departmentId: viewDept }, select: { id: true } });
-      where.actorId = { in: [...new Set([user.id, ...people.map((p) => p.id)])] };
+      const allowed = [...new Set([user.id, ...people.map((p) => p.id)])];
+      // A person filter stays inside the top-bar department.
+      where.actorId = query.userId ? (allowed.includes(query.userId) ? query.userId : { in: [] }) : { in: allowed };
     } else if (isAdmin) {
       if (query.userId) {
         where.actorId = query.userId;

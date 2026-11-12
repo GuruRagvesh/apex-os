@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { projectsApi } from '../api';
-import { departmentsApi } from '@apex/core-organization-departments/api';
+import { departmentsApi, lockedByTopBarHint, useTopBarDepartment } from '@apex/core-organization-departments/api';
 import { teamsApi } from '@apex/workforce-teams/api';
 import { useAuthStore } from '@apex/core-identity';
 import { PROJECT_STATUS_COLORS } from '../lib/project-status';
@@ -171,7 +171,10 @@ export default function ProjectsPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const statusFilter = searchParams.get('status') ?? '';
-  const deptFilter = searchParams.get('department') ?? '';
+  // The admin's top-bar department locks the department filter (the
+  // department list then holds only that one, so the dropdown is hidden).
+  const topBarDepartment = useTopBarDepartment(['ADMIN', 'SUPER_ADMIN'].includes(roleName));
+  const deptFilter = topBarDepartment?.id ?? searchParams.get('department') ?? '';
   const urlSearch = searchParams.get('q') ?? '';
   const page = Math.max(1, Number(searchParams.get('page')) || 1);
   const [searchInput, setSearchInput] = useState(urlSearch);
@@ -215,8 +218,9 @@ export default function ProjectsPage() {
   });
 
   const { data: departments } = useQuery({
-    queryKey: ['departments'],
-    queryFn: () => departmentsApi.getAll() as Promise<any[]>,
+    // Every department: forms may pick one outside the top-bar filter.
+    queryKey: ['departments', 'all-company'],
+    queryFn: () => departmentsApi.getAllCompany() as Promise<any[]>,
   });
   const selectedDepartment = (Array.isArray(departments) ? departments : []).find((d: any) => d.id === form.departmentId);
   const isContentDepartment = ['content', 'content sales'].includes(String(selectedDepartment?.name ?? '').trim().toLowerCase());
@@ -239,7 +243,8 @@ export default function ProjectsPage() {
 
   const projectList: any[] = Array.isArray(data) ? data : (data?.projects || []);
   const totalPages: number = Array.isArray(data) ? 1 : Math.max(1, data?.totalPages ?? 1);
-  const hasFilters = Boolean(urlSearch || statusFilter || deptFilter);
+  // A locked top-bar department is not a page filter the user can clear here.
+  const hasFilters = Boolean(urlSearch || statusFilter || (!topBarDepartment && deptFilter));
   const deptOptions: any[] = Array.isArray(departments) ? departments : [];
 
   return (
@@ -283,6 +288,8 @@ export default function ProjectsPage() {
             onChange={(e) => setParams({ department: e.target.value || null, page: null })}
             className="apex-select sm:w-48"
             aria-label="Filter by department"
+            disabled={Boolean(topBarDepartment)}
+            title={topBarDepartment ? lockedByTopBarHint(topBarDepartment.name) : undefined}
           >
             <option value="">All departments</option>
             {deptOptions.map((d: any) => <option key={d.id} value={d.id}>{d.name}</option>)}

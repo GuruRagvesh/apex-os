@@ -124,8 +124,9 @@ export class AttendanceConsoleService {
   async resolveScope(actor: any): Promise<ConsoleScope> {
     const viewDept = viewDepartmentOf(actor);
     if (viewDept) {
-      const people = await this.prisma.user.findMany({ where: { departmentId: viewDept }, select: { id: true } });
-      return { userIds: [...new Set([actor.id, ...people.map((p) => p.id)])], isHr: true, eligible: true };
+      // Top-bar department: only that department's people (not the admin).
+      const people = await this.prisma.user.findMany({ where: { departmentId: viewDept, id: { not: actor.id } }, select: { id: true } });
+      return { userIds: people.map((p) => p.id), isHr: true, eligible: true };
     }
     if (this.accessPolicy.isHrOrAdmin(actor)) {
       return { userIds: null, isHr: true, eligible: true };

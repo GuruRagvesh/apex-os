@@ -4,6 +4,7 @@ import { WorkdayService } from './workday.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
 import { ClassifyMeetingInput, MeetingService } from './meeting.service';
 import { ProductivityTimelineService } from './productivity-timeline.service';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 
 function requestAuditContext(req: any, actorContext: string) {
   const forwarded = req?.headers?.['x-forwarded-for'];
@@ -28,12 +29,12 @@ export class WorkdayController {
 
   @Get('productivity-timeline/people')
   productivityTimelinePeople(@Request() req: any) {
-    return this.productivityTimeline.people(req.user.id ?? req.user.sub);
+    return this.productivityTimeline.people(req.user.id ?? req.user.sub, viewDepartmentOf(req.user));
   }
 
   @Get('productivity-timeline')
   productivityTimelineData(@Request() req: any, @Query('userId') userId: string, @Query('month') month: string) {
-    return this.productivityTimeline.get(req.user.id ?? req.user.sub, userId, month);
+    return this.productivityTimeline.get(req.user.id ?? req.user.sub, userId, month, viewDepartmentOf(req.user));
   }
 
   @Get('meetings/options')

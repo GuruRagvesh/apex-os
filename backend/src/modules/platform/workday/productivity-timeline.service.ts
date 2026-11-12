@@ -95,7 +95,12 @@ export class ProductivityTimelineService {
     private readonly hierarchyScope: OperationalHierarchyScopeService,
   ) {}
 
-  private async requesterScope(requesterId: string) {
+  /**
+   * `viewDepartmentId` is the admin's top-bar department (req.user). The
+   * requester is re-read from the database, so it has to be carried over or the
+   * timeline would ignore the department filter.
+   */
+  private async requesterScope(requesterId: string, viewDepartmentId: string | null = null) {
     const requester = await this.prisma.user.findUnique({
       where: { id: requesterId },
       include: { role: true, department: true },
@@ -106,12 +111,15 @@ export class ProductivityTimelineService {
       throw new ForbiddenException('Productivity timelines are available to supervisors only');
     }
 
-    const scope = await this.hierarchyScope.visibleUserIds(requester, { includeSelf: role === 'TEAM_LEAD' });
+    const scope = await this.hierarchyScope.visibleUserIds(
+      { ...requester, viewDepartmentId } as any,
+      { includeSelf: role === 'TEAM_LEAD' },
+    );
     return { requester, role, ids: scope.userIds };
   }
 
-  async people(requesterId: string) {
-    const scope = await this.requesterScope(requesterId);
+  async people(requesterId: string, viewDepartmentId: string | null = null) {
+    const scope = await this.requesterScope(requesterId, viewDepartmentId);
     if (!scope.ids.length) return [];
     return this.prisma.user.findMany({
       where: {
@@ -130,8 +138,8 @@ export class ProductivityTimelineService {
     });
   }
 
-  async get(requesterId: string, userId: string, month: string) {
-    const scope = await this.requesterScope(requesterId);
+  async get(requesterId: string, userId: string, month: string, viewDepartmentId: string | null = null) {
+    const scope = await this.requesterScope(requesterId, viewDepartmentId);
     if (!scope.ids.includes(userId)) throw new ForbiddenException('This person is outside your productivity timeline scope');
     const target = await this.prisma.user.findUnique({
       where: { id: userId },

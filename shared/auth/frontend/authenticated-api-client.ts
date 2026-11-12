@@ -51,10 +51,21 @@ export const api = axios.create({
   headers: { 'Content-Type': 'application/json' },
 });
 
+// Pages the admin's top-bar department filter never narrows. Requests made
+// from them tell the server to ignore the filter (VIEW_SCOPE_HEADER, read by
+// the backend's JwtStrategy), so every figure on them stays company-wide.
+export const COMPANY_WIDE_PATHS = ['/attendance/payroll', '/analytics', '/assets', '/tickets/new'] as const;
+export const VIEW_SCOPE_HEADER = 'X-View-Scope';
+
+export function isCompanyWidePath(pathname: string): boolean {
+  return COMPANY_WIDE_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`));
+}
+
 api.interceptors.request.use((config) => {
   if (typeof window !== 'undefined') {
     const token = localStorage.getItem('apex_token');
     if (token) config.headers.Authorization = `Bearer ${token}`;
+    if (isCompanyWidePath(window.location.pathname)) config.headers[VIEW_SCOPE_HEADER] = 'company';
   }
   return config;
 });
