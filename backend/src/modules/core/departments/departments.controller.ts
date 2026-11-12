@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Put, Patch, Delete, Body, Param, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Put, Patch, Delete, Body, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { DepartmentsService } from './departments.service';
 import { JwtAuthGuard } from '../../../shared/guards/jwt-auth.guard';
@@ -14,9 +14,10 @@ import { ROLES } from '../../../shared/constants/roles';
 export class DepartmentsController {
   constructor(private departmentsService: DepartmentsService) {}
 
+  /** `?all=true` ignores the admin's top-bar department (switcher and edit forms). */
   @Get()
-  findAll(@CurrentUser() user: any) {
-    return this.departmentsService.findAll(user);
+  findAll(@CurrentUser() user: any, @Query('all') all?: string) {
+    return this.departmentsService.findAll(user, all === 'true');
   }
 
   @Get(':id')

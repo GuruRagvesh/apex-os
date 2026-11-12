@@ -67,12 +67,14 @@ export default function ApprovalsScreen() {
   });
 
   const { data: departments } = useQuery({ queryKey: ['departments'], queryFn: () => departmentsApi.getAll() as Promise<any> });
+  // Every department, so a request naming one outside the top-bar filter still shows its name.
+  const { data: allDepartments } = useQuery({ queryKey: ['departments', 'all-company'], queryFn: () => departmentsApi.getAllCompany() as Promise<any> });
   const { data: allUsers } = useQuery({ queryKey: ['users-list'], queryFn: () => usersApi.getAll() as Promise<any> });
   const { data: roles } = useQuery({ queryKey: ['roles'], queryFn: () => rolesApi.getAll() as Promise<any> });
 
   const getLabel = (field: string, val: string) => {
     if (!val || val === 'None') return val || 'None';
-    if (field === 'departmentId') return departments?.find((d:any) => d.id === val)?.name || val;
+    if (field === 'departmentId') return (allDepartments ?? departments)?.find((d:any) => d.id === val)?.name || val;
     if (field === 'reportingManager' || field === 'primaryManager') {
       const u = (allUsers?.users || []).find((u:any) => u.employeeId === val);
       return u ? `${u.name} (${u.employeeId})` : val;

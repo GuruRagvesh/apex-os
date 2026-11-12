@@ -156,8 +156,9 @@ export default function UserProfileScreen() {
     staleTime: 5 * 60_000,
   });
   const { data: departmentOptions } = useQuery({
-    queryKey: ['departments'],
-    queryFn: () => (departmentsApi as any).getAll() as Promise<any[]>,
+    // Moving a person needs every department, whatever the top-bar department is.
+    queryKey: ['departments', 'all'],
+    queryFn: () => (departmentsApi as any).getAllCompany() as Promise<any[]>,
     enabled: canEditAccess,
     staleTime: 5 * 60_000,
   });

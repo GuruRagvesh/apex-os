@@ -150,12 +150,7 @@ export function AttendanceConsole({ embedded = false }: { embedded?: boolean } =
 
   return (
     <div className="space-y-4">
-      <div>
-        {!embedded && <h1 className="apex-page-title apex-text text-xl">Attendance</h1>}
-        <p className="apex-text-muted mt-1 text-sm">
-          {access.isHr ? 'Company-wide' : 'Your team'} · stored results only
-        </p>
-      </div>
+      {!embedded && <h1 className="apex-page-title apex-text text-xl">Attendance</h1>}
 
       {error && (
         <div className="rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20">

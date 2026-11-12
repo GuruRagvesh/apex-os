@@ -10,6 +10,9 @@ export {
   shouldRetryTransientQuery,
   transientQueryRetryDelay,
   isTransientFailure,
+  COMPANY_WIDE_PATHS,
+  VIEW_SCOPE_HEADER,
+  isCompanyWidePath,
 } from './authenticated-api-client';
 export {
   pollWhileHealthy,

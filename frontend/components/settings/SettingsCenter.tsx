@@ -1267,8 +1267,9 @@ function TaskTypesSettings() {
     queryFn: () => taskTypesApi.getAll() as Promise<any[]>,
   });
   const { data: departmentsRaw } = useQuery({
-    queryKey: ['departments'],
-    queryFn: () => departmentsApi.getAll() as Promise<any[]>,
+    // Organization settings cover every department.
+    queryKey: ['departments', 'all'],
+    queryFn: () => departmentsApi.getAllCompany() as Promise<any[]>,
   });
 
   const allTypes: any[] = Array.isArray(allTypesRaw) ? allTypesRaw : [];

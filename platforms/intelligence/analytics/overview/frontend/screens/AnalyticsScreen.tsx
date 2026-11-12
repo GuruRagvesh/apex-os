@@ -16,13 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuthStore } from '@apex/core-identity';
 import Link from 'next/link';
-import { api, pollWhileHealthy, unwrap } from '@apex/shared-auth';
-
-// The admin's default department, read from the same cached preferences the Home card uses.
-function useDefaultDepartmentOn(enabled: boolean): boolean {
-  const { data } = useQuery({ queryKey: ['view-scope'], queryFn: () => unwrap(api.get('/users/me/preferences')) as Promise<any>, enabled, staleTime: 60_000 });
-  return enabled && data?.viewScope?.enabled === true;
-}
+import { pollWhileHealthy } from '@apex/shared-auth';
 
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -187,7 +181,6 @@ export default function AnalyticsScreen() {
   const roleName: string = (user?.role as any)?.name ?? user?.role ?? '';
   const isManagerPlus = ['MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
   const isAdminPlus   = ['ADMIN', 'SUPER_ADMIN'].includes(roleName);
-  const defaultDepartmentOn = useDefaultDepartmentOn(isAdminPlus);
   const canAccess     = ['TEAM_LEAD', 'MANAGER', 'ADMIN', 'SUPER_ADMIN'].includes(roleName);
 
   const [tab, setTab]       = useState<Tab>('overview');
@@ -772,7 +765,7 @@ export default function AnalyticsScreen() {
                   Department / Team Metrics
                 </h2>
                 <p className="text-xs mt-1" style={{ color: 'var(--text-secondary)' }}>
-                  {defaultDepartmentOn ? 'Showing metrics for your default department.' : isAdminPlus ? 'Showing company-wide metrics.' : 'Showing metrics for your managed departments.'}
+                  {isAdminPlus ? 'Showing company-wide metrics.' : 'Showing metrics for your managed departments.'}
                 </p>
               </div>
 

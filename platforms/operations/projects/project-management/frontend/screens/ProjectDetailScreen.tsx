@@ -149,8 +149,9 @@ export default function ProjectDetailPage() {
   });
 
   const { data: departments } = useQuery({
-    queryKey: ['departments'],
-    queryFn: () => departmentsApi.getAll() as Promise<any[]>,
+    // Every department: forms may pick one outside the top-bar filter.
+    queryKey: ['departments', 'all-company'],
+    queryFn: () => departmentsApi.getAllCompany() as Promise<any[]>,
     enabled: editing,
   });
   const editDepartment = (Array.isArray(departments) ? departments : []).find((d: any) => d.id === form.departmentId)

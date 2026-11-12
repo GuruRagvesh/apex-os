@@ -8,3 +8,4 @@
 // only a screen never load the authenticated client.
 
 export { departmentsApi } from './departments-api';
+export { useTopBarDepartment, lockedByTopBarHint, type TopBarDepartment } from './top-bar-department';

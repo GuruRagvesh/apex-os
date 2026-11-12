@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, ConflictException, 
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { ROLES } from '../../../shared/constants/roles';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 
 /**
  * The only User columns a department response may carry. An `include` of a
@@ -54,9 +55,17 @@ export class DepartmentsService {
     return { ...rows[0].manager, accessLevel: rows[0].accessLevel };
   }
 
-  async findAll(user?: any) {
+  /**
+   * Departments the caller may see. An admin with a top-bar department sees
+   * only that one (view-scope.ts) unless `includeAll` is asked for: the top-bar
+   * switcher itself and edit forms (e.g. moving a person) need every department.
+   */
+  async findAll(user?: any, includeAll = false) {
     let where: any = {};
-    if (!this.access.isAdmin(user)) {
+    const viewDept = includeAll ? null : viewDepartmentOf(user);
+    if (viewDept) {
+      where = { id: viewDept };
+    } else if (!this.access.isAdmin(user)) {
       const deptIds = await this.access.managedDepartmentIds(user);
       if (deptIds.length === 0) return [];
       where = { id: { in: deptIds } };
@@ -83,10 +92,25 @@ export class DepartmentsService {
       orderBy: { name: 'asc' },
     });
 
-    return departments.map((d) => ({
+    // Active tickets use the same "department's tickets" rule as the Tickets
+    // page and Kanban: filed under the department, or assigned to or created
+    // by its people. Counting only tickets filed under it disagreed with them.
+    const activeTicketCounts = await Promise.all(departments.map((d) => this.prisma.ticket.count({
+      where: {
+        status: { notIn: ['PENDING_APPROVAL', 'DONE', 'CLOSED'] },
+        OR: [
+          { departmentId: d.id },
+          { assignedTo: { departmentId: d.id } },
+          { createdBy: { departmentId: d.id } },
+          { assignees: { some: { user: { departmentId: d.id } } } },
+        ],
+      },
+    })));
+
+    return departments.map((d, index) => ({
       ...d,
       teamLead: d.users[0] ?? null,
-      activeTickets: d._count.tickets,
+      activeTickets: activeTicketCounts[index],
       managerCount: d._count.managerAccess,
       hasDepartmentHead: d._count.managerAccess > 0,
     }));

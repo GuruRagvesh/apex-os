@@ -25,7 +25,10 @@
 import { api, unwrap as r } from '@apex/shared-auth';
 
 export const departmentsApi = {
+  /** Departments for lists and filters; narrowed to the admin's top-bar department when one is set. */
   getAll: () => r(api.get('/departments')),
+  /** Every department, ignoring the top-bar department: for the switcher and edit forms. */
+  getAllCompany: () => r(api.get('/departments', { params: { all: 'true' } })),
   getOne: (id: string) => r(api.get(`/departments/${id}`)),
   create: (data: any) => r(api.post('/departments', data)),
   update: (id: string, data: any) => r(api.put(`/departments/${id}`, data)),

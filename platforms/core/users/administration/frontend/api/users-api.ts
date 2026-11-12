@@ -30,10 +30,12 @@
 // preserved byte-for-byte, exactly as the ticket API carries the same pattern.
 // It is NOT the pattern to copy for new code.
 
-import { api, unwrap as r, API_BASE_URL as API_URL } from '@apex/shared-auth';
+import { api, unwrap as r, API_BASE_URL as API_URL, VIEW_SCOPE_HEADER } from '@apex/shared-auth';
 
 export const usersApi = {
   getAll: (params?: any) => r(api.get('/users', { params })),
+  /** Every user, ignoring the admin's top-bar department: for pickers that must reach the whole company. */
+  getAllCompany: (params?: any) => r(api.get('/users', { params, headers: { [VIEW_SCOPE_HEADER]: 'company' } })),
   getDirectory: () => r(api.get('/users/directory')),
   getMe: () => r(api.get('/users/me')),
   getMyTeam: () => r(api.get('/users/my-team')),

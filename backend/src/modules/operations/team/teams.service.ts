@@ -8,6 +8,7 @@ import {
 import { PrismaService } from '../../../prisma/prisma.service';
 import { AccessPolicyService } from '../../../common/services/access-policy.service';
 import { ROLES } from '../../../shared/constants/roles';
+import { viewDepartmentOf } from '../../../common/services/view-scope';
 import { CreateTeamDto } from './dto/create-team.dto';
 import { UpdateTeamDto } from './dto/update-team.dto';
 import { AddTeamMemberDto } from './dto/add-team-member.dto';
@@ -57,7 +58,9 @@ export class TeamsService {
     const roleName = this.access.roleName(user);
 
     if (this.access.isAdmin(user)) {
-      if (departmentId) where.departmentId = departmentId;
+      // The admin's top-bar department locks the department filter.
+      const scoped = viewDepartmentOf(user) ?? departmentId;
+      if (scoped) where.departmentId = scoped;
     } else if (roleName === ROLES.MANAGER) {
       const deptIds = await this.access.managedDepartmentIds(user);
       if (departmentId) {

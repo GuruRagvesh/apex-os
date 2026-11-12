@@ -53,8 +53,9 @@ export class OperationalHierarchyScopeService {
     const role = this.roleName(viewer);
     const companyWide = role === 'ADMIN' || role === 'SUPER_ADMIN' || Boolean(viewer.isHR);
     if (companyWide) {
-      // An admin's default department replaces "the whole company".
-      const departmentId = options.departmentId ?? viewDepartmentOf(viewer) ?? undefined;
+      // An admin's top-bar department replaces "the whole company" and locks
+      // any page-level department filter to itself.
+      const departmentId = viewDepartmentOf(viewer) ?? options.departmentId ?? undefined;
       return {
         role,
         departmentId: departmentId ?? null,

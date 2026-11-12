@@ -372,8 +372,12 @@ export class DashboardService {
 
     // ADMIN / SUPER_ADMIN
     const leaveScope = await this.leaveAccess.buildLeaveWhereForUser({}, user);
+    const viewDept = viewDepartmentOf(user);
     const [activeToday, totalTickets, openTickets, overdue, pendingLeave, activeProjects] = await Promise.all([
-      this.prisma.user.count({ where: { currentStatus: { in: ['WORKING', 'ON_BREAK', 'LOGGED_IN'] } } }),
+      this.prisma.user.count({ where: {
+        currentStatus: { in: ['WORKING', 'ON_BREAK', 'LOGGED_IN'] },
+        ...(viewDept ? { departmentId: viewDept, id: { not: user.id } } : {}),
+      } }),
       this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: { notIn: [TicketStatus.PENDING_APPROVAL, TicketStatus.DONE, TicketStatus.CLOSED] } }) }),
       this.prisma.ticket.count({ where: this.andWhere(ticketScope, { status: TicketStatus.OPEN }) }),
       this.countOverdueTickets(ticketScope),

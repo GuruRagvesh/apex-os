@@ -85,8 +85,9 @@ export default function ProfileScreen() {
   });
 
   const { data: departments } = useQuery({
-    queryKey: ['departments'],
-    queryFn: () => departmentsApi.getAll() as Promise<any>,
+    // A department-change request needs every department.
+    queryKey: ['departments', 'all'],
+    queryFn: () => departmentsApi.getAllCompany() as Promise<any>,
     enabled: isModalOpen && (formData.requestType === 'DEPARTMENT_CHANGE' || formData.requestType === 'MULTI_FIELD_CHANGE')
   });
 
