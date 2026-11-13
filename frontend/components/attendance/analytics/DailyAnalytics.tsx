@@ -2,16 +2,15 @@
 
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { getRoster, getSummary, type RosterRow } from '../console-api';
+import { getRoster, getSummary } from '../console-api';
 import { presentOutcome } from '../../attendance-v2/status-presentation';
 import {
-  DASH, LATE_PRESENTATION, NOT_EVALUATED, delta, formatDuration, formatTimeOfDay, num, presentConsoleStatus, shiftDate,
+  DASH, LATE_PRESENTATION, NOT_EVALUATED, delta, formatDuration, formatTimeOfDay, matchesRosterFilter as matches, num,
+  presentConsoleStatus, shiftDate, type RosterFilter,
 } from './analytics-data';
 import { Card, Empty, Insight, Kpi, LoadError, Person, Skeleton, StatusBadge } from './AnalyticsUi';
 import { PersonDayPanel } from './PersonDayPanel';
 import s from './analytics.module.css';
-
-type RosterFilter = 'all' | 'present' | 'late' | 'leave' | 'absent' | 'action';
 
 const FILTERS: Array<{ key: RosterFilter; label: string }> = [
   { key: 'all', label: 'All' },
@@ -22,20 +21,14 @@ const FILTERS: Array<{ key: RosterFilter; label: string }> = [
   { key: 'action', label: 'Needs action' },
 ];
 
-function needsAction(r: RosterRow) {
-  return r.requiresReview || r.status === null || r.exceptionFlags.length > 0;
-}
-
-function matches(r: RosterRow, f: RosterFilter) {
-  switch (f) {
-    case 'present': return r.status === 'PRESENT' || r.status === 'LATE' || r.status === 'LATE_EXEMPTED';
-    case 'late': return r.status === 'LATE' || r.status === 'LATE_EXEMPTED';
-    case 'leave': return r.status === 'LEAVE' || r.status === 'LWP';
-    case 'absent': return r.status === 'ABSENT';
-    case 'action': return needsAction(r);
-    default: return true;
-  }
-}
+/** Filters reached from the Needs attention list, which have no segment button. */
+const NARROWED_LABEL: Partial<Record<RosterFilter, string>> = {
+  noRecord: 'No record yet',
+  review: 'Needs review',
+  missingPunchOut: 'Missing punch-out',
+  missingPunch: 'Missing punch',
+  outsideGeofence: 'Outside geofence',
+};
 
 const PAGE_SIZE = 200;
 
@@ -77,21 +70,25 @@ export function DailyAnalytics({ date, isHr, onOpenReviews }: { date: string; is
   const selectedIndex = rows.findIndex(r => r.employee.id === selectedId);
   const selected = selectedIndex >= 0 ? rows[selectedIndex] : null;
 
-  const attention: Array<{ label: string; value: number | null | undefined; filter: RosterFilter }> = sm ? [
-    { label: 'No record yet', value: sm.notEvaluated, filter: 'action' },
-    { label: 'Needs review', value: sm.needsReview, filter: 'action' },
-    { label: 'Missing punch-out', value: sm.exceptions.missingPunchOut, filter: 'action' },
-    { label: 'Missing punch', value: sm.exceptions.missingPunch, filter: 'action' },
-    { label: 'Outside geofence', value: sm.exceptions.outsideGeofence, filter: 'action' },
-    { label: 'Corrections pending', value: sm.exceptions.regularizationPending, filter: 'action' },
-    ...(isHr ? [{ label: 'Setup incomplete', value: sm.exceptions.configurationBlocked, filter: 'action' as RosterFilter }] : []),
+  // Each line filters the table to exactly the people it counts. Pending
+  // corrections span every date, so that line opens Reviews; setup problems
+  // come from the processing run and have no roster row, so that line is text.
+  const attention: Array<{ label: string; value: number | null | undefined; onSelect?: () => void }> = sm ? [
+    { label: 'No record yet', value: sm.notEvaluated, onSelect: () => setFilter('noRecord') },
+    { label: 'Needs review', value: sm.needsReview, onSelect: () => setFilter('review') },
+    { label: 'Missing punch-out', value: sm.exceptions.missingPunchOut, onSelect: () => setFilter('missingPunchOut') },
+    { label: 'Missing punch', value: sm.exceptions.missingPunch, onSelect: () => setFilter('missingPunch') },
+    { label: 'Outside geofence', value: sm.exceptions.outsideGeofence, onSelect: () => setFilter('outsideGeofence') },
+    { label: 'Corrections pending', value: sm.exceptions.regularizationPending, onSelect: onOpenReviews },
+    ...(isHr ? [{ label: 'Setup incomplete', value: sm.exceptions.configurationBlocked }] : []),
   ] : [];
+  const narrowedBy = NARROWED_LABEL[filter];
 
   const table = (
     <Card
       table
       title={`Employee records (${num(roster.data?.total)})`}
-      sub="Select a row to see the day"
+      sub={narrowedBy ? `Showing: ${narrowedBy} · select All to clear` : 'Select a row to see the day'}
       right={(
         <div className={s.actions}>
           <div className={s.segment} role="group" aria-label="Filter records">
@@ -199,9 +196,13 @@ export function DailyAnalytics({ date, isHr, onOpenReviews }: { date: string; is
               <ul className={s.list} style={{ columns: 2, columnGap: 32 }}>
                 {attention.map(a => (
                   <li key={a.label} style={{ breakInside: 'avoid' }}>
-                    <button type="button" className={s.listButton} onClick={() => setFilter(a.filter)}>
-                      <span>{a.label}</span><b>{num(a.value)}</b>
-                    </button>
+                    {a.onSelect ? (
+                      <button type="button" className={s.listButton} onClick={a.onSelect}>
+                        <span>{a.label}</span><b>{num(a.value)}</b>
+                      </button>
+                    ) : (
+                      <span className={s.listButton} style={{ cursor: 'default' }}><span>{a.label}</span><b>{num(a.value)}</b></span>
+                    )}
                   </li>
                 ))}
               </ul>

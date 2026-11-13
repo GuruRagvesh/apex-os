@@ -1,4 +1,4 @@
-import type { RegisterEmployee, RegisterResult } from '../console-api';
+import type { RegisterEmployee, RegisterResult, RosterRow } from '../console-api';
 import { presentOutcome, type StatusPresentation } from '../../attendance-v2/status-presentation';
 import type { AttendanceOutcome } from '../../attendance-v2/my-attendance-v2-api';
 
@@ -101,6 +101,34 @@ export function presentConsoleStatus(status: string | null, evaluationState?: st
   const outcome = STATUS_TO_OUTCOME[status];
   const base = outcome ? presentOutcome(outcome) : presentOutcome(null);
   return { ...base, label: STATUS_LABEL[status] ?? base.label };
+}
+
+// ── Daily roster filters ─────────────────────────────────────────────────
+
+export type RosterFilter =
+  | 'all' | 'present' | 'late' | 'leave' | 'absent' | 'action'
+  | 'noRecord' | 'review' | 'missingPunchOut' | 'missingPunch' | 'outsideGeofence';
+
+/**
+ * Each filter selects the same people the server counts for the matching tile
+ * or Needs attention line (AttendanceConsoleService.summary), so a count and
+ * the rows behind it never disagree. "Present" excludes late, as the tile does.
+ */
+export function matchesRosterFilter(r: RosterRow, f: RosterFilter): boolean {
+  const flag = (name: string) => r.exceptionFlags.includes(name);
+  switch (f) {
+    case 'present': return r.status === 'PRESENT';
+    case 'late': return r.status === 'LATE' || r.status === 'LATE_EXEMPTED';
+    case 'leave': return r.status === 'LEAVE' || r.status === 'LWP';
+    case 'absent': return r.status === 'ABSENT';
+    case 'action': return r.requiresReview || r.status === null || r.exceptionFlags.length > 0;
+    case 'noRecord': return r.status === null;
+    case 'review': return r.requiresReview;
+    case 'missingPunchOut': return flag('MISSING_PUNCH_OUT');
+    case 'missingPunch': return flag('NO_ATTENDANCE_EVIDENCE') || flag('MISSING_PUNCH');
+    case 'outsideGeofence': return flag('LOCATION_OUTSIDE_GEOFENCE');
+    default: return true;
+  }
 }
 
 // ── Period aggregation over the monthly register ─────────────────────────
