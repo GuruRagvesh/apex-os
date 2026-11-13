@@ -15,7 +15,8 @@ export const DASH = '—';
 
 /**
  * Wraps async tasks so no more than `max` run at once; the rest wait in order.
- * A task that fails frees its slot like one that succeeds.
+ * A task that fails frees its slot like one that succeeds. A task whose
+ * `signal` has fired by the time its turn comes is skipped, never started.
  */
 export function limitConcurrency(max: number) {
   let active = 0;
@@ -27,11 +28,11 @@ export function limitConcurrency(max: number) {
     active += 1;
     start();
   };
-  return function run<T>(task: () => Promise<T>): Promise<T> {
+  return function run<T>(task: () => Promise<T>, signal?: AbortSignal): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       waiting.push(() => {
         Promise.resolve()
-          .then(task)
+          .then(() => (signal?.aborted ? Promise.reject(signal.reason) : task()))
           .then(resolve, reject)
           .finally(() => { active -= 1; next(); });
       });
