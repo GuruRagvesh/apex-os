@@ -32,7 +32,9 @@ function registerQuery(month: string) {
   const r = monthRange(month);
   return {
     queryKey: ['console-register', month],
-    queryFn: () => oneRegisterAtATime(() => getRegister(r.from, r.to)),
+    // A request still waiting when the view no longer needs it (view left,
+    // department switched) is skipped instead of loading the server for nothing.
+    queryFn: ({ signal }: { signal: AbortSignal }) => oneRegisterAtATime(() => getRegister(r.from, r.to), signal),
     staleTime: 60_000,
     retry: false,
   };

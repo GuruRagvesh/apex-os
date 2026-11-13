@@ -117,3 +117,25 @@ describe('attendance analytics: register requests run two at a time', () => {
     expect(results[3].status).toBe('rejected');
   });
 });
+
+describe('attendance analytics: requests nobody needs any more are skipped', () => {
+  it('never starts a waiting task whose signal fired, and lets the rest run', async () => {
+    const run = limitConcurrency(2);
+    const started: number[] = [];
+    const stale = new AbortController();
+    const task = (i: number) => async () => {
+      started.push(i);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      return i;
+    };
+    // Two run now; 2-5 wait. The view is left before they get a turn.
+    const old = [0, 1, 2, 3, 4, 5].map((i) => run(task(i), stale.signal));
+    await new Promise((resolve) => setTimeout(resolve, 1)); // 0 and 1 are now running
+    stale.abort();
+    const fresh = [10, 11].map((i) => run(task(i)));
+    const oldResults = await Promise.allSettled(old);
+    await Promise.all(fresh);
+    expect(started.sort((a, b) => a - b)).toEqual([0, 1, 10, 11]);
+    expect(oldResults.slice(2).every((r) => r.status === 'rejected')).toBe(true);
+  });
+});
