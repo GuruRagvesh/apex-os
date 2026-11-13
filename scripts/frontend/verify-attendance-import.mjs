@@ -85,9 +85,9 @@ const SURFACE = [WORKSPACE, TABLE, API, PRESENT, PAGE].join('\n');
 // ── 1. Two tabs, and import is an action ────────────────────────────────────
 const workspaceTabs = [...WORKSPACE_TABS.matchAll(/role="tab"[\s\S]*?aria-selected=\{tab === '(\w+)'\}/g)].map((m) => m[1]);
 check(
-  '1a. The console workspace still declares exactly two tabs',
-  workspaceTabs.length === 2,
-  'The workspace must have exactly Team Review Corrections and Team Attendance.',
+  '1a. The console workspace declares exactly Analytics, Team Review Corrections and Team Attendance',
+  workspaceTabs.length === 3 && ['analytics', 'reviews', 'attendance'].every((t) => workspaceTabs.includes(t)),
+  'The workspace must have exactly Analytics, Team Review Corrections and Team Attendance (analytics lives inside the console, decision Option A).',
 );
 check(
   '1b. Import is reached from the console',

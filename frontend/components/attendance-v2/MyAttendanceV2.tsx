@@ -5,7 +5,6 @@ import Link from 'next/link';
 import { useQuery } from '@tanstack/react-query';
 import { AlertCircle, ChevronDown, History, Palmtree } from 'lucide-react';
 import { useAuthStore } from '@apex/core-identity';
-import { workdayApi } from '@/lib/api';
 import { getMyAttendanceV2 } from './my-attendance-v2-api';
 import { getMyRegularizations, stageLabel } from '../attendance/regularization-api';
 import { AttendanceDialog } from './AttendanceDialog';
@@ -36,12 +35,6 @@ export function MyAttendanceV2() {
     queryFn: () => getMyAttendanceV2(month ?? undefined),
     retry: false,
   });
-  const workday = useQuery({
-    queryKey: ['workday-today'],
-    queryFn: () => workdayApi.getToday() as Promise<WorkdayTodayProjection>,
-    staleTime: 60_000,
-    retry: false,
-  });
   const corrections = useQuery({
     queryKey: ['my-regularizations'],
     queryFn: getMyRegularizations,
@@ -57,16 +50,6 @@ export function MyAttendanceV2() {
     ? `${overview.data.month.year}-${String(overview.data.month.month).padStart(2, '0')}`
     : month;
   const canGoNext = !!displayedMonth && displayedMonth < (overview.data?.today.date.slice(0, 7) ?? displayedMonth);
-  const sessions = Array.isArray(workday.data?.allSessions) ? workday.data.allSessions : null;
-  const sessionCount = typeof workday.data?.sessionCount === 'number'
-    ? workday.data.sessionCount
-    : sessions?.length ?? null;
-  const breakCount = typeof workday.data?.breakCount === 'number'
-    ? workday.data.breakCount
-    : sessions?.reduce(
-      (total, session) => total + (session.breakLogs ?? []).filter(item => item.breakType !== 'MEETING').length,
-      0,
-    ) ?? null;
 
   const openDay = (date: string, correction = false) => {
     if (correction) {
@@ -84,7 +67,7 @@ export function MyAttendanceV2() {
       <header className={s.pageHeader}>
         <div>
           <h1>My Attendance</h1>
-          <p>Today’s workday and your recorded attendance.</p>
+          <p>Your recorded attendance for each day, and why it looks the way it does.</p>
         </div>
         <div className={s.headerActions}>
           <button type="button" className={s.textAction} onClick={() => setCorrectionsOpen(true)}>
@@ -118,9 +101,8 @@ export function MyAttendanceV2() {
         <main className={s.content}>
           <TodaySummaryCard
             today={overview.data.today}
-            sessionCount={sessionCount}
-            breakCount={breakCount}
             onViewDetails={() => openDay(overview.data.today.date)}
+            onRequestCorrection={() => openDay(overview.data.today.date, true)}
           />
           <AttendanceCalendarSection
             overview={overview.data}
@@ -169,14 +151,6 @@ export function MyAttendanceV2() {
       />
     </div>
   );
-}
-
-interface WorkdayTodayProjection {
-  sessionCount?: number;
-  breakCount?: number;
-  allSessions?: Array<{
-    breakLogs?: Array<{ breakType?: string }>;
-  }>;
 }
 
 function Skeleton({ className }: { className: string }) {

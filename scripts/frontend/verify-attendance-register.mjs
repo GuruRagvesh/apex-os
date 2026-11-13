@@ -74,11 +74,12 @@ const api = read('api');
 const month = read('month');
 
 // ── Rule 1: two tabs, named for the questions they answer ──────────────────
-// The console workspace has two tabs, Team Review Corrections and Team
-// Attendance. Team Attendance renders the Monthly Register only, as its default.
+// The console workspace has three tabs: Analytics (read-only analytics, kept
+// inside the console by decision Option A), Team Review Corrections and Team
+// Attendance. Team Attendance renders the Monthly Register only.
 const workspaceTabs = [...workspaceTsx.matchAll(/role="tab"[\s\S]*?aria-selected=\{tab === '(\w+)'\}/g)].map((m) => m[1]);
-if (workspaceTabs.length !== 2 || !workspaceTabs.includes('reviews') || !workspaceTabs.includes('attendance')) {
-  failures.push(`The console workspace must have exactly two tabs (reviews, attendance); found: ${workspaceTabs.join(', ') || 'none'}.`);
+if (workspaceTabs.length !== 3 || !['analytics', 'reviews', 'attendance'].every((t) => workspaceTabs.includes(t))) {
+  failures.push(`The console workspace must have exactly three tabs (analytics, reviews, attendance); found: ${workspaceTabs.join(', ') || 'none'}.`);
 }
 if (!/Team Review Corrections/.test(workspaceTsx) || !/Team Attendance/.test(workspaceTsx)) {
   failures.push('The tabs are not labelled "Team Review Corrections" and "Team Attendance".');
