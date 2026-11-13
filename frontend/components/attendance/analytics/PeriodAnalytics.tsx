@@ -7,8 +7,8 @@ import { getRegister, type RegisterResult } from '../console-api';
 import { monthLabel, monthRange, shiftMonth } from '../register-month';
 import { presentOutcome } from '../../attendance-v2/status-presentation';
 import {
-  DASH, LATE_PRESENTATION, METRIC_LABEL, NOT_EVALUATED, addTotals, byDepartment, delta, num, recurringIssues, shortMonth,
-  totalsOf, type DepartmentMetric, type PeriodTotals,
+  DASH, LATE_PRESENTATION, METRIC_LABEL, NOT_EVALUATED, addTotals, byDepartment, delta, limitConcurrency, num, recurringIssues,
+  shortMonth, totalsOf, type DepartmentMetric, type PeriodTotals,
 } from './analytics-data';
 import { Card, Empty, HBars, Insight, Kpi, Legend, LoadError, Person, Skeleton } from './AnalyticsUi';
 import s from './analytics.module.css';
@@ -22,9 +22,20 @@ const C = {
 };
 const RAMP = ['#eff6ff', '#bfdbfe', '#60a5fa', '#2563eb', '#1e3a8a'];
 
+// Each register reads a whole month into server memory. Yearly and Overall ask
+// for 12 at once, which ran the 512 MB staging backend out of memory, so every
+// register request from this page (first load, refetch, filter change) waits
+// its turn: at most two run at the same time.
+const oneRegisterAtATime = limitConcurrency(2);
+
 function registerQuery(month: string) {
   const r = monthRange(month);
-  return { queryKey: ['console-register', month], queryFn: () => getRegister(r.from, r.to), staleTime: 60_000, retry: false };
+  return {
+    queryKey: ['console-register', month],
+    queryFn: () => oneRegisterAtATime(() => getRegister(r.from, r.to)),
+    staleTime: 60_000,
+    retry: false,
+  };
 }
 
 function useRegisters(months: string[]) {
