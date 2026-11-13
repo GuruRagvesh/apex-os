@@ -13,6 +13,33 @@ import type { AttendanceOutcome } from '../../attendance-v2/my-attendance-v2-api
 
 export const DASH = '—';
 
+/**
+ * Wraps async tasks so no more than `max` run at once; the rest wait in order.
+ * A task that fails frees its slot like one that succeeds.
+ */
+export function limitConcurrency(max: number) {
+  let active = 0;
+  const waiting: Array<() => void> = [];
+  const next = () => {
+    if (active >= max) return;
+    const start = waiting.shift();
+    if (!start) return;
+    active += 1;
+    start();
+  };
+  return function run<T>(task: () => Promise<T>): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      waiting.push(() => {
+        Promise.resolve()
+          .then(task)
+          .then(resolve, reject)
+          .finally(() => { active -= 1; next(); });
+      });
+      next();
+    });
+  };
+}
+
 /** Today in the company time zone, as yyyy-MM-dd. */
 export function companyToday(now: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);

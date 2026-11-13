@@ -3,6 +3,7 @@ import {
   financialYearMonths,
   fyLabel,
   lastMonths,
+  limitConcurrency,
   matchesRosterFilter,
   recurringIssues,
   type RosterFilter,
@@ -94,5 +95,25 @@ describe('attendance analytics: roster filters match the server counts', () => {
     expect(pick(rows, 'review')).toEqual([rows[3]]);
     expect(pick(rows, 'noRecord')).toEqual([rows[4]]);
     expect(pick(rows, 'action')).toHaveLength(5);
+  });
+});
+
+describe('attendance analytics: register requests run two at a time', () => {
+  it('never runs more than two at once, runs all twelve, and a failure frees its slot', async () => {
+    const run = limitConcurrency(2);
+    let active = 0;
+    let peak = 0;
+    const months = Array.from({ length: 12 }, (_, i) => i);
+    const results = await Promise.allSettled(months.map((i) => run(async () => {
+      active += 1;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      active -= 1;
+      if (i === 3) throw new Error('month 3 failed');
+      return i;
+    })));
+    expect(peak).toBe(2);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(11);
+    expect(results[3].status).toBe('rejected');
   });
 });
