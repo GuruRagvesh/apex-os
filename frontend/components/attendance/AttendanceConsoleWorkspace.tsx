@@ -3,15 +3,16 @@
 import { useState } from 'react';
 import { AttendanceConsole } from './AttendanceConsole';
 import { AttendanceReviewsPanel } from './AttendanceReviewsPanel';
+import { AttendanceAnalytics } from './analytics/AttendanceAnalytics';
 
-type ConsoleTab = 'reviews' | 'attendance';
+type ConsoleTab = 'analytics' | 'reviews' | 'attendance';
 
 function initialTab(): ConsoleTab {
-  if (typeof window === 'undefined') return 'reviews';
+  if (typeof window === 'undefined') return 'analytics';
   const params = new URLSearchParams(window.location.search);
   const requested = params.get('tab');
-  if (requested === 'reviews' || requested === 'attendance') return requested;
-  return params.has('businessDate') ? 'attendance' : 'reviews';
+  if (requested === 'analytics' || requested === 'reviews' || requested === 'attendance') return requested;
+  return params.has('businessDate') ? 'attendance' : 'analytics';
 }
 
 export function AttendanceConsoleWorkspace() {
@@ -29,6 +30,20 @@ export function AttendanceConsoleWorkspace() {
       <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
         <h1 className="apex-page-title apex-text text-xl">Attendance Console</h1>
         <div role="tablist" aria-label="Attendance Console sections" className="flex gap-1 border-b border-[var(--border-primary)]">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === 'analytics'}
+            aria-controls="attendance-console-analytics"
+            onClick={() => selectTab('analytics')}
+            className={`border-b-2 px-4 py-2 text-sm font-medium transition-colors ${
+              tab === 'analytics'
+                ? 'border-[var(--accent)] text-[var(--accent)]'
+                : 'border-transparent apex-text-muted hover:text-[var(--text-primary)]'
+            }`}
+          >
+            Analytics
+          </button>
           <button
             type="button"
             role="tab"
@@ -60,6 +75,14 @@ export function AttendanceConsoleWorkspace() {
         </div>
       </div>
 
+      <section
+        id="attendance-console-analytics"
+        role="tabpanel"
+        aria-label="Analytics"
+        hidden={tab !== 'analytics'}
+      >
+        {tab === 'analytics' && <AttendanceAnalytics onOpenReviews={() => selectTab('reviews')} />}
+      </section>
       <section
         id="attendance-console-reviews"
         role="tabpanel"
